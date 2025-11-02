@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Token } from '../entities/token.entity';
@@ -22,5 +22,21 @@ export class TokensService {
       tags: token.tags,
       coingeckoId: token.coingeckoId,
     }));
+  }
+
+  async findOne(mintAddress: string): Promise<TokenResponseDto> {
+    const token = await this.tokenRepository.findOneBy({ mintAddress });
+    if (!token) {
+      throw new NotFoundException(`Token with mint address ${mintAddress} not found`);
+    }
+    return {
+      mintAddress: token.mintAddress,
+      symbol: token.symbol,
+      name: token.name,
+      logoUrl: token.logoUrl,
+      decimals: token.decimals,
+      tags: token.tags,
+      coingeckoId: token.coingeckoId,
+    };
   }
 }

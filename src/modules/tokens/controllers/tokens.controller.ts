@@ -1,4 +1,4 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, Param } from '@nestjs/common';
 import { TokensService } from '../services/tokens.service';
 
 @Controller('tokens')
@@ -8,5 +8,10 @@ export class TokensController {
   @Get()
   findAll() {
     return this.tokensService.findAll();
+  }
+
+  @Get(':mintAddress')
+  findOne(@Param('mintAddress') mintAddress: string) {
+    return this.tokensService.findOne(mintAddress);
   }
 }
