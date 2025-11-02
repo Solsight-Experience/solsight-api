@@ -16,6 +16,7 @@ export function setupApp(app: INestApplication) {
   // Enable URI versioning
   app.enableVersioning({
     type: VersioningType.URI,
+    defaultVersion: '1',
   });
 
   // Validation
@@ -33,5 +34,6 @@ export function setupApp(app: INestApplication) {
     credentials: true,
   });
 
+  console.log('Application setup completed.');
   return app;
 }

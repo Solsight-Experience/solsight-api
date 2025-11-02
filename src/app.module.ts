@@ -8,6 +8,7 @@ import { WalletsModule } from './modules/wallets/wallets.module';
 import { AuthModule } from './modules/auth/auth.module';
 import configuration from './config/configuration';
 import { validationSchema } from './config/validation';
+import { TransactionsModule } from './modules/transactions/transactions.module';
 
 @Module({
   imports: [
@@ -26,6 +27,7 @@ import { validationSchema } from './config/validation';
     AuthModule,
     UsersModule,
     WalletsModule,
+    TransactionsModule,
   ],
   controllers: [],
   providers: [],
