@@ -3,7 +3,7 @@ import { Entity, Column, PrimaryColumn, UpdateDateColumn } from 'typeorm';
 @Entity({ name: 'tokens' })
 export class Token {
   @PrimaryColumn()
-  mintAddress: string;
+  address: string;
 
   @Column()
   symbol: string;
@@ -12,7 +12,22 @@ export class Token {
   name: string;
 
   @Column({ nullable: true })
-  logoUrl: string;
+  logo_uri: string;
+
+  @Column({ nullable: true })
+  description: string;
+
+  @Column({ nullable: true })
+  website: string;
+
+  @Column({ nullable: true })
+  twitter: string;
+
+  @Column({ nullable: true })
+  telegram: string;
+
+  @Column({ nullable: true })
+  discord: string;
 
   @Column()
   decimals: number;

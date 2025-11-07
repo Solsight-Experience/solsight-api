@@ -1,9 +1,9 @@
 export class TokenResponseDto {
-  mintAddress: string;
+  address: string;
   symbol: string;
   name: string;
-  logoUrl?: string;
-  decimals: number;
-  tags?: string[];
-  coingeckoId?: string;
+  logo_uri?: string;
+  description?: string;
+  website?: string;
+  social_links?: { twitter?: string; telegram?: string; discord?: string };
 }
