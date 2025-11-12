@@ -5,11 +5,11 @@ import { TokensService } from './services/tokens.service';
 import { TokensController } from './controllers/tokens.controller';
 import { TokenSeederService } from './services/token-seeder.service';
 import { SolanaModule } from 'src/infra/solana/solana.module';
-import { TokensOnchainService } from './services/tokens.onchain.service';
+import { ConfigModule } from '@nestjs/config';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Token]), SolanaModule],
-  providers: [TokensService, TokensOnchainService, TokenSeederService],
+  imports: [TypeOrmModule.forFeature([Token]), SolanaModule, ConfigModule],
+  providers: [TokensService, TokenSeederService],
   controllers: [TokensController],
 })
 export class TokensModule {}

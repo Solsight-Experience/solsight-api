@@ -1,22 +1,25 @@
-import { Controller, Get, Param } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Param,
+  NotFoundException,
+  Query,
+} from '@nestjs/common';
 import { TokensService } from '../services/tokens.service';
-import { TokensOnchainService } from '../services/tokens.onchain.service';
 
-@Controller('token')
+@Controller('tokens')
 export class TokensController {
-  constructor(
-    private readonly tokensService: TokensService,
-    private readonly TokensOnchainService: TokensOnchainService,
-  ) {}
+  constructor(private readonly tokensService: TokensService) {}
 
-  @Get()
-  findAll() {
-    return this.tokensService.findAll();
+  @Get('search')
+  search(@Query('q') q: string, @Query('limit') limit: number = 10) {
+    return this.tokensService.search(q, limit);
   }
 
   @Get(':address')
   findOne(@Param('address') address: string) {
-    return this.tokensService.findOne(address);
-    // return this.TokensOnchainService.getMint(address);
+    const data = this.tokensService.findOne(address);
+    if (data) return data;
+    else throw new NotFoundException('Token not found');
   }
 }

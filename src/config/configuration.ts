@@ -18,6 +18,16 @@ export default () => ({
     network: process.env.SOLANA_NETWORK || 'devnet',
     commitment: 'confirmed',
     programId: process.env.SOLANA_PROGRAM_ID,
+    jupiterApi: {
+      searchToken:
+        process.env.JUPITER_TOKEN_SEARCH_API ||
+        'https://lite-api.jup.ag/tokens/v2/search?query=',
+    },
+    coingeckoApi: {
+      searchTokenId:
+        process.env.COINGECKO_LIST_API ||
+        'https://api.coingecko.com/api/v3/coins/list',
+    },
   },
 
   jwt: {
