@@ -2,10 +2,7 @@ import { Controller, Get, Param, Post, Body, NotFoundException } from '@nestjs/c
 import { TransactionsService } from '../services/transactions.service';
 import { CreateTransactionDto } from '../dtos/create-transaction.dto';
 
-@Controller({
-  path: 'transactions',
-  version: '1',
-})
+@Controller('transactions')
 export class TransactionsController {
   constructor(private readonly transactionsService: TransactionsService) {}
 

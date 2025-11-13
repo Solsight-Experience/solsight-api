@@ -9,6 +9,7 @@ import { AuthModule } from './modules/auth/auth.module';
 import configuration from './config/configuration';
 import { validationSchema } from './config/validation';
 import { TransactionsModule } from './modules/transactions/transactions.module';
+import { DiscoveryModule } from './modules/discovery/discovery.module';
 
 @Module({
   imports: [
@@ -28,6 +29,7 @@ import { TransactionsModule } from './modules/transactions/transactions.module';
     UsersModule,
     WalletsModule,
     TransactionsModule,
+    DiscoveryModule,
   ],
   controllers: [],
   providers: [],
