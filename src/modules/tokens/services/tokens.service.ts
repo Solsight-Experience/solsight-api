@@ -97,13 +97,13 @@ export class TokensService {
         address: token.address,
         symbol: token.symbol,
         name: token.name,
-        logo_uri: token.logo_uri,
+        logo_uri: token.logoUri,
         description: token.description,
         website: token.website,
         social_links: {
-          twitter: token.twitter,
-          telegram: token.telegram,
-          discord: token.discord,
+          twitter: token.socialLinks?.twitter,
+          telegram: token.socialLinks?.telegram,
+          discord: token.socialLinks?.discord,
         },
       };
       result.push({ ...metadataResponse, ...onchainDataList[index] });
@@ -138,15 +138,18 @@ export class TokensService {
         address: address,
         symbol: metadataJson.symbol,
         name: metadataJson.name,
-        logo_uri: metadataJson.icon,
+        logoUri: metadataJson.icon,
         description: metadataJson.description, // không có
         website: metadataJson.website,
-        twitter: metadataJson.twitter,
-        telegram: metadataJson.telegram,
-        discord: metadataJson.discord, // không có
-        decimals: metadataJson.decimals,
-        tags: metadataJson.tags,
-        coingeckoId: coingeckoId,
+        socialLinks: {
+          twitter: metadataJson.twitter,
+          telegram: metadataJson.telegram,
+          discord: metadataJson.discord, // không có
+        },
+
+        // decimals: metadataJson.decimals,
+        // tags: metadataJson.tags,
+        // coingeckoId: coingeckoId,
       };
     } catch (e) {
       console.log('error', e);

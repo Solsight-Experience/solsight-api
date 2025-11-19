@@ -1,8 +1,20 @@
-import { Entity, Column, PrimaryColumn, UpdateDateColumn } from 'typeorm';
+import {
+  Entity,
+  PrimaryGeneratedColumn,
+  Column,
+  CreateDateColumn,
+  UpdateDateColumn,
+  ManyToOne,
+  JoinColumn,
+} from 'typeorm';
+import { Category } from './category.entity';
 
-@Entity({ name: 'tokens' })
+@Entity('tokens')
 export class Token {
-  @PrimaryColumn()
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
+
+  @Column({ unique: true })
   address: string;
 
   @Column()
@@ -12,31 +24,134 @@ export class Token {
   name: string;
 
   @Column({ nullable: true })
-  logo_uri: string;
+  logoUri?: string;
+
+  @Column({ default: 'solana' })
+  network: string;
+
+  @Column({ type: 'text', nullable: true })
+  description?: string;
 
   @Column({ nullable: true })
-  description: string;
+  website?: string;
+
+  @Column({ type: 'jsonb', nullable: true })
+  socialLinks?: {
+    twitter?: string;
+    telegram?: string;
+    discord?: string;
+  };
+
+  // Supply Info
+  @Column({ type: 'decimal', precision: 30, scale: 0, nullable: true })
+  totalSupply?: number;
+
+  @Column({ type: 'decimal', precision: 30, scale: 0, nullable: true })
+  circulatingSupply?: number;
+
+  @Column({ type: 'decimal', precision: 30, scale: 0, nullable: true })
+  maxSupply?: number;
+
+  // Price & Market
+  @Column({ type: 'decimal', precision: 20, scale: 9, default: 0 })
+  price: number;
+
+  @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 })
+  priceChange1h: number;
+
+  @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 })
+  priceChange24h: number;
+
+  @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 })
+  priceChange7d: number;
+
+  @Column({ type: 'decimal', precision: 30, scale: 2, default: 0 })
+  marketCap: number;
+
+  @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 })
+  marketCapChange24h: number;
+
+  @Column({ type: 'decimal', precision: 30, scale: 2, default: 0 })
+  fdv: number;
+
+  @Column({ type: 'decimal', precision: 30, scale: 2, default: 0 })
+  liquidity: number;
+
+  @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 })
+  liquidityChange24h: number;
+
+  @Column({ type: 'decimal', precision: 30, scale: 2, default: 0 })
+  volume24h: number;
+
+  @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 })
+  volumeChange24h: number;
+
+  // Trading Activity
+  @Column({ type: 'int', default: 0 })
+  txns24hTotal: number;
+
+  @Column({ type: 'int', default: 0 })
+  txns24hBuys: number;
+
+  @Column({ type: 'int', default: 0 })
+  txns24hSells: number;
+
+  @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 })
+  txns24hChange: number;
+
+  // Holder Metrics
+  @Column({ type: 'int', default: 0 })
+  holdersCount: number;
+
+  @Column({ type: 'int', default: 0 })
+  holdersChange24h: number;
+
+  @Column({ type: 'int', default: 0 })
+  uniqueWallets24h: number;
+
+  @Column({ type: 'decimal', precision: 5, scale: 2, default: 0 })
+  top10Percent: number;
+
+  @Column({ type: 'decimal', precision: 5, scale: 2, default: 0 })
+  insiderPercent: number;
+
+  // Security Audit
+  @Column({ default: false })
+  mintAuthorityDisabled: boolean;
+
+  @Column({ default: false })
+  freezeAuthorityDisabled: boolean;
+
+  @Column({ default: false })
+  lpBurnt: boolean;
+
+  @Column({ default: false })
+  hasSocialLinks: boolean;
+
+  @Column({ type: 'int', default: 50 })
+  riskScore: number;
+
+  @Column({ type: 'simple-array', nullable: true })
+  riskFactors?: string[];
+
+  // Category
+  @ManyToOne(() => Category, (category) => category.tokens, { nullable: true })
+  @JoinColumn({ name: 'categoryId' })
+  category?: Category;
 
   @Column({ nullable: true })
-  website: string;
+  categoryId?: string;
 
-  @Column({ nullable: true })
-  twitter: string;
+  // Age
+  @Column({ type: 'int', default: 0 })
+  ageSeconds: number;
 
-  @Column({ nullable: true })
-  telegram: string;
+  // Sparkline data (last 24h prices)
+  @Column({ type: 'simple-array', nullable: true })
+  priceSparkline?: number[];
 
-  @Column({ nullable: true })
-  discord: string;
-
-  @Column()
-  decimals: number;
-
-  @Column('simple-array', { nullable: true })
-  tags: string[];
-
-  @Column({ nullable: true })
-  coingeckoId: string;
+  @CreateDateColumn()
+  createdAt: Date;
 
   @UpdateDateColumn()
   updatedAt: Date;
