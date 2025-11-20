@@ -16,7 +16,7 @@ interface AuthenticatedRequest extends ExpressRequest {
   user: User;
 }
 
-@Controller({ path: 'auth', version: '1' })
+@Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 

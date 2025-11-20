@@ -1,8 +1,4 @@
-import {
-  INestApplication,
-  ValidationPipe,
-  VersioningType,
-} from '@nestjs/common';
+import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { AppLoggerService } from 'src/common/logger/logger.service';
 
 export function setupApp(app: INestApplication) {
@@ -12,11 +8,6 @@ export function setupApp(app: INestApplication) {
 
   // Set global prefix for all routes
   app.setGlobalPrefix('api');
-
-  // Enable URI versioning
-  app.enableVersioning({
-    type: VersioningType.URI,
-  });
 
   // Validation
   app.useGlobalPipes(
@@ -33,5 +24,6 @@ export function setupApp(app: INestApplication) {
     credentials: true,
   });
 
+  console.log('Application setup completed.');
   return app;
 }
