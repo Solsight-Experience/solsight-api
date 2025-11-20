@@ -1,6 +1,6 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { Token } from '../entities/token.entity';
 import { TokenListProvider, TokenInfo } from '@solana/spl-token-registry';
 import { ConfigService } from '@nestjs/config';
@@ -26,6 +26,7 @@ export class TokenSeederService implements OnModuleInit {
 
   async onModuleInit() {
     await this.seedTokens();
+    this.updateTokenOnChainData();
   }
 
   async seedTokens() {
@@ -36,10 +37,10 @@ export class TokenSeederService implements OnModuleInit {
     }
 
     this.logger.log('Seeding token data...');
-    await this.updateTokens();
+    await this.seekTokensBasicData();
   }
 
-  async updateTokens() {
+  async seekTokensBasicData() {
     try {
       const tokenListProvider = new TokenListProvider();
 
@@ -112,6 +113,118 @@ export class TokenSeederService implements OnModuleInit {
       this.logger.log('Successfully seeded token data.');
     } catch (error) {
       this.logger.error('Failed to seed token data', error.stack);
+    }
+  }
+
+  async updateTokenOnChainData() {
+    const importantAddresses = [
+      'So11111111111111111111111111111111111111112',
+      'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB',
+      'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
+      '2wpTofQ8SkACrkZWrZDjXPitYa8AwWgX8AfxdeBRRVLX',
+    ];
+
+    // --- Giai đoạn 1: 4 token quan trọng ---
+    await this.updateBatchTokens(importantAddresses);
+
+    // --- Giai đoạn 2: batch 60 token mỗi 70 giây ---
+    const allTokens = await this.tokenRepository.find();
+    const remainingTokens = allTokens
+      .map((t) => t.address)
+      .filter((addr) => !importantAddresses.includes(addr));
+
+    const BATCH_SIZE = 60;
+    const DELAY_MS = 70 * 1000;
+
+    for (let i = 0; i < remainingTokens.length; i += BATCH_SIZE) {
+      const batch = remainingTokens.slice(i, i + BATCH_SIZE);
+      await this.updateBatchTokens(batch);
+      if (i + BATCH_SIZE < remainingTokens.length) {
+        this.logger.log(`Waiting ${DELAY_MS / 1000}s before next batch...`);
+        await new Promise((resolve) => setTimeout(resolve, DELAY_MS));
+      }
+    }
+
+    this.logger.log('Completed updating all on-chain token data.');
+  }
+
+  private async updateBatchTokens(addresses: string[]) {
+    if (!addresses.length) return;
+
+    try {
+      const jupUrl =
+        this.configService.get<string>('solana.jupiterApi.searchToken') +
+        addresses.join(',');
+
+      const tokensInfo: any[] = await fetch(jupUrl).then((res) => res.json());
+      if (!tokensInfo?.length) return;
+
+      const existingTokens = await this.tokenRepository.findBy({
+        address: In(addresses),
+      });
+
+      const existingMap = new Map(existingTokens.map((t) => [t.address, t]));
+
+      const updates = tokensInfo
+        .filter((info) => existingMap.has(info.id))
+        .map((info) => {
+          const exist = existingMap.get(info.id)!;
+
+          return {
+            ...exist,
+            // supply
+            totalSupply: info.totalSupply ?? exist.totalSupply,
+            circulatingSupply: info.circSupply ?? exist.circulatingSupply,
+
+            // price
+            price: info.usdPrice ?? exist.price,
+
+            priceChange1h: info.stats1h?.priceChange ?? exist.priceChange1h,
+
+            priceChange24h: info.stats24h?.priceChange ?? exist.priceChange24h,
+
+            priceChange7d: info.stats7d?.priceChange ?? exist.priceChange7d,
+
+            // market
+            marketCap: info.mcap ?? exist.marketCap,
+            marketCapChange24h:
+              info.stats24h?.priceChange && info.circSupply
+                ? Number(info.stats24h.priceChange.toFixed(2))
+                : exist.marketCapChange24h,
+
+            fdv: info.fdv ?? exist.fdv,
+
+            // // liquidity
+            liquidity: info.liquidity ?? exist.liquidity,
+            liquidityChange24h:
+              info.stats24h?.liquidityChange ?? exist.liquidityChange24h,
+
+            // volume
+            volume24h: info.stats24h?.volumeChange ?? exist.volume24h,
+
+            volumeChange24h:
+              info.stats24h?.volumeChange ?? exist.volumeChange24h,
+
+            // audits
+            mintAuthorityDisabled:
+              info.audit?.mintAuthorityDisabled ?? exist.mintAuthorityDisabled,
+
+            freezeAuthorityDisabled:
+              info.audit?.freezeAuthorityDisabled ??
+              exist.freezeAuthorityDisabled,
+
+            updatedAt: new Date(),
+          };
+        });
+
+      if (!updates.length) return;
+      await this.tokenRepository.upsert(updates, {
+        conflictPaths: ['address'],
+        skipUpdateIfNoValuesChanged: false,
+      });
+      this.logger.log(`Updated batch of ${addresses.length} tokens.`);
+    } catch (error) {
+      this.logger.error('Failed to update batch on-chain data', error.stack);
     }
   }
 }

@@ -226,9 +226,7 @@ export class TokensService {
         },
 
         market_cap: tokensInfo[index]?.mcap,
-        market_cap_change_24h:
-          tokensInfo[index]?.stats24h?.priceChange *
-          tokensInfo[index]?.circSupply,
+        market_cap_change_24h: tokensInfo[index]?.stats24h?.priceChange,
 
         fdv: tokensInfo[index]?.fdv,
         liquidity: tokensInfo[index]?.liquidity,
