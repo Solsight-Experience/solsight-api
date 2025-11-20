@@ -64,6 +64,7 @@ export class TokensService {
       symbol: tokenMetadata.symbol || null,
       name: tokenMetadata.name || null,
       logo_uri: tokenMetadata.logo_uri || null,
+      network: this.network,
       description: tokenMetadata.description || null,
       website: tokenMetadata.website || null,
       social_links: {
@@ -71,6 +72,7 @@ export class TokensService {
         telegram: tokenMetadata.telegram || null,
         discord: tokenMetadata.discord || null,
       },
+      category: tokenMetadata.category || null,
     };
 
     const onchainDataResponse: TokenResponseOnchainData = onchainData[0];
@@ -82,11 +84,11 @@ export class TokensService {
     limit: number = 10,
   ): Promise<TokenOverviewResponseDto[]> {
     const tokens = await this.tokenRepository.find({
-      where: {
-        name: ILike(`%${query}%`),
-        symbol: ILike(`%${query}%`),
-        address: ILike(`%${query}%`),
-      },
+      where: [
+        { name: ILike(`%${query}%`) },
+        { symbol: ILike(`%${query}%`) },
+        { address: ILike(`%${query}%`) },
+      ],
       take: limit,
     });
     const onchainDataList: TokenResponseOnchainData[] =
@@ -97,14 +99,15 @@ export class TokensService {
         address: token.address,
         symbol: token.symbol,
         name: token.name,
-        logo_uri: token.logoUri,
-        description: token.description,
-        website: token.website,
+        logo_uri: token.logoUri || null,
+        network: this.network,
+        description: token.description || null,
+        website: token.website || null,
         social_links: {
-          twitter: token.socialLinks?.twitter,
-          telegram: token.socialLinks?.telegram,
-          discord: token.socialLinks?.discord,
-        },
+          twitter: token.socialLinks?.twitter || null,
+          telegram: token.socialLinks?.telegram || null,
+          discord: token.socialLinks?.discord || null,
+        }
       };
       result.push({ ...metadataResponse, ...onchainDataList[index] });
     }
@@ -190,7 +193,6 @@ export class TokensService {
     addresses: string[],
   ): Promise<TokenResponseOnchainData[]> {
     const result: TokenResponseOnchainData[] = [];
-
     const jupUrl = this.jupiterSearchTokenUrl + addresses.join(',');
     const [holders, tokensInfo] = await Promise.all([
       this.getTop20Holders(addresses),
@@ -211,11 +213,10 @@ export class TokensService {
     }));
     for (const [index, address] of addresses.entries()) {
       result.push({
-        age_seconds: Math.floor(
-          new Date(tokensInfo[index]?.createdAt || new Date()).getTime() / 1000,
-        ),
+        age_seconds: null,
         total_supply: tokensInfo[index]?.totalSupply,
         circulating_supply: tokensInfo[index]?.circSupply,
+        max_supply: null,
 
         price: tokensInfo[index]?.usdPrice,
         price_change: {
@@ -239,26 +240,58 @@ export class TokensService {
           '30d': tokensInfo[index]?.stats30d?.volumeChange,
         },
 
+        txns: {
+          '1h': {
+            total:
+              tokensInfo[index]?.stats1h?.numBuys +
+              tokensInfo[index]?.stats1h?.numSells,
+            buys: tokensInfo[index]?.stats1h?.numBuys,
+          },
+          '24h': {
+            total:
+              tokensInfo[index]?.stats24h?.numBuys +
+              tokensInfo[index]?.stats24h?.numSells,
+            buys: tokensInfo[index]?.stats24h?.numBuys,
+          },
+          '7d': {
+            total:
+              tokensInfo[index]?.stats7d?.numBuys +
+                tokensInfo[index]?.stats7d?.numSells || 0,
+            buys: tokensInfo[index]?.stats7d?.numBuys || 0,
+          },
+        },
+        txns_change_24h: null,
+
         holders: {
           count: tokensInfo[index]?.holderCount,
           change_24h: tokensInfo[index]?.stats24h?.holderChange,
+          unique_wallets_24h: null,
           top_10_percent:
             (holdersTop10AmountList[index]?.holderCount ??
               0 / tokensInfo[index]?.totalSupply) * 100,
           top_20_percent:
             (holdersTop20Amount[index]?.holderCount ??
               0 / tokensInfo[index]?.totalSupply) * 100,
+          insider_percent: null,
         },
 
         audit: {
           mint_authority: {
             disabled: tokensInfo[index]?.audit?.mintAuthorityDisabled,
+            address: null,
           },
           freeze_authority: {
             disabled: tokensInfo[index]?.audit?.freezeAuthorityDisabled,
+            address: null,
           },
+          lp_burnt_percent: null,
           is_verified: tokensInfo[index]?.isVerified,
+          risk_factors: null,
+          risk_score: null,
         },
+
+        chart_data: null,
+        pools: [],
       });
     }
     return result;
