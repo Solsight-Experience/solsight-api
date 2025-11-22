@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { ILike, Repository } from 'typeorm';
+import { Between, FindOptionsOrderValue, ILike, Repository } from 'typeorm';
 import { Token } from '../entities/token.entity';
 import {
   TokenResponseDto,
@@ -8,12 +8,14 @@ import {
   TokenResponseOnchainData,
   TokenResponseMetadata,
 } from '../dtos/token.response.dto';
-export { TokenFilterDto } from '../dtos/token.filter.dto';
 import { SolanaService } from 'src/infra/solana/solana.service';
 import { Connection, PublicKey } from '@solana/web3.js';
 import { getAccount, TOKEN_PROGRAM_ID, getMint } from '@solana/spl-token';
 import { ConfigService } from '@nestjs/config';
-import { TokenFilterDto } from '../dtos/token.filter.dto';
+import {
+  TokenFilterConditionDto,
+  TokenFilterResponseDto,
+} from '../dtos/token.filter.dto';
 
 @Injectable()
 export class TokensService {
@@ -109,6 +111,161 @@ export class TokensService {
       result.push({ ...metadataResponse, ...onchainDataList[index] });
     }
     return result;
+  }
+
+  async filter(
+    filter: TokenFilterConditionDto,
+    limit: number = 10,
+    sort_by: string,
+    sort_order?: 'asc' | 'desc',
+    offset?: number,
+  ): Promise<TokenFilterResponseDto> {
+    const orderValue: FindOptionsOrderValue =
+      sort_order?.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+    const SortByMap = {
+      market_cap: 'marketCap',
+      volume_24h: 'volume24h',
+      txns_24h: 'txns24hTotal',
+      holders: 'holdersCount',
+      age: 'ageSeconds',
+      price_change_24h: 'priceChange24h',
+    } as const;
+    const column = SortByMap[sort_by];
+    const whereConditions: any = {};
+    if (filter?.metrics) {
+      const m = filter.metrics;
+      if (m.age_min_minutes != null && m.age_max_minutes != null) {
+        whereConditions.ageSeconds = Between(
+          m.age_min_minutes,
+          m.age_max_minutes,
+        );
+        if (m.liquidity_min != null && m.liquidity_max != null) {
+          whereConditions.liquidity = Between(m.liquidity_min, m.liquidity_max);
+        }
+
+        if (m.market_cap_min != null && m.market_cap_max != null) {
+          whereConditions.marketCap = Between(
+            m.market_cap_min,
+            m.market_cap_max,
+          );
+        }
+
+        if (m.volume_24h_min != null && m.volume_24h_max != null) {
+          whereConditions.volume24h = Between(
+            m.volume_24h_min,
+            m.volume_24h_max,
+          );
+        }
+
+        if (m.txns_24h_min != null && m.txns_24h_max != null) {
+          whereConditions.txns24hTotal = Between(
+            m.txns_24h_min,
+            m.txns_24h_max,
+          );
+        }
+
+        if (m.holders_min != null && m.holders_max != null) {
+          whereConditions.holdersCount = Between(m.holders_min, m.holders_max);
+        }
+
+        if (m.price_change_24h_min != null && m.price_change_24h_max != null) {
+          whereConditions.priceChange24h = Between(
+            m.price_change_24h_min,
+            m.price_change_24h_max,
+          );
+        }
+      }
+    }
+    if (filter?.holder_filters) {
+      const h = filter.holder_filters;
+
+      if (h.top_10_max_percent != null) {
+        whereConditions.top10Percent = Between(0, h.top_10_max_percent);
+      }
+
+      if (h.insider_max_percent != null) {
+        whereConditions.insiderPercent = Between(0, h.insider_max_percent);
+      }
+    }
+    const tokens = await this.tokenRepository.find({
+      take: limit,
+      skip: offset,
+      order: column
+        ? {
+            [column]: orderValue,
+          }
+        : undefined,
+      where: whereConditions,
+    });
+    const responseTokens: TokenResponseDto[] = tokens.map((token) => {
+      return {
+        address: token.address,
+        symbol: token.symbol,
+        name: token.name,
+        logo_uri: token.logoUri,
+        description: token.description,
+        website: token.website,
+        social_links: {
+          twitter: token.socialLinks?.twitter,
+          telegram: token.socialLinks?.telegram,
+          discord: token.socialLinks?.discord,
+        },
+        age_seconds: Math.floor(
+          new Date(token?.createdAt || new Date()).getTime() / 1000,
+        ),
+        total_supply: token?.totalSupply,
+        circulating_supply: token?.circulatingSupply,
+
+        price: token?.price,
+        price_change: {
+          '1h': token?.priceChange1h,
+          '24h': token?.priceChange24h,
+          '7d': token?.priceChange7d,
+          '30d': null,
+        },
+
+        market_cap: token?.marketCap,
+        market_cap_change_24h: token?.marketCapChange24h,
+
+        fdv: token?.fdv,
+        liquidity: token?.liquidity,
+        liquidity_change_24h: token?.liquidityChange24h,
+
+        volume: {
+          '1h': null,
+          '24h': token?.volume24h,
+          '7d': null,
+          '30d': null,
+        },
+
+        holders: {
+          count: token?.holdersCount,
+          change_24h: token?.holdersChange24h,
+          top_10_percent: token?.top10Percent,
+          top_20_percent: null,
+        },
+
+        audit: {
+          mint_authority: {
+            disabled: token?.mintAuthorityDisabled,
+            address: null,
+          },
+          freeze_authority: {
+            disabled: token?.freezeAuthorityDisabled,
+            address: null,
+          },
+          is_verified: true,
+          lp_burnt: token?.lpBurnt,
+          risk_score: token?.riskScore,
+        },
+      };
+    });
+
+    return {
+      tokens: responseTokens,
+      total: responseTokens.length,
+      filter_applied: filter,
+    };
   }
 
   async updateToken(address: string, data: Partial<Token>) {
