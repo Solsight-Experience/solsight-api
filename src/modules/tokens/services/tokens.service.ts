@@ -199,7 +199,14 @@ export class TokensService {
             [column]: orderValue,
           }
         : undefined,
-      where: whereConditions,
+      where: [
+        whereConditions,
+        [
+          { name: ILike(`%${filter.search_query}%`) },
+          { symbol: ILike(`%${filter.search_query}%`) },
+          { address: ILike(`%${filter.search_query}%`) },
+        ],
+      ],
     });
     const responseTokens: TokenOverviewResponseDto[] = tokens.map(
       (token: Token) => {
@@ -408,7 +415,7 @@ export class TokensService {
             buys: tokensInfo[index]?.stats7d?.numBuys || 0,
           },
         },
-        txns_change_24h: null,
+        txns_change_24h: 0,
 
         holders: {
           count: tokensInfo[index]?.holderCount,
@@ -426,11 +433,11 @@ export class TokensService {
         audit: {
           mint_authority: {
             disabled: tokensInfo[index]?.audit?.mintAuthorityDisabled,
-            address: null,
+            address: '-',
           },
           freeze_authority: {
             disabled: tokensInfo[index]?.audit?.freezeAuthorityDisabled,
-            address: null,
+            address: '-',
           },
           lp_burnt_percent: null,
           is_verified: tokensInfo[index]?.isVerified,
@@ -438,7 +445,7 @@ export class TokensService {
           risk_score: null,
         },
 
-        chart_data: null,
+        chart_data: [],
         pools: [],
       });
     }

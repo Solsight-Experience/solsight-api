@@ -144,7 +144,7 @@ export type TokenResponseOnchainData = {
     risk_factors: string | null;
   };
 
-  chart_data: TokenChartDto | null;
+  chart_data: TokenChartDto | [];
 
   pools: {
     address: string;
