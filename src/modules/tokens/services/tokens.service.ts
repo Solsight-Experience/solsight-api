@@ -4,9 +4,10 @@ import { Between, FindOptionsOrderValue, ILike, Repository } from 'typeorm';
 import { Token } from '../entities/token.entity';
 import {
   TokenResponseDto,
-  TokenOverviewResponseDto,
+  TokenDetailsResponseDto,
   TokenResponseOnchainData,
   TokenResponseMetadata,
+  TokenOverviewResponseDto,
 } from '../dtos/token.response.dto';
 import { SolanaService } from 'src/infra/solana/solana.service';
 import { Connection, PublicKey } from '@solana/web3.js';
@@ -84,7 +85,7 @@ export class TokensService {
   async search(
     query: string,
     limit: number = 10,
-  ): Promise<TokenOverviewResponseDto[]> {
+  ): Promise<TokenDetailsResponseDto[]> {
     const tokens = await this.tokenRepository.find({
       where: [
         { name: ILike(`%${query}%`) },
@@ -95,7 +96,7 @@ export class TokensService {
     });
     const onchainDataList: TokenResponseOnchainData[] =
       await this.getOnchainData(tokens.map((token) => token.address));
-    const result: TokenOverviewResponseDto[] = [];
+    const result: TokenDetailsResponseDto[] = [];
     for (const [index, token] of tokens.entries()) {
       const metadataResponse: TokenResponseMetadata = {
         address: token.address,
@@ -109,7 +110,7 @@ export class TokensService {
           twitter: token.socialLinks?.twitter || null,
           telegram: token.socialLinks?.telegram || null,
           discord: token.socialLinks?.discord || null,
-        }
+        },
       };
       result.push({ ...metadataResponse, ...onchainDataList[index] });
     }
@@ -200,69 +201,59 @@ export class TokensService {
         : undefined,
       where: whereConditions,
     });
-    const responseTokens: TokenResponseDto[] = tokens.map((token) => {
-      return {
-        address: token.address,
-        symbol: token.symbol,
-        name: token.name,
-        logo_uri: token.logoUri,
-        description: token.description,
-        website: token.website,
-        social_links: {
-          twitter: token.socialLinks?.twitter,
-          telegram: token.socialLinks?.telegram,
-          discord: token.socialLinks?.discord,
-        },
-        age_seconds: Math.floor(
-          new Date(token?.createdAt || new Date()).getTime() / 1000,
-        ),
-        total_supply: token?.totalSupply,
-        circulating_supply: token?.circulatingSupply,
+    const responseTokens: TokenOverviewResponseDto[] = tokens.map(
+      (token: Token) => {
+        return {
+          address: token.address ?? null,
+          symbol: token.symbol ?? null,
+          name: token.name ?? null,
+          logo_uri: token.logoUri ?? null,
+          network: this.network ?? null,
+          category: null,
+          age_seconds: Math.floor(
+            new Date(token?.createdAt || new Date()).getTime() / 1000,
+          ),
 
-        price: token?.price,
-        price_change: {
-          '1h': token?.priceChange1h,
-          '24h': token?.priceChange24h,
-          '7d': token?.priceChange7d,
-          '30d': null,
-        },
+          price: token?.price ?? null,
+          price_change_1h: token?.priceChange1h ?? null,
+          price_change_24h: token?.priceChange24h ?? null,
+          price_change_7d: token?.priceChange7d ?? null,
 
-        market_cap: token?.marketCap,
-        market_cap_change_24h: token?.marketCapChange24h,
+          market_cap: token?.marketCap ?? null,
+          market_cap_change_24h: token?.marketCapChange24h ?? null,
 
-        fdv: token?.fdv,
-        liquidity: token?.liquidity,
-        liquidity_change_24h: token?.liquidityChange24h,
+          fdv: token.fdv ?? null,
+          liquidity: token.liquidity ?? null,
+          liquidity_change_24h: token.liquidityChange24h ?? null,
 
-        volume: {
-          '1h': null,
-          '24h': token?.volume24h,
-          '7d': null,
-          '30d': null,
-        },
+          volume_24h: token.volume24h ?? null,
+          volume_change_24h: token.volumeChange24h ?? null,
 
-        holders: {
-          count: token?.holdersCount,
-          change_24h: token?.holdersChange24h,
-          top_10_percent: token?.top10Percent,
-          top_20_percent: null,
-        },
-
-        audit: {
-          mint_authority: {
-            disabled: token?.mintAuthorityDisabled,
-            address: null,
+          txns_24h: {
+            total: token.txns24hTotal ?? null,
+            buys: token.txns24hBuys ?? null,
+            sells: token.txns24hSells ?? null,
+            change_24h: token.txns24hChange ?? null,
           },
-          freeze_authority: {
-            disabled: token?.freezeAuthorityDisabled,
-            address: null,
+
+          holders: {
+            count: token.holdersCount,
+            change_24h: token.holdersChange24h,
+            unique_wallets_24h: token.uniqueWallets24h,
+            top_10_percent: token.top10Percent,
+            insider_percent: token.insiderPercent,
           },
-          is_verified: true,
-          lp_burnt: token?.lpBurnt,
-          risk_score: token?.riskScore,
-        },
-      };
-    });
+
+          audit: {
+            mint_authority_disabled: token.mintAuthorityDisabled,
+            freeze_authority_disabled: token.freezeAuthorityDisabled,
+            lp_burnt: token.lpBurnt,
+            has_social_links: token.hasSocialLinks,
+          },
+          price_sparkline: [],
+        };
+      },
+    );
 
     return {
       tokens: responseTokens,

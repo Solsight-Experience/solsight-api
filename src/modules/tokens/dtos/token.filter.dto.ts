@@ -1,4 +1,4 @@
-import { TokenResponseDto } from '../dtos/token.response.dto';
+import { TokenOverviewResponseDto } from '../dtos/token.response.dto';
 export type TokenFilterConditionDto = {
   search_query?: string;
   metrics: {
@@ -35,7 +35,7 @@ export type TokenFilterConditionDto = {
 };
 
 export type TokenFilterResponseDto = {
-  tokens: TokenResponseDto[];
+  tokens: TokenOverviewResponseDto[];
   total: number;
   filter_applied: TokenFilterConditionDto;
 };
