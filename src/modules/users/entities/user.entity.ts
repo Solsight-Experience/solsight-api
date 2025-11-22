@@ -37,15 +37,14 @@ export class User {
   @Column({ default: false })
   isEmailVerified: boolean;
 
-  @Column({ type: 'text', nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   emailVerificationToken?: string | null;
 
-  @Column({ type: 'text', nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   passwordResetToken?: string | null;
 
   @Column({ type: 'timestamp', nullable: true })
   passwordResetExpires?: Date | null;
-
   @CreateDateColumn()
   createdAt: Date;
 
