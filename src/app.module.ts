@@ -8,6 +8,8 @@ import { WalletsModule } from './modules/wallets/wallets.module';
 import { AuthModule } from './modules/auth/auth.module';
 import configuration from './config/configuration';
 import { validationSchema } from './config/validation';
+import { CacheModule } from '@nestjs/cache-manager';
+import { PortfolioModule } from './modules/portfolio/portfolio.module';
 
 @Module({
   imports: [
@@ -20,12 +22,16 @@ import { validationSchema } from './config/validation';
         abortEarly: true,
       },
     }),
+    CacheModule.register({
+      isGlobal: true,
+    }),
     DatabaseModule,
     LoggerModule,
-    SolanaModule,
     AuthModule,
     UsersModule,
     WalletsModule,
+    SolanaModule,
+    PortfolioModule,
   ],
   controllers: [],
   providers: [],
