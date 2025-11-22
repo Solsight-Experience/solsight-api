@@ -18,7 +18,7 @@ interface AuthenticatedRequest extends Request {
   user: User;
 }
 
-@Controller({ path: 'users/me/wallets', version: '1' })
+@Controller({ path: 'users/me/wallets'})
 export class UsersWalletsController {
   constructor(private readonly walletsService: WalletsService) {}
 

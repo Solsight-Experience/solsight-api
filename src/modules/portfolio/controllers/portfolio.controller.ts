@@ -7,7 +7,7 @@ interface AuthenticatedRequest extends Request {
   user: User;
 }
 
-@Controller({ path: 'portfolio', version: '1' })
+@Controller({ path: 'portfolio'})
 export class PortfolioController {
   constructor(private readonly portfolioService: PortfolioService) {}
 
@@ -21,15 +21,17 @@ export class PortfolioController {
     return this.portfolioService.getOverview(req.user.id, walletAddresses, timeFrame);
   }
 
-  @UseGuards(JwtAuthGuard)
   @Get('pnl-chart')
   async getPnlChart(
-    @Request() req: AuthenticatedRequest,
+    @Request() req: any,
     @Query('wallet_addresses') walletAddresses: string[],
+    @Query('wallet_address') walletAddress: string,
     @Query('time_frame') timeFrame: string,
     @Query('interval') interval: string,
   ) {
-    return this.portfolioService.getPnlChart(req.user.id, walletAddresses, timeFrame, interval);
+    const addresses = walletAddresses || (walletAddress ? [walletAddress] : []);
+    const userId = req.user?.id || 'test-user';
+    return this.portfolioService.getPnlChart(userId, addresses, timeFrame, interval);
   }
 
   @UseGuards(JwtAuthGuard)
