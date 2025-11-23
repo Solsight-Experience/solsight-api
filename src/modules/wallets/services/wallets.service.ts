@@ -39,6 +39,8 @@ export class WalletsService {
 
     const wallet = this.walletRepository.create({
       ...createWalletDto,
+      // cast icon to enum type if provided
+      icon: createWalletDto.icon ? (createWalletDto.icon as any) : undefined,
       userId,
     });
 
@@ -55,6 +57,44 @@ export class WalletsService {
       where: { userId },
       order: { createdAt: 'DESC' },
     });
+  }
+
+  async listForUser(userId: string) {
+    const wallets = await this.findByUserId(userId);
+
+    // Auto-update balances for all user wallets
+    try {
+      await Promise.all(wallets.map(wallet => this.updateBalance(wallet.id)));
+    } catch (error) {
+      // Log the error but don't block the response if updates fail
+      console.error('Failed to update one or more wallet balances', error);
+    }
+
+    // Refetch wallets to get the potentially updated balances
+    const updatedWallets = await this.findByUserId(userId);
+
+    const total_wallets = updatedWallets.length;
+    const total_balance_sol = updatedWallets.reduce((acc, w) => acc + Number(w.balance || 0), 0);
+    const solPrice = await this.getSolPriceUsd();
+    const total_balance_usd = total_balance_sol * solPrice;
+
+    const mapped = updatedWallets.map((w) => ({
+      address: w.address,
+      name: w.name || null,
+      icon: (w as any).icon || null,
+      is_default: !!w.isDefault,
+      is_connected: !!w.isConnected,
+      added_at: w.createdAt,
+      balance_sol: Number(w.balance || 0),
+      balance_usd: Number(w.balance || 0) * solPrice,
+    }));
+
+    return {
+      wallets: mapped,
+      total_wallets,
+      total_balance_sol,
+      total_balance_usd,
+    };
   }
 
   async findById(id: string): Promise<Wallet> {
@@ -90,7 +130,7 @@ export class WalletsService {
       const publicKey = new PublicKey(wallet.address);
       const balance = await this.solanaService.getBalance(publicKey);
 
-      await this.walletRepository.update(walletId, { balance });
+      await this.walletRepository.update({ id: walletId }, { balance });
 
       return await this.findById(walletId);
     } catch {
@@ -147,8 +187,39 @@ export class WalletsService {
       }
     }
 
-    await this.walletRepository.update(id, updateData);
+    await this.walletRepository.update({ id }, updateData);
     return await this.findById(id);
+  }
+
+  async updateByAddress(userId: string, address: string, updateData: Partial<Wallet>) {
+    const wallet = await this.walletRepository.findOne({ where: { address, userId } });
+    if (!wallet) throw new NotFoundException('Wallet not found');
+
+    await this.walletRepository.update({ id: wallet.id }, updateData);
+    return await this.findById(wallet.id);
+  }
+
+  async deleteByAddress(userId: string, address: string): Promise<void> {
+    const wallet = await this.walletRepository.findOne({ where: { address, userId } });
+    if (!wallet) throw new NotFoundException('Wallet not found');
+    await this.walletRepository.remove(wallet);
+  }
+
+  async setDefaultForAddress(userId: string, address: string): Promise<Wallet> {
+    const wallet = await this.walletRepository.findOne({ where: { address, userId } });
+    if (!wallet) throw new NotFoundException('Wallet not found');
+
+    // unset other wallets
+    await this.walletRepository.update({ userId }, { isDefault: false });
+
+    await this.walletRepository.update({ id: wallet.id }, { isDefault: true });
+    return await this.findById(wallet.id);
+  }
+
+  // Placeholder for SOL price in USD. Return 0 by default.
+  private async getSolPriceUsd(): Promise<number> {
+    // TODO: implement price fetch from a reliable oracle (CoinGecko etc.)
+    return 0;
   }
 
   async delete(id: string): Promise<void> {

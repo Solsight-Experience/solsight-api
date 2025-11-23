@@ -17,6 +17,14 @@ export enum WalletType {
   BACKPACK = 'backpack',
 }
 
+export enum WalletIcon {
+  SOLSIGHT = 'solsight',
+  PHANTOM = 'phantom',
+  BACKPACK = 'backpack',
+  COINBASE = 'coinbase',
+  CUSTOM = 'custom',
+}
+
 @Entity('wallets')
 export class Wallet {
   @PrimaryGeneratedColumn('uuid')
@@ -40,6 +48,19 @@ export class Wallet {
 
   @Column({ default: false })
   isVerified: boolean;
+
+  @Column({
+    type: 'enum',
+    enum: WalletIcon,
+    nullable: true,
+  })
+  icon?: WalletIcon;
+
+  @Column({ default: false })
+  isDefault: boolean;
+
+  @Column({ default: false })
+  isConnected: boolean;
 
   @Column({ type: 'decimal', precision: 20, scale: 9, default: 0 })
   balance: number;

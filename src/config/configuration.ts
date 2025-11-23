@@ -15,6 +15,8 @@ export default () => ({
 
   solana: {
     rpcUrl: process.env.SOLANA_RPC_URL || 'https://api.devnet.solana.com',
+    heliusRpcUrl: process.env.HELIUS_RPC_URL,
+    heliusApiKey: process.env.HELIUS_API_KEY,
     network: process.env.SOLANA_NETWORK || 'devnet',
     commitment: 'confirmed',
     programId: process.env.SOLANA_PROGRAM_ID,
