@@ -1,8 +1,5 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { CreateUserDto } from 'src/modules/users/dtos/create-user.dto';
-import { User } from 'src/modules/users/entities/user.entity';
-import { UsersService } from 'src/modules/users/services/users.service';
 
 export interface LoginDto {
   email: string;
@@ -15,82 +12,45 @@ export interface JwtPayload {
   username: string;
 }
 
+export interface MockUser {
+  id: string;
+  email: string;
+  username: string;
+  password: string;
+  isActive: boolean;
+}
+
+// Mock data
+const MOCK_USERS: MockUser[] = [
+  { id: '1', email: 'user@example.com', username: 'UserOne', password: '123456', isActive: true },
+  { id: '2', email: 'admin@gmail.com', username: 'Admin', password: 'admin123', isActive: true },
+];
+
 @Injectable()
 export class AuthService {
-  constructor(
-    private readonly usersService: UsersService,
-    private readonly jwtService: JwtService,
-  ) {}
+  constructor(private readonly jwtService: JwtService) { }
 
-  async register(
-    createUserDto: CreateUserDto,
-  ): Promise<{ user: User; accessToken: string }> {
-    const user = await this.usersService.create(createUserDto);
-    const accessToken = await this.generateAccessToken(user);
-
-    return {
-      user,
-      accessToken,
-    };
-  }
-
-  async login(
-    loginDto: LoginDto,
-  ): Promise<{ user: User; accessToken: string }> {
-    const user = await this.validateUser(loginDto.email, loginDto.password);
-    const accessToken = await this.generateAccessToken(user);
-
-    // Remove password from response
-    delete user.password;
-
-    return {
-      user,
-      accessToken,
-    };
-  }
-
-  async validateUser(email: string, password: string): Promise<User> {
-    const user = await this.usersService.findByEmail(email);
-
-    if (!user || !user.isActive) {
-      throw new UnauthorizedException('Invalid credentials');
-    }
-
-    if (!user.password) {
-      throw new UnauthorizedException('Invalid credentials');
-    }
-
-    const isPasswordValid = await this.usersService.validatePassword(
-      password,
-      user.password,
+  async login(loginDto: LoginDto) {
+    const user = MOCK_USERS.find(
+      (u) => u.email === loginDto.email && u.password === loginDto.password && u.isActive,
     );
 
-    if (!isPasswordValid) {
+    if (!user) {
       throw new UnauthorizedException('Invalid credentials');
     }
 
-    return user;
+    const accessToken = await this.generateAccessToken(user);
+    return { user: { ...user, password: undefined }, accessToken };
   }
 
-  async generateAccessToken(user: User): Promise<string> {
-    const payload: JwtPayload = {
-      sub: user.id,
-      email: user.email,
-      username: user.username,
-    };
-
+  async generateAccessToken(user: MockUser): Promise<string> {
+    const payload: JwtPayload = { sub: user.id, email: user.email, username: user.username };
     return this.jwtService.signAsync(payload);
   }
 
-  async validateAccessToken(token: string): Promise<JwtPayload> {
-    try {
-      return await this.jwtService.verifyAsync(token);
-    } catch {
-      throw new UnauthorizedException('Invalid token');
-    }
-  }
-
-  async refreshToken(user: User): Promise<string> {
-    return this.generateAccessToken(user);
+  async validateUserByToken(payload: JwtPayload) {
+    const user = MOCK_USERS.find((u) => u.id === payload.sub);
+    if (!user) throw new UnauthorizedException('Invalid token');
+    return { ...user, password: undefined };
   }
 }
