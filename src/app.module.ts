@@ -11,7 +11,7 @@ import configuration from './config/configuration';
 import { validationSchema } from './config/validation';
 import { TransactionsModule } from './modules/transactions/transactions.module';
 import { DiscoveryModule } from './modules/discovery/discovery.module';
-
+import { AccountModule } from './modules/account/account.module';
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -32,8 +32,9 @@ import { DiscoveryModule } from './modules/discovery/discovery.module';
     TransactionsModule,
     DiscoveryModule,
     TokensModule,
+    AccountModule
   ],
   controllers: [],
   providers: [],
 })
-export class AppModule {}
+export class AppModule { }
