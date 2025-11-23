@@ -18,6 +18,7 @@ import { GetCategoryDto } from '../dtos/get-category.dto';
 import { JupiterService } from '../../../infra/jupiter/jupiter.service';
 import { CoinGeckoService } from '../../../infra/coingecko/coingecko.service';
 import { SolanaService } from '../../../infra/solana/solana.service';
+import { TokenOverview, CategoryOverview } from '../dtos/discovery.response.dto';
 
 @Injectable()
 export class DiscoveryService {
@@ -32,6 +33,75 @@ export class DiscoveryService {
     private readonly coingeckoService: CoinGeckoService,
     private readonly solanaService: SolanaService,
   ) {}
+
+  /**
+   * Transform Category entity to CategoryOverview format
+   */
+  private transformToCategory(category: Category): CategoryOverview {
+    return {
+      name: category.name,
+      slug: category.slug,
+      description: category.description || '',
+      market_cap: category.marketCap,
+      change_1h: category.change1h,
+      change_24h: category.change24h,
+      change_7d: category.change7d,
+      volume: category.volume,
+      num_tokens: category.numTokens,
+      top_tokens: [], // Will be populated separately if needed
+    };
+  }
+
+  /**
+   * Transform Token entity to TokenOverview format
+   */
+  private transformToTokenOverview(token: Token): TokenOverview {
+    return {
+      address: token.address,
+      symbol: token.symbol,
+      name: token.name,
+      logo_uri: token.logoUri || '',
+      network: 'solana',
+      category: token.category?.name || '',
+      age_seconds: token.ageSeconds,
+      price: token.price,
+      price_change_1h: token.priceChange1h,
+      price_change_24h: token.priceChange24h,
+      price_change_7d: token.priceChange7d,
+      market_cap: token.marketCap,
+      market_cap_change_24h: token.marketCapChange24h,
+      fdv: token.fdv,
+      liquidity: token.liquidity,
+      liquidity_change_24h: token.liquidityChange24h,
+      volume_24h: token.volume24h,
+      volume_change_24h: token.volumeChange24h,
+      txns_24h: {
+        total: token.txns24hTotal,
+        buys: token.txns24hBuys,
+        sells: token.txns24hSells,
+        change_24h: token.txns24hChange,
+      },
+      holders: {
+        count: token.holdersCount,
+        change_24h: token.holdersChange24h,
+        unique_wallets_24h: token.uniqueWallets24h,
+        top_10_percent: token.top10Percent,
+        insider_percent: token.insiderPercent,
+      },
+      audit: {
+        mint_authority_disabled: token.mintAuthorityDisabled,
+        freeze_authority_disabled: token.freezeAuthorityDisabled,
+        lp_burnt: token.lpBurnt,
+        has_social_links: token.hasSocialLinks,
+        holders_count: token.holdersCount,
+        unique_wallets_24h: token.uniqueWallets24h,
+        top_10_holders_percent: token.top10Percent,
+        insider_percent: token.insiderPercent,
+        risk_score: token.riskScore,
+      },
+      price_sparkline: token.priceSparkline || [],
+    };
+  }
 
   async getTrending(dto: GetTrendingDto) {
     const { sort_by, time_frame, limit, offset } = dto;
@@ -68,8 +138,10 @@ export class DiscoveryService {
       relations: ['category'],
     });
 
+    const transformedTokens = tokens.map(token => this.transformToTokenOverview(token));
+
     return {
-      tokens,
+      tokens: transformedTokens,
       total,
       updated_at: new Date().toISOString(),
     };
@@ -112,7 +184,7 @@ export class DiscoveryService {
       const marketData = await this.coingeckoService.getCoinsMarketData(coinIds);
       const marketDataMap = new Map(marketData.map((m) => [m.id, m]));
 
-      // Update or create tokens
+      // Update or create tokens (only Solana tokens)
       let syncedCount = 0;
       for (const item of trendingData.coins.slice(0, 20)) {
         const symbol = item.item.symbol.toUpperCase();
@@ -120,13 +192,20 @@ export class DiscoveryService {
         
         if (!market) continue;
 
-        const existingToken = existingTokenMap.get(symbol);
         const jupiterToken = solanaTokenMap.get(item.item.symbol.toLowerCase());
+        
+        // Skip if not a Solana token
+        if (!jupiterToken) {
+          this.logger.debug(`Skipping ${symbol} - not found on Solana`);
+          continue;
+        }
+
+        const existingToken = existingTokenMap.get(symbol);
 
         const tokenData = {
           symbol,
           name: item.item.name,
-          address: jupiterToken?.address || `coingecko:${item.item.id}`,
+          address: jupiterToken.address,
           price: market.current_price || 0,
           priceChange1h: market.price_change_percentage_1h_in_currency || 0,
           priceChange24h: market.price_change_percentage_24h || 0,
@@ -169,6 +248,7 @@ export class DiscoveryService {
 
     const query = this.tokenRepository
       .createQueryBuilder('token')
+      .leftJoinAndSelect('token.category', 'category')
       .where('token.ageSeconds <= :ageThreshold', {
         ageThreshold: ageThresholdSeconds,
       })
@@ -184,8 +264,10 @@ export class DiscoveryService {
 
     const [tokens, total] = await query.getManyAndCount();
 
+    const transformedTokens = tokens.map(token => this.transformToTokenOverview(token));
+
     return {
-      tokens,
+      tokens: transformedTokens,
       total,
     };
   }
@@ -205,10 +287,32 @@ export class DiscoveryService {
         return;
       }
 
-      // Process and save tokens
+      // Get Jupiter token list to verify Solana tokens
+      let solanaTokenMap = new Map<string, any>();
+      try {
+        const jupiterTokens = await this.jupiterService.getTokenList();
+        if (jupiterTokens.length > 0) {
+          solanaTokenMap = new Map(
+            jupiterTokens.map((t) => [t.symbol.toLowerCase(), t]),
+          );
+        }
+      } catch (error) {
+        this.logger.warn('Jupiter API unavailable for new listings sync');
+        return; // Skip if can't verify Solana tokens
+      }
+
+      // Process and save tokens (only Solana)
+      let syncedCount = 0;
       for (const coin of recentCoins) {
+        const jupiterToken = solanaTokenMap.get(coin.symbol.toLowerCase());
+        
+        // Skip if not a Solana token
+        if (!jupiterToken) {
+          continue;
+        }
+
         const tokenData = {
-          address: coin.id || `coingecko:${coin.symbol}`,
+          address: jupiterToken.address,
           name: coin.name,
           symbol: coin.symbol.toUpperCase(),
           logoUri: coin.image,
@@ -232,10 +336,11 @@ export class DiscoveryService {
           conflictPaths: ['address'],
           skipUpdateIfNoValuesChanged: true,
         });
+        syncedCount++;
       }
 
       this.logger.log(
-        `Synced ${recentCoins.length} new listings from CoinGecko`,
+        `Synced ${syncedCount} Solana new listings from CoinGecko`,
       );
     } catch (error) {
       this.logger.error('Failed to sync new listings', error);
@@ -250,8 +355,10 @@ export class DiscoveryService {
       order: { marketCap: 'DESC' },
     });
 
+    const transformedCategories = categories.map(category => this.transformToCategory(category));
+
     return {
-      categories,
+      categories: transformedCategories,
     };
   }
 
@@ -333,11 +440,15 @@ export class DiscoveryService {
       order: orderBy,
       take: limit,
       skip: offset,
+      relations: ['category'],
     });
 
+    const transformedCategory = this.transformToCategory(category);
+    const transformedTokens = tokens.map(token => this.transformToTokenOverview(token));
+
     return {
-      category,
-      tokens,
+      category: transformedCategory,
+      tokens: transformedTokens,
       total,
     };
   }
@@ -360,10 +471,31 @@ export class DiscoveryService {
         return;
       }
 
-      // Process and save tokens
+      // Get Jupiter token list to verify Solana tokens
+      let solanaTokenMap = new Map<string, any>();
+      try {
+        const jupiterTokens = await this.jupiterService.getTokenList();
+        if (jupiterTokens.length > 0) {
+          solanaTokenMap = new Map(
+            jupiterTokens.map((t) => [t.symbol.toLowerCase(), t]),
+          );
+        }
+      } catch (error) {
+        this.logger.warn('Jupiter API unavailable for category sync');
+      }
+
+      // Process and save tokens (only Solana)
+      let syncedCount = 0;
       for (const coin of coins) {
+        const jupiterToken = solanaTokenMap.get(coin.symbol.toLowerCase());
+        
+        // Skip if not a Solana token
+        if (!jupiterToken) {
+          continue;
+        }
+
         const tokenData = {
-          address: coin.id || `coingecko:${coin.symbol}`,
+          address: jupiterToken.address,
           name: coin.name,
           symbol: coin.symbol.toUpperCase(),
           logoUri: coin.image,
@@ -385,10 +517,11 @@ export class DiscoveryService {
           conflictPaths: ['address'],
           skipUpdateIfNoValuesChanged: true,
         });
+        syncedCount++;
       }
 
       this.logger.log(
-        `Synced ${coins.length} tokens for category ${categorySlug}`,
+        `Synced ${syncedCount} Solana tokens for category ${categorySlug}`,
       );
     } catch (error) {
       this.logger.error(
@@ -420,6 +553,7 @@ export class DiscoveryService {
         where: {},
         order: { [orderByField]: 'DESC' },
         take: limit,
+        relations: ['category'],
       });
     }
 
@@ -428,12 +562,16 @@ export class DiscoveryService {
         where: {},
         order: { [orderByField]: 'ASC' },
         take: limit,
+        relations: ['category'],
       });
     }
 
+    const transformedGainers = gainers.map(token => this.transformToTokenOverview(token));
+    const transformedLosers = losers.map(token => this.transformToTokenOverview(token));
+
     return {
-      gainers,
-      losers,
+      gainers: transformedGainers,
+      losers: transformedLosers,
       updated_at: new Date().toISOString(),
     };
   }
