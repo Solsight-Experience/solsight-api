@@ -26,6 +26,9 @@ export class Token {
   @Column({ nullable: true })
   logoUri?: string;
 
+  @Column({ nullable: true })
+  coingeckoId?: string;
+
   @Column({ default: 'solana' })
   network: string;
 

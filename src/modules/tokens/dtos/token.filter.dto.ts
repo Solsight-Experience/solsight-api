@@ -1,4 +1,5 @@
-export type TokenFilterDto = {
+import { TokenOverviewResponseDto } from '../dtos/token.response.dto';
+export type TokenFilterConditionDto = {
   search_query?: string;
   metrics: {
     age_min_minutes: number;
@@ -19,6 +20,9 @@ export type TokenFilterDto = {
   audit_filters: {
     mint_authority_disabled: boolean;
     freeze_authority_disabled: boolean;
+    lp_burnt: boolean;
+    min_risk_score: number;
+    max_risk_score: number;
     has_social_links: boolean;
   };
 
@@ -26,5 +30,12 @@ export type TokenFilterDto = {
 
   holder_filters: {
     top_10_max_percent: number;
+    insider_max_percent: number;
   };
+};
+
+export type TokenFilterResponseDto = {
+  tokens: TokenOverviewResponseDto[];
+  total: number;
+  filter_applied: TokenFilterConditionDto;
 };

@@ -14,10 +14,13 @@ export default () => ({
   },
 
   solana: {
-    rpcUrl: process.env.SOLANA_RPC_URL || 'https://api.devnet.solana.com',
-    network: process.env.SOLANA_NETWORK || 'devnet',
+    rpcUrl:
+      process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com',
+    heliusRpcUrl: process.env.HELIUS_RPC_URL,
+    heliusApiKey: process.env.HELIUS_API_KEY,
+    network: process.env.SOLANA_NETWORK || 'mainnet-beta',
     commitment: 'confirmed',
-    programId: process.env.SOLANA_PROGRAM_ID,
+    programId: process.env.SOLANA_PROGRAM_ID || '',
     jupiterApi: {
       searchToken:
         process.env.JUPITER_TOKEN_SEARCH_API ||
@@ -28,6 +31,17 @@ export default () => ({
         process.env.COINGECKO_LIST_API ||
         'https://api.coingecko.com/api/v3/coins/list',
     },
+  },
+
+  jupiter: {
+    apiUrl: process.env.JUPITER_API_URL || 'https://quote-api.jup.ag/v6',
+    priceApiUrl:
+      process.env.JUPITER_PRICE_API_URL || 'https://price.jup.ag/v4',
+  },
+
+  coingecko: {
+    apiUrl: process.env.COINGECKO_API_URL || 'https://api.coingecko.com/api/v3',
+    apiKey: process.env.COINGECKO_API_KEY || '',
   },
 
   jwt: {

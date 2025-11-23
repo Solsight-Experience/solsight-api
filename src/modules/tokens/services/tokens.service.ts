@@ -1,19 +1,22 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { ILike, Repository } from 'typeorm';
+import { Between, FindOptionsOrderValue, ILike, Repository } from 'typeorm';
 import { Token } from '../entities/token.entity';
 import {
   TokenResponseDto,
-  TokenOverviewResponseDto,
+  TokenDetailsResponseDto,
   TokenResponseOnchainData,
   TokenResponseMetadata,
+  TokenOverviewResponseDto,
 } from '../dtos/token.response.dto';
-export { TokenFilterDto } from '../dtos/token.filter.dto';
 import { SolanaService } from 'src/infra/solana/solana.service';
 import { Connection, PublicKey } from '@solana/web3.js';
 import { getAccount, TOKEN_PROGRAM_ID, getMint } from '@solana/spl-token';
 import { ConfigService } from '@nestjs/config';
-import { TokenFilterDto } from '../dtos/token.filter.dto';
+import {
+  TokenFilterConditionDto,
+  TokenFilterResponseDto,
+} from '../dtos/token.filter.dto';
 
 @Injectable()
 export class TokensService {
@@ -63,7 +66,7 @@ export class TokensService {
       address: tokenMetadata.address,
       symbol: tokenMetadata.symbol || null,
       name: tokenMetadata.name || null,
-      logo_uri: tokenMetadata.logo_uri || null,
+      logo_uri: tokenMetadata.logoUri || null,
       network: this.network,
       description: tokenMetadata.description || null,
       website: tokenMetadata.website || null,
@@ -82,7 +85,7 @@ export class TokensService {
   async search(
     query: string,
     limit: number = 10,
-  ): Promise<TokenOverviewResponseDto[]> {
+  ): Promise<TokenDetailsResponseDto[]> {
     const tokens = await this.tokenRepository.find({
       where: [
         { name: ILike(`%${query}%`) },
@@ -93,7 +96,7 @@ export class TokensService {
     });
     const onchainDataList: TokenResponseOnchainData[] =
       await this.getOnchainData(tokens.map((token) => token.address));
-    const result: TokenOverviewResponseDto[] = [];
+    const result: TokenDetailsResponseDto[] = [];
     for (const [index, token] of tokens.entries()) {
       const metadataResponse: TokenResponseMetadata = {
         address: token.address,
@@ -107,11 +110,163 @@ export class TokensService {
           twitter: token.socialLinks?.twitter || null,
           telegram: token.socialLinks?.telegram || null,
           discord: token.socialLinks?.discord || null,
-        }
+        },
       };
       result.push({ ...metadataResponse, ...onchainDataList[index] });
     }
     return result;
+  }
+
+  async filter(
+    filter: TokenFilterConditionDto,
+    limit: number = 10,
+    sort_by: string,
+    sort_order?: 'asc' | 'desc',
+    offset?: number,
+  ): Promise<TokenFilterResponseDto> {
+    const orderValue: FindOptionsOrderValue =
+      sort_order?.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+    const SortByMap = {
+      market_cap: 'marketCap',
+      volume_24h: 'volume24h',
+      txns_24h: 'txns24hTotal',
+      holders: 'holdersCount',
+      age: 'ageSeconds',
+      price_change_24h: 'priceChange24h',
+    } as const;
+    const column = SortByMap[sort_by];
+    const whereConditions: any = {};
+    if (filter?.metrics) {
+      const m = filter.metrics;
+      if (m.age_min_minutes != null && m.age_max_minutes != null) {
+        whereConditions.ageSeconds = Between(
+          m.age_min_minutes,
+          m.age_max_minutes,
+        );
+        if (m.liquidity_min != null && m.liquidity_max != null) {
+          whereConditions.liquidity = Between(m.liquidity_min, m.liquidity_max);
+        }
+
+        if (m.market_cap_min != null && m.market_cap_max != null) {
+          whereConditions.marketCap = Between(
+            m.market_cap_min,
+            m.market_cap_max,
+          );
+        }
+
+        if (m.volume_24h_min != null && m.volume_24h_max != null) {
+          whereConditions.volume24h = Between(
+            m.volume_24h_min,
+            m.volume_24h_max,
+          );
+        }
+
+        if (m.txns_24h_min != null && m.txns_24h_max != null) {
+          whereConditions.txns24hTotal = Between(
+            m.txns_24h_min,
+            m.txns_24h_max,
+          );
+        }
+
+        if (m.holders_min != null && m.holders_max != null) {
+          whereConditions.holdersCount = Between(m.holders_min, m.holders_max);
+        }
+
+        if (m.price_change_24h_min != null && m.price_change_24h_max != null) {
+          whereConditions.priceChange24h = Between(
+            m.price_change_24h_min,
+            m.price_change_24h_max,
+          );
+        }
+      }
+    }
+    if (filter?.holder_filters) {
+      const h = filter.holder_filters;
+
+      if (h.top_10_max_percent != null) {
+        whereConditions.top10Percent = Between(0, h.top_10_max_percent);
+      }
+
+      if (h.insider_max_percent != null) {
+        whereConditions.insiderPercent = Between(0, h.insider_max_percent);
+      }
+    }
+    const tokens = await this.tokenRepository.find({
+      take: limit,
+      skip: offset,
+      order: column
+        ? {
+            [column]: orderValue,
+          }
+        : undefined,
+      where: [
+        whereConditions,
+        [
+          { name: ILike(`%${filter.search_query}%`) },
+          { symbol: ILike(`%${filter.search_query}%`) },
+          { address: ILike(`%${filter.search_query}%`) },
+        ],
+      ],
+    });
+    const responseTokens: TokenOverviewResponseDto[] = tokens.map(
+      (token: Token) => {
+        return {
+          address: token.address ?? null,
+          symbol: token.symbol ?? null,
+          name: token.name ?? null,
+          logo_uri: token.logoUri ?? null,
+          network: this.network ?? null,
+          category: null,
+          age_seconds: Math.floor(
+            new Date(token?.createdAt || new Date()).getTime() / 1000,
+          ),
+
+          price: token?.price ?? null,
+          price_change_1h: token?.priceChange1h ?? null,
+          price_change_24h: token?.priceChange24h ?? null,
+          price_change_7d: token?.priceChange7d ?? null,
+
+          market_cap: token?.marketCap ?? null,
+          market_cap_change_24h: token?.marketCapChange24h ?? null,
+
+          fdv: token.fdv ?? null,
+          liquidity: token.liquidity ?? null,
+          liquidity_change_24h: token.liquidityChange24h ?? null,
+
+          volume_24h: token.volume24h ?? null,
+          volume_change_24h: token.volumeChange24h ?? null,
+
+          txns_24h: {
+            total: token.txns24hTotal ?? null,
+            buys: token.txns24hBuys ?? null,
+            sells: token.txns24hSells ?? null,
+            change_24h: token.txns24hChange ?? null,
+          },
+
+          holders: {
+            count: token.holdersCount,
+            change_24h: token.holdersChange24h,
+            unique_wallets_24h: token.uniqueWallets24h,
+            top_10_percent: token.top10Percent,
+            insider_percent: token.insiderPercent,
+          },
+
+          audit: {
+            mint_authority_disabled: token.mintAuthorityDisabled,
+            freeze_authority_disabled: token.freezeAuthorityDisabled,
+            lp_burnt: token.lpBurnt,
+            has_social_links: token.hasSocialLinks,
+          },
+          price_sparkline: [],
+        };
+      },
+    );
+
+    return {
+      tokens: responseTokens,
+      total: responseTokens.length,
+      filter_applied: filter,
+    };
   }
 
   async updateToken(address: string, data: Partial<Token>) {
@@ -260,7 +415,7 @@ export class TokensService {
             buys: tokensInfo[index]?.stats7d?.numBuys || 0,
           },
         },
-        txns_change_24h: null,
+        txns_change_24h: 0,
 
         holders: {
           count: tokensInfo[index]?.holderCount,
@@ -278,11 +433,11 @@ export class TokensService {
         audit: {
           mint_authority: {
             disabled: tokensInfo[index]?.audit?.mintAuthorityDisabled,
-            address: null,
+            address: '-',
           },
           freeze_authority: {
             disabled: tokensInfo[index]?.audit?.freezeAuthorityDisabled,
-            address: null,
+            address: '-',
           },
           lp_burnt_percent: null,
           is_verified: tokensInfo[index]?.isVerified,
@@ -290,7 +445,7 @@ export class TokensService {
           risk_score: null,
         },
 
-        chart_data: null,
+        chart_data: [],
         pools: [],
       });
     }

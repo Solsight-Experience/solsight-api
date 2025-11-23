@@ -19,11 +19,17 @@ export class SolanaService {
   private connection: Connection;
   private readonly network: string;
   private readonly programId?: PublicKey;
+  private heliusConnection: Connection;
 
   constructor(private configService: ConfigService) {
     const rpcUrl = this.configService.get<string>('solana.rpcUrl');
     if (!rpcUrl) {
       throw new Error('Solana RPC URL is required');
+    }
+
+    const heliusRpcUrl = this.configService.get<string>('solana.heliusRpcUrl');
+    if (!heliusRpcUrl) {
+      throw new Error('Helius RPC URL is required');
     }
 
     const commitment = this.configService.get<string>(
@@ -37,6 +43,7 @@ export class SolanaService {
     this.network = network;
 
     this.connection = new Connection(rpcUrl, commitment);
+    this.heliusConnection = new Connection(heliusRpcUrl, commitment);
 
     const programIdStr = this.configService.get<string>('solana.programId');
     if (programIdStr) {
@@ -50,6 +57,14 @@ export class SolanaService {
     return this.connection;
   }
 
+  getHeliusConnection(): Connection {
+    return this.heliusConnection;
+  }
+
+  getHeliusApiKey(): string | undefined {
+    return this.configService.get<string>('solana.heliusApiKey');
+  }
+
   getNetwork(): string {
     return this.network;
   }
@@ -58,9 +73,10 @@ export class SolanaService {
     return this.programId;
   }
 
-  async getBalance(publicKey: PublicKey): Promise<number> {
+  async getBalance(publicKey: PublicKey, useHelius = false): Promise<number> {
+    const conn = useHelius ? this.heliusConnection : this.connection;
     try {
-      const balance = await this.connection.getBalance(publicKey);
+      const balance = await conn.getBalance(publicKey);
       return balance / LAMPORTS_PER_SOL;
     } catch (error) {
       this.logger.error(
@@ -89,15 +105,39 @@ export class SolanaService {
     }
   }
 
-  async getTransactionHistory(publicKey: PublicKey, limit = 10) {
+  async getParsedTokenAccountsByOwner(owner: PublicKey, useHelius = false) {
+    const conn = useHelius ? this.heliusConnection : this.connection;
     try {
-      const signatures = await this.connection.getSignaturesForAddress(
+      const result = await conn.getParsedTokenAccountsByOwner(owner, {
+        programId: TOKEN_PROGRAM_ID,
+      });
+      return result.value;
+    } catch (error) {
+      this.logger.error(
+        `Failed to get parsed token accounts for ${owner.toString()}`,
+        error,
+      );
+      throw error;
+    }
+  }
+
+  async getTransactionHistory(
+    publicKey: PublicKey,
+    limit = 10,
+    before?: string,
+    until?: string,
+    useHelius: boolean = false,
+  ) {
+    const conn = useHelius ? this.heliusConnection : this.connection;
+    try {
+      const options = { limit, before, until };
+      const signatures = await conn.getSignaturesForAddress(
         publicKey,
-        { limit },
+        options,
       );
       const transactions = await Promise.all(
         signatures.map(async (sig) => {
-          const tx = await this.connection.getTransaction(sig.signature, {
+          const tx = await conn.getTransaction(sig.signature, {
             maxSupportedTransactionVersion: 0,
           });
           return {

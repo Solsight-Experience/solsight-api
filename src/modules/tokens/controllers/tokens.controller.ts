@@ -4,6 +4,8 @@ import {
   Param,
   NotFoundException,
   Query,
+  Body,
+  Post,
 } from '@nestjs/common';
 import { TokensService } from '../services/tokens.service';
 
@@ -14,6 +16,23 @@ export class TokensController {
   @Get('search')
   search(@Query('q') q: string, @Query('limit') limit: number = 10) {
     return this.tokensService.search(q, limit);
+  }
+
+  @Post('filter')
+  filter(
+    @Query('sort_by') sort_by: string,
+    @Query('sort_order') sort_order: 'asc' | 'desc',
+    @Query('limit') limit: number = 10,
+    @Query('offset') offset: number = 0,
+    @Body() filterDto: any,
+  ) {
+    return this.tokensService.filter(
+      filterDto,
+      limit,
+      sort_by,
+      sort_order,
+      offset,
+    );
   }
 
   @Get(':address')
