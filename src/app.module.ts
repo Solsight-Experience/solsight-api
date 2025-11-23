@@ -13,7 +13,7 @@ import { CacheModule } from '@nestjs/cache-manager';
 import { PortfolioModule } from './modules/portfolio/portfolio.module';
 import { TransactionsModule } from './modules/transactions/transactions.module';
 import { DiscoveryModule } from './modules/discovery/discovery.module';
-
+import { AccountModule } from './modules/account/account.module';
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -36,9 +36,10 @@ import { DiscoveryModule } from './modules/discovery/discovery.module';
     TransactionsModule,
     DiscoveryModule,
     TokensModule,
+    AccountModule
     PortfolioModule,
   ],
   controllers: [],
   providers: [],
 })
-export class AppModule {}
+export class AppModule { }
