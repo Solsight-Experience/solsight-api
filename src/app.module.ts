@@ -6,8 +6,11 @@ import { SolanaModule } from './infra/solana/solana.module';
 import { UsersModule } from './modules/users/users.module';
 import { WalletsModule } from './modules/wallets/wallets.module';
 import { AuthModule } from './modules/auth/auth.module';
+import { TokensModule } from './modules/tokens/tokens.module';
 import configuration from './config/configuration';
 import { validationSchema } from './config/validation';
+import { CacheModule } from '@nestjs/cache-manager';
+import { PortfolioModule } from './modules/portfolio/portfolio.module';
 import { TransactionsModule } from './modules/transactions/transactions.module';
 import { DiscoveryModule } from './modules/discovery/discovery.module';
 
@@ -22,14 +25,18 @@ import { DiscoveryModule } from './modules/discovery/discovery.module';
         abortEarly: true,
       },
     }),
+    CacheModule.register({
+      isGlobal: true,
+    }),
     DatabaseModule,
     LoggerModule,
-    SolanaModule,
     AuthModule,
     UsersModule,
     WalletsModule,
     TransactionsModule,
     DiscoveryModule,
+    TokensModule,
+    PortfolioModule,
   ],
   controllers: [],
   providers: [],

@@ -5,8 +5,9 @@ export class CreateWalletDto {
   @IsString()
   address: string;
 
+  @IsOptional()
   @IsEnum(WalletType)
-  type: WalletType;
+  type?: WalletType;
 
   @IsOptional()
   @IsString()
@@ -23,4 +24,8 @@ export class CreateWalletDto {
   @IsOptional()
   @IsBoolean()
   isActive?: boolean;
+
+  @IsOptional()
+  @IsString()
+  icon?: string;
 }
