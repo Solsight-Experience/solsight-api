@@ -66,7 +66,7 @@ export class TokensService {
       address: tokenMetadata.address,
       symbol: tokenMetadata.symbol || null,
       name: tokenMetadata.name || null,
-      logo_uri: tokenMetadata.logo_uri || null,
+      logo_uri: tokenMetadata.logoUri || null,
       network: this.network,
       description: tokenMetadata.description || null,
       website: tokenMetadata.website || null,
