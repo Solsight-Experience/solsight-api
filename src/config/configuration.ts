@@ -1,5 +1,6 @@
 export default () => ({
   port: parseInt(process.env.PORT || '', 10) || 3000,
+  ws_port: parseInt(process.env.WS_PORT || '', 10) || 3001,
   environment: process.env.NODE_ENV || 'development',
 
   database: {
@@ -14,8 +15,7 @@ export default () => ({
   },
 
   solana: {
-    rpcUrl:
-      process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com',
+    rpcUrl: process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com',
     heliusRpcUrl: process.env.HELIUS_RPC_URL,
     heliusApiKey: process.env.HELIUS_API_KEY,
     network: process.env.SOLANA_NETWORK || 'mainnet-beta',
@@ -35,8 +35,7 @@ export default () => ({
 
   jupiter: {
     apiUrl: process.env.JUPITER_API_URL || 'https://quote-api.jup.ag/v6',
-    priceApiUrl:
-      process.env.JUPITER_PRICE_API_URL || 'https://price.jup.ag/v4',
+    priceApiUrl: process.env.JUPITER_PRICE_API_URL || 'https://price.jup.ag/v4',
   },
 
   coingecko: {

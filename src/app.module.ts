@@ -3,6 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import { DatabaseModule } from './database/database.module';
 import { LoggerModule } from './common/logger/logger.module';
 import { SolanaModule } from './infra/solana/solana.module';
+import { WebsocketModule } from './websocket/websocket.module';
 import { UsersModule } from './modules/users/users.module';
 import { WalletsModule } from './modules/wallets/wallets.module';
 import { AuthModule } from './modules/auth/auth.module';
@@ -28,6 +29,7 @@ import { AccountModule } from './modules/account/account.module';
     CacheModule.register({
       isGlobal: true,
     }),
+    WebsocketModule,
     DatabaseModule,
     LoggerModule,
     AuthModule,
