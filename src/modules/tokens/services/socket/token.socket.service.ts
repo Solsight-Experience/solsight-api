@@ -16,18 +16,17 @@ export class TokenSocketService implements OnModuleInit {
   startTradeStream() {
     setInterval(() => {
       const newTrade = getRandomTrade();
-      this.websocketGateway.emitEvent(
-        'tokens/So11111111111111111111111111111111111111112/trades',
-        newTrade,
-      );
+      const token = 'So11111111111111111111111111111111111111112';
+      this.websocketGateway.emitTokenEvent(token, 'trades', newTrade);
     }, 3000);
   }
 
   startTopTradersStream() {
     setInterval(() => {
       const newTopTrader = getRandomTopTrader();
-      this.websocketGateway.emitEvent(
-        'tokens/So11111111111111111111111111111111111111112/top_traders',
+      this.websocketGateway.emitTokenEvent(
+        'So11111111111111111111111111111111111111112',
+        'top_traders',
         newTopTrader,
       );
     }, 5000);
@@ -36,8 +35,9 @@ export class TokenSocketService implements OnModuleInit {
   startHolderStream() {
     setInterval(() => {
       const newHolder = getRandomHolder();
-      this.websocketGateway.emitEvent(
-        'tokens/So11111111111111111111111111111111111111112/holders',
+      this.websocketGateway.emitTokenEvent(
+        'So11111111111111111111111111111111111111112',
+        'holders',
         newHolder,
       );
     }, 5000);
@@ -105,5 +105,19 @@ function getRandomHolder() {
     last_tx_time: Date.now() - Math.floor(Math.random() * 24 * 3600 * 1000), // random 24h
 
     tx_count: Math.floor(Math.random() * 200),
+  };
+}
+
+export function getRandomTokenPrice() {
+  return {
+    timestamp: Date.now(),
+    price: parseFloat((Math.random() * 2).toFixed(4)), // 0–2
+  };
+}
+
+export function getRandomTokenVolume() {
+  return {
+    timestamp: Date.now(),
+    volume: parseFloat((Math.random() * 100).toFixed(2)), // 0–100
   };
 }
