@@ -13,20 +13,31 @@ import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { WalletsService } from '../services/wallets.service';
 import { CreateWalletDto } from '../dtos/create-wallet.dto';
 import { User } from '../../users/entities/user.entity';
+import { WalletsResponse, Wallet } from '../dtos/wallet.response.dto';
 
 interface AuthenticatedRequest extends Request {
   user: User;
 }
 
-@Controller({ path: 'users/me/wallets'})
+@Controller({ path: 'users/me/wallets' })
 export class UsersWalletsController {
   constructor(private readonly walletsService: WalletsService) {}
 
   @UseGuards(JwtAuthGuard)
   @Get()
-  async list(@Request() req: AuthenticatedRequest) {
+  async list(@Request() req: AuthenticatedRequest): Promise<WalletsResponse> {
     const userId = req.user.id;
     return await this.walletsService.listForUser(userId);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get(':walletAddress')
+  async getDetail(
+    @Request() req: AuthenticatedRequest,
+    @Param('walletAddress') walletAddress: string,
+  ): Promise<Wallet> {
+    const userId = req.user.id;
+    return await this.walletsService.getWalletByAddress(userId, walletAddress);
   }
 
   @UseGuards(JwtAuthGuard)
