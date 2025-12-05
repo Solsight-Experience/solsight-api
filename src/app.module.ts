@@ -36,10 +36,10 @@ import { AccountModule } from './modules/account/account.module';
     TransactionsModule,
     DiscoveryModule,
     TokensModule,
-    AccountModule
+    AccountModule,
     PortfolioModule,
   ],
   controllers: [],
   providers: [],
 })
-export class AppModule { }
+export class AppModule {}

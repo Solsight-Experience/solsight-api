@@ -10,6 +10,14 @@ import { Wallet } from '../entities/wallet.entity';
 import { CreateWalletDto } from '../dtos/create-wallet.dto';
 import { SolanaService } from '../../../infra/solana/solana.service';
 import { PublicKey } from '@solana/web3.js';
+import {
+  WalletsResponse,
+  Position,
+  WalletSummary,
+  Wallet as WalletDto,
+} from '../dtos/wallet.response.dto';
+import { JupiterService } from '../../../infra/jupiter/jupiter.service';
+import { CoinGeckoService } from '../../../infra/coingecko/coingecko.service';
 
 @Injectable()
 export class WalletsService {
@@ -17,6 +25,8 @@ export class WalletsService {
     @InjectRepository(Wallet)
     private readonly walletRepository: Repository<Wallet>,
     private readonly solanaService: SolanaService,
+    private readonly jupiterService: JupiterService,
+    private readonly coinGeckoService: CoinGeckoService,
   ) {}
 
   async create(
@@ -59,12 +69,12 @@ export class WalletsService {
     });
   }
 
-  async listForUser(userId: string) {
+  async listForUser(userId: string): Promise<WalletsResponse> {
     const wallets = await this.findByUserId(userId);
 
     // Auto-update balances for all user wallets
     try {
-      await Promise.all(wallets.map(wallet => this.updateBalance(wallet.id)));
+      await Promise.all(wallets.map((wallet) => this.updateBalance(wallet.id)));
     } catch (error) {
       // Log the error but don't block the response if updates fail
       console.error('Failed to update one or more wallet balances', error);
@@ -73,27 +83,127 @@ export class WalletsService {
     // Refetch wallets to get the potentially updated balances
     const updatedWallets = await this.findByUserId(userId);
 
-    const total_wallets = updatedWallets.length;
-    const total_balance_sol = updatedWallets.reduce((acc, w) => acc + Number(w.balance || 0), 0);
     const solPrice = await this.getSolPriceUsd();
-    const total_balance_usd = total_balance_sol * solPrice;
 
-    const mapped = updatedWallets.map((w) => ({
-      address: w.address,
-      name: w.name || null,
-      icon: (w as any).icon || null,
-      is_default: !!w.isDefault,
-      is_connected: !!w.isConnected,
-      added_at: w.createdAt,
-      balance_sol: Number(w.balance || 0),
-      balance_usd: Number(w.balance || 0) * solPrice,
-    }));
+    // Get detailed wallet info with positions
+    const walletsWithDetails = await Promise.all(
+      updatedWallets.map((w) => this.getWalletDetail(w, solPrice)),
+    );
+
+    const total_wallets = walletsWithDetails.length;
+    const total_balance_sol = walletsWithDetails.reduce(
+      (acc, w) => acc + w.balance_sol,
+      0,
+    );
+    const total_balance_usd = walletsWithDetails.reduce(
+      (acc, w) => acc + w.balance_usd,
+      0,
+    );
 
     return {
-      wallets: mapped,
+      wallets: walletsWithDetails,
       total_wallets,
       total_balance_sol,
       total_balance_usd,
+    };
+  }
+
+  private async getWalletDetail(
+    wallet: Wallet,
+    solPrice: number,
+  ): Promise<WalletDto> {
+    const positions = await this.getWalletPositions(wallet.address);
+    const summary = this.calculateWalletSummary(positions);
+
+    return {
+      address: wallet.address,
+      name: wallet.name || '',
+      icon: (wallet as any).icon || '',
+      is_default: !!wallet.isDefault,
+      is_connected: !!wallet.isConnected,
+      added_at: wallet.createdAt,
+      balance_sol: Number(wallet.balance || 0),
+      balance_usd: Number(wallet.balance || 0) * solPrice,
+      positions,
+      summary,
+    };
+  }
+
+  private async getWalletPositions(walletAddress: string): Promise<Position[]> {
+    try {
+      const publicKey = new PublicKey(walletAddress);
+      const tokenAccounts =
+        await this.solanaService.getParsedTokenAccountsByOwner(publicKey);
+
+      const positions: Position[] = [];
+
+      for (const account of tokenAccounts) {
+        const parsedInfo = account.account.data.parsed.info;
+        const mintAddress = parsedInfo.mint;
+        const balance = parsedInfo.tokenAmount.uiAmount;
+
+        if (balance === 0) continue; // Skip empty accounts
+
+        // Get token info from Jupiter
+        let tokenInfo;
+        try {
+          tokenInfo = await this.jupiterService.getTokenInfo(mintAddress);
+        } catch (error) {
+          console.error('Failed to get token info from Jupiter', error);
+        }
+
+        if (!tokenInfo) {
+          // Skip tokens not found in Jupiter list
+          continue;
+        }
+
+        // Get price from Jupiter
+        let priceUsd = 0;
+        let priceChange24h = 0; // TODO: Get price change from CoinGecko if needed
+        try {
+          const price = await this.jupiterService.getTokenPrice(mintAddress);
+          priceUsd = price || 0;
+        } catch (error) {
+          console.error('Failed to get price from Jupiter', error);
+        }
+
+        const valueUsd = balance * priceUsd;
+
+        positions.push({
+          token_address: mintAddress,
+          token_symbol: tokenInfo.symbol,
+          token_name: tokenInfo.name,
+          token_logo: tokenInfo.logoURI || '',
+          balance,
+          price_usd: priceUsd,
+          value_usd: valueUsd,
+          price_change_24h: priceChange24h,
+        });
+      }
+
+      // Sort by value descending
+      return positions.sort((a, b) => b.value_usd - a.value_usd);
+    } catch (error) {
+      console.error('Failed to get wallet positions', error);
+      return [];
+    }
+  }
+
+  private calculateWalletSummary(positions: Position[]): WalletSummary {
+    const total_tokens = positions.length;
+    const total_value_usd = positions.reduce((acc, p) => acc + p.value_usd, 0);
+    const total_pnl_24h = positions.reduce(
+      (acc, p) => acc + (p.value_usd * p.price_change_24h) / 100,
+      0,
+    );
+    const total_pnl_24h_percent =
+      total_value_usd > 0 ? (total_pnl_24h / total_value_usd) * 100 : 0;
+
+    return {
+      total_tokens,
+      total_value_usd,
+      total_pnl_24h,
+      total_pnl_24h_percent,
     };
   }
 
@@ -121,6 +231,32 @@ export class WalletsService {
     }
 
     return wallet;
+  }
+
+  async getWalletByAddress(
+    userId: string,
+    address: string,
+  ): Promise<WalletDto> {
+    const wallet = await this.walletRepository.findOne({
+      where: { address, userId },
+    });
+
+    if (!wallet) {
+      throw new NotFoundException('Wallet not found');
+    }
+
+    // Update balance
+    try {
+      await this.updateBalance(wallet.id);
+    } catch (error) {
+      console.error('Failed to update wallet balance', error);
+    }
+
+    // Refetch with updated balance
+    const updatedWallet = await this.findById(wallet.id);
+    const solPrice = await this.getSolPriceUsd();
+
+    return await this.getWalletDetail(updatedWallet, solPrice);
   }
 
   async updateBalance(walletId: string): Promise<Wallet> {
@@ -216,10 +352,18 @@ export class WalletsService {
     return await this.findById(wallet.id);
   }
 
-  // Placeholder for SOL price in USD. Return 0 by default.
+  // Get SOL price in USD from CoinGecko
   private async getSolPriceUsd(): Promise<number> {
-    // TODO: implement price fetch from a reliable oracle (CoinGecko etc.)
-    return 0;
+    try {
+      const marketData = await this.coinGeckoService.getCoinsMarketData(['solana'], 'usd');
+      if (marketData && marketData.length > 0) {
+        return marketData[0].current_price;
+      }
+      return 0;
+    } catch (error) {
+      console.error('Failed to get SOL price from CoinGecko', error);
+      return 0;
+    }
   }
 
   async delete(id: string): Promise<void> {
