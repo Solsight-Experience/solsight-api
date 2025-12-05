@@ -36,7 +36,7 @@ import { AccountModule } from './modules/account/account.module';
     TransactionsModule,
     DiscoveryModule,
     TokensModule,
-    AccountModule
+    AccountModule,
     PortfolioModule,
   ],
   controllers: [],
