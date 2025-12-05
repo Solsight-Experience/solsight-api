@@ -7,11 +7,24 @@ export const validationSchema = Joi.object({
   PORT: Joi.number().default(3000),
 
   // Database
+  DATABASE_URL: Joi.string().uri(),
   DATABASE_HOST: Joi.string().default('localhost'),
   DATABASE_PORT: Joi.number().default(5432),
-  DATABASE_USERNAME: Joi.string().required(),
-  DATABASE_PASSWORD: Joi.string().required(),
-  DATABASE_NAME: Joi.string().required(),
+  DATABASE_USERNAME: Joi.when('DATABASE_URL', {
+    is: Joi.exist(),
+    then: Joi.string().optional(),
+    otherwise: Joi.string().required(),
+  }),
+  DATABASE_PASSWORD: Joi.when('DATABASE_URL', {
+    is: Joi.exist(),
+    then: Joi.string().optional(),
+    otherwise: Joi.string().required(),
+  }),
+  DATABASE_NAME: Joi.when('DATABASE_URL', {
+    is: Joi.exist(),
+    then: Joi.string().optional(),
+    otherwise: Joi.string().required(),
+  }),
 
   // Solana
   SOLANA_RPC_URL: Joi.string().uri().default('https://api.devnet.solana.com'),
