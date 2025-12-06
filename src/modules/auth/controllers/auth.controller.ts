@@ -47,4 +47,21 @@ export class AuthController {
 
     return { message: 'Logged out successfully' };
   }
+  @Post('register')
+  async register(
+    @Body() registerDto: LoginDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const { user, accessToken } = await this.authService.register(registerDto);
+
+    res.cookie('auth_token', accessToken, {
+      httpOnly: true,
+      secure: false,
+      sameSite: 'lax',
+      path: '/',
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+    });
+
+    return { user };
+  }
 }

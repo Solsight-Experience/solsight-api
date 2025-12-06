@@ -28,9 +28,10 @@ export class UserRepository {
     /**
      * Tìm user active theo email
      */
-    async findActiveByEmail(email: string): Promise<User | null> {
+    async findActiveByEmailWithPassword(email: string): Promise<User | null> {
         return this.repository.findOne({
             where: { email, isActive: true },
+            select: ['id', 'email', 'username', 'password', 'firstName', 'lastName', 'isActive', 'isEmailVerified']
         });
     }
 

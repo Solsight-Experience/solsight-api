@@ -30,17 +30,18 @@ export class AuthService {
     private readonly jwtService: JwtService,
   ) { }
 
+  // src/auth/services/auth.service.ts
   async login(loginDto: LoginDto) {
-    const user = await this.userRepository.findActiveByEmail(loginDto.email);
+    const user = await this.userRepository.findActiveByEmailWithPassword(loginDto.email);
 
     if (!user) {
-      throw new BadRequestException('Invalid email');
+      throw new BadRequestException('Email not found or inactive');
     }
 
     const isPasswordValid = await bcrypt.compare(loginDto.password, user.password);
 
     if (!isPasswordValid) {
-      throw new BadRequestException('Invalid password');
+      throw new BadRequestException('Password is incorrect');
     }
 
     const accessToken = await this.generateAccessToken(user);
@@ -50,28 +51,31 @@ export class AuthService {
   }
 
   async register(registerDto: RegisterDto) {
-    const emailExists = await this.userRepository.existsByEmail(registerDto.email);
+    try {
+      const emailExists = await this.userRepository.existsByEmail(registerDto.email);
+      if (emailExists) {
+        throw new BadRequestException('Email already exists');
+      }
 
-    if (emailExists) {
-      throw new BadRequestException('Email already exists');
+      const hashedPassword = await bcrypt.hash(registerDto.password, 10);
+
+      const newUser = await this.userRepository.create({
+        email: registerDto.email,
+        username: registerDto.username || registerDto.email.split('@')[0],
+        password: hashedPassword,
+        firstName: registerDto.firstName,
+        lastName: registerDto.lastName,
+        isActive: true,
+        isEmailVerified: false,
+      });
+
+      const accessToken = await this.generateAccessToken(newUser);
+      const { password, ...userWithoutPassword } = newUser;
+      return { user: userWithoutPassword, accessToken };
+    } catch (error) {
+      console.error('Error creating user:', error);
+      throw new BadRequestException('Error creating user: ' + error.message);
     }
-
-    const hashedPassword = await bcrypt.hash(registerDto.password, 10);
-
-    const newUser = await this.userRepository.create({
-      email: registerDto.email,
-      username: registerDto.username || registerDto.email.split('@')[0],
-      password: hashedPassword,
-      firstName: registerDto.firstName,
-      lastName: registerDto.lastName,
-      isActive: true,
-      isEmailVerified: false,
-    });
-
-    const accessToken = await this.generateAccessToken(newUser);
-
-    const { password, ...userWithoutPassword } = newUser;
-    return { user: userWithoutPassword, accessToken };
   }
 
   async generateAccessToken(user: any): Promise<string> {
