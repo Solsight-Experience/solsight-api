@@ -13,22 +13,22 @@ export class User {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column({ unique: true })
+  @Column({ type: 'varchar', unique: true })
   email: string;
 
-  @Column()
+  @Column({ type: 'varchar'})
   username: string;
 
-  @Column({ select: false })
+  @Column({ type: 'varchar', select: false })
   password?: string;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   firstName?: string;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   lastName?: string;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   avatar?: string;
 
   @Column({ default: true })

@@ -23,11 +23,17 @@ export class UsersService {
       throw new ConflictException('Email already exists');
     }
 
-    const existingUsername = await this.usersRepository.findByUsername(
-      createUserDto.username,
-    );
-    if (existingUsername) {
-      throw new ConflictException('Username already exists');
+    let username = createUserDto.username;
+
+    if (username) {
+      const existingUsername = await this.usersRepository.findByUsername(
+        username,
+      );
+      if (existingUsername) {
+        throw new ConflictException('Username already exists');
+      }
+    } else {
+      username = 'user_' + crypto.randomBytes(4).toString('hex');
     }
 
     // Hash password
@@ -38,6 +44,7 @@ export class UsersService {
 
     const user = await this.usersRepository.create({
       ...createUserDto,
+      username,
       password: hashedPassword,
       emailVerificationToken,
     });

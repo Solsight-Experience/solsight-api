@@ -29,6 +29,25 @@ export class WalletsService {
     private readonly coinGeckoService: CoinGeckoService,
   ) {}
 
+
+
+  async createWithNonce(address: string, nonce: string): Promise<Wallet> {
+    const wallet = this.walletRepository.create({
+      address,
+      nonce,
+      chain: 'SOL',
+    });
+    return this.walletRepository.save(wallet);
+  }
+
+  async updateNonce(walletId: string, nonce: string | null): Promise<void> {
+    await this.walletRepository.update(walletId, { nonce });
+  }
+
+  async updateUser(walletId: string, userId: string, icon?: string ): Promise<void> {
+    await this.walletRepository.update(walletId, { userId, icon: icon as any });
+  }
+
   async create(
     userId: string,
     createWalletDto: CreateWalletDto,
@@ -38,13 +57,13 @@ export class WalletsService {
       throw new BadRequestException('Invalid Solana wallet address');
     }
 
-    // Check if wallet already exists for this user
+    // Check if wallet already exists
     const existingWallet = await this.walletRepository.findOne({
-      where: { address: createWalletDto.address, userId },
+      where: { address: createWalletDto.address },
     });
 
     if (existingWallet) {
-      throw new ConflictException('Wallet already exists for this user');
+      throw new ConflictException('Wallet already exists');
     }
 
     const wallet = this.walletRepository.create({
@@ -233,6 +252,12 @@ export class WalletsService {
     return wallet;
   }
 
+  async findOneByAddress(address: string): Promise<Wallet | null> {
+    return this.walletRepository.findOne({
+      where: { address },
+      relations: ['user'],
+    });
+  }
   async getWalletByAddress(
     userId: string,
     address: string,
