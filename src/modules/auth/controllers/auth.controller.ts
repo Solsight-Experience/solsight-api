@@ -1,5 +1,5 @@
-import { Controller, Post, Body, UseGuards, Get, Request, Res, Req } from '@nestjs/common';
-import { AuthService, LoginDto } from '../services/auth.service';
+import { Controller, Post, Body, Res, HttpException, HttpStatus } from '@nestjs/common';
+import { AuthService, LoginDto, OauthLoginDto, } from '../services/auth.service';
 import { JwtAuthGuard } from '../guards/jwt-auth.guard';
 import { Response } from 'express';
 @Controller('auth')
@@ -27,16 +27,12 @@ export class AuthController {
 
   @Post('logout')
   logout(@Res({ passthrough: true }) res: Response) {
-    // Thử cả 2 cách cùng lúc
     res.clearCookie('auth_token', {
       httpOnly: true,
       secure: false,
       sameSite: 'lax',
       path: '/',
-      // KHÔNG có domain
     });
-
-    // Backup: set cookie rỗng với maxAge = 0
     res.cookie('auth_token', '', {
       httpOnly: true,
       secure: false,
@@ -46,6 +42,24 @@ export class AuthController {
     });
 
     return { message: 'Logged out successfully' };
+  }
+  @Post('oauth-login')
+  async oauthLogin(@Body() dto: OauthLoginDto, @Res({ passthrough: true }) res: Response) {
+    try {
+      const { user, accessToken } = await this.authService.handleOauthLogin(dto);
+
+      res.cookie('auth_token', accessToken, {
+        httpOnly: true,
+        sameSite: 'lax',
+        maxAge: 7 * 24 * 60 * 60 * 1000,
+        secure: process.env.NODE_ENV === 'production',
+        path: '/',
+      });
+
+      return { user, message: 'Login successful' };
+    } catch (err) {
+      throw new HttpException(err.message || 'OAuth login failed', HttpStatus.BAD_REQUEST);
+    }
   }
   @Post('register')
   async register(

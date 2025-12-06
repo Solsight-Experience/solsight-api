@@ -20,7 +20,7 @@ export class User {
   username: string;
 
   @Column({ select: false })
-  password: string;
+  password?: string;
 
   @Column({ nullable: true })
   firstName?: string;
@@ -47,6 +47,11 @@ export class User {
   passwordResetExpires?: Date | null;
   @CreateDateColumn()
   createdAt: Date;
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  oauthProvider: string;
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  oauthId: string;
 
   @UpdateDateColumn()
   updatedAt: Date;
