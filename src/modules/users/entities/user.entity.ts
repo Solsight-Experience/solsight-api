@@ -20,7 +20,7 @@ export class User {
   username: string;
 
   @Column({ select: false })
-  password?: string;
+  password: string;
 
   @Column({ nullable: true })
   firstName?: string;

@@ -1,9 +1,20 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+// src/auth/services/auth.service.ts
+import { BadRequestException, Injectable, UnauthorizedException, NotFoundException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import * as bcrypt from 'bcrypt';
+import { UserRepository } from '../repositories/user.repository';
 
 export interface LoginDto {
   email: string;
   password: string;
+}
+
+export interface RegisterDto {
+  email: string;
+  username?: string;
+  password: string;
+  firstName?: string;
+  lastName?: string;
 }
 
 export interface JwtPayload {
@@ -12,45 +23,74 @@ export interface JwtPayload {
   username: string;
 }
 
-export interface MockUser {
-  id: string;
-  email: string;
-  username: string;
-  password: string;
-  isActive: boolean;
-}
-
-// Mock data
-const MOCK_USERS: MockUser[] = [
-  { id: '1', email: 'user@example.com', username: 'UserOne', password: '123456', isActive: true },
-  { id: '2', email: 'admin@gmail.com', username: 'Admin', password: 'admin123', isActive: true },
-];
-
 @Injectable()
 export class AuthService {
-  constructor(private readonly jwtService: JwtService) { }
+  constructor(
+    private readonly userRepository: UserRepository,
+    private readonly jwtService: JwtService,
+  ) { }
 
   async login(loginDto: LoginDto) {
-    const user = MOCK_USERS.find(
-      (u) => u.email === loginDto.email && u.password === loginDto.password && u.isActive,
-    );
+    const user = await this.userRepository.findActiveByEmail(loginDto.email);
 
     if (!user) {
-      throw new UnauthorizedException('Invalid credentials');
+      throw new BadRequestException('Invalid email');
+    }
+
+    const isPasswordValid = await bcrypt.compare(loginDto.password, user.password);
+
+    if (!isPasswordValid) {
+      throw new BadRequestException('Invalid password');
     }
 
     const accessToken = await this.generateAccessToken(user);
-    return { user: { ...user, password: undefined }, accessToken };
+
+    const { password, ...userWithoutPassword } = user;
+    return { user: userWithoutPassword, accessToken };
   }
 
-  async generateAccessToken(user: MockUser): Promise<string> {
-    const payload: JwtPayload = { sub: user.id, email: user.email, username: user.username };
+  async register(registerDto: RegisterDto) {
+    const emailExists = await this.userRepository.existsByEmail(registerDto.email);
+
+    if (emailExists) {
+      throw new BadRequestException('Email already exists');
+    }
+
+    const hashedPassword = await bcrypt.hash(registerDto.password, 10);
+
+    const newUser = await this.userRepository.create({
+      email: registerDto.email,
+      username: registerDto.username || registerDto.email.split('@')[0],
+      password: hashedPassword,
+      firstName: registerDto.firstName,
+      lastName: registerDto.lastName,
+      isActive: true,
+      isEmailVerified: false,
+    });
+
+    const accessToken = await this.generateAccessToken(newUser);
+
+    const { password, ...userWithoutPassword } = newUser;
+    return { user: userWithoutPassword, accessToken };
+  }
+
+  async generateAccessToken(user: any): Promise<string> {
+    const payload: JwtPayload = {
+      sub: user.id,
+      email: user.email,
+      username: user.username,
+    };
     return this.jwtService.signAsync(payload);
   }
 
   async validateUserByToken(payload: JwtPayload) {
-    const user = MOCK_USERS.find((u) => u.id === payload.sub);
-    if (!user) throw new UnauthorizedException('Invalid token');
-    return { ...user, password: undefined };
+    const user = await this.userRepository.findById(payload.sub);
+
+    if (!user || !user.isActive) {
+      throw new UnauthorizedException('Invalid token');
+    }
+
+    const { password, ...userWithoutPassword } = user;
+    return userWithoutPassword;
   }
 }
