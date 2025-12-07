@@ -48,6 +48,11 @@ export class User {
   @CreateDateColumn()
   createdAt: Date;
 
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  oauthProvider: string;
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  oauthId: string;
+
   @UpdateDateColumn()
   updatedAt: Date;
 

@@ -1,13 +1,14 @@
-import { Injectable, UnauthorizedException, BadRequestException, NotFoundException } from '@nestjs/common';
-import { JwtService } from '@nestjs/jwt';
-import { CreateUserDto } from 'src/modules/users/dtos/create-user.dto';
-import { User } from 'src/modules/users/entities/user.entity';
-import { UsersService } from 'src/modules/users/services/users.service';
 import { WalletsService } from '../../wallets/services/wallets.service';
 import * as nacl from 'tweetnacl';
 import bs58 from 'bs58';
 import * as crypto from 'crypto';
 
+// src/auth/services/auth.service.ts
+import { BadRequestException, Injectable, UnauthorizedException, NotFoundException } from '@nestjs/common';
+import { JwtService } from '@nestjs/jwt';
+import * as bcrypt from 'bcrypt';
+import { UserRepository } from '../repositories/user.repository';
+import { randomBytes } from 'crypto';
 export interface LoginDto {
   email: string;
   password: string;
@@ -15,8 +16,15 @@ export interface LoginDto {
 
 export interface RegisterDto {
   email: string;
-  username: string;
+  username?: string;
   password: string;
+  firstName?: string;
+  lastName?: string;
+}
+
+export interface OauthLoginDto {
+  provider: 'google';
+  token: string;
 }
 
 export interface JwtPayload {
@@ -29,39 +37,151 @@ export interface JwtPayload {
 @Injectable()
 export class AuthService {
   constructor(
-    private readonly usersService: UsersService,
+    private readonly userRepository: UserRepository,
     private readonly jwtService: JwtService,
     private readonly walletsService: WalletsService,
-  ) {}
+  ) { }
 
-  async register(
-    createUserDto: CreateUserDto,
-  ): Promise<{ user: User; accessToken: string }> {
-    const user = await this.usersService.create(createUserDto);
+  // --- Email/Password login ---
+  async login(loginDto: LoginDto) {
+    const user = await this.userRepository.findActiveByEmailWithPassword(loginDto.email);
+
+    if (!user) throw new BadRequestException('Email not found or inactive');
+    if (!user.password) {
+      throw new BadRequestException('Invalid account configuration. Please contact support.');
+    }
+
+    const isPasswordValid = await bcrypt.compare(loginDto.password, user.password);
+    if (!isPasswordValid) throw new BadRequestException('Password is incorrect');
+
     const accessToken = await this.generateAccessToken(user);
-
-    return {
-      user,
-      accessToken,
-    };
+    const { password, ...userWithoutPassword } = user;
+    return { user: userWithoutPassword, accessToken };
   }
 
-  async login(
-    loginDto: LoginDto,
-  ): Promise<{ user: User; accessToken: string }> {
-    const user = await this.validateUser(loginDto.email, loginDto.password);
-    const accessToken = await this.generateAccessToken(user);
+  async handleOauthLogin(dto: OauthLoginDto) {
+    const { provider, token } = dto;
 
-    // Remove password from response
-    delete user.password;
+    if (provider !== 'google') {
+      throw new BadRequestException('Unsupported provider');
+    }
 
-    return {
-      user,
-      accessToken,
-    };
+    try {
+      // Verify Google token
+      const googleRes = await fetch(
+        `https://oauth2.googleapis.com/tokeninfo?id_token=${token}`
+      );
+
+      if (!googleRes.ok) {
+        const errorText = await googleRes.text();
+        console.error('Google API error:', errorText);
+        throw new BadRequestException('Invalid Google token');
+      }
+
+      const profile = await googleRes.json();
+      console.log('Google profile:', profile);
+
+      if (!profile.email) {
+        throw new BadRequestException('Invalid Google token - no email');
+      }
+
+      // Check if user exists
+      let user = await this.userRepository.findByEmail(profile.email);
+
+      if (!user) {
+        console.log('Creating new OAuth user...');
+        const dummyPassword = await bcrypt.hash(
+          randomBytes(32).toString('hex'),
+          10
+        );
+        const username = profile.name
+          ? profile.name.replace(/\s+/g, '_').toLowerCase()
+          : profile.email.split('@')[0];
+
+        try {
+          user = await this.userRepository.create({
+            email: profile.email,
+            username: username,
+            password: dummyPassword,
+            firstName: profile.given_name,
+            lastName: profile.family_name,
+            avatar: profile.picture,
+            oauthProvider: 'google',
+            oauthId: profile.sub,
+            isActive: true,
+            isEmailVerified: true,
+            // KHÔNG set password - để undefined
+          });
+
+          console.log('✅ OAuth user created:', user.id);
+        } catch (dbError) {
+          console.error('❌ Database error:', dbError);
+          console.error('Error code:', dbError.code);
+          console.error('Error detail:', dbError.detail);
+          throw new BadRequestException(`Failed to create user: ${dbError.message}`);
+        }
+      } else {
+        console.log('✅ Existing user found:', user.id);
+      }
+
+      const accessToken = await this.generateAccessToken(user);
+      const { password, ...userWithoutPassword } = user;
+
+      return { user: userWithoutPassword, accessToken };
+
+    } catch (error) {
+      console.error('💥 OAuth login error:', error);
+
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+
+      throw new BadRequestException(
+        `OAuth login failed: ${error.message}`
+      );
+    }
   }
 
-  async getSolanaNonce(walletAddress: string): Promise<{ nonce: string }> {
+
+  // --- Register ---
+  async register(registerDto: RegisterDto) {
+    const emailExists = await this.userRepository.existsByEmail(registerDto.email);
+    if (emailExists) throw new BadRequestException('Email already exists');
+
+    const hashedPassword = await bcrypt.hash(registerDto.password, 10);
+    const newUser = await this.userRepository.create({
+      email: registerDto.email,
+      username: registerDto.username || registerDto.email.split('@')[0],
+      password: hashedPassword,
+      firstName: registerDto.firstName,
+      lastName: registerDto.lastName,
+      isActive: true,
+      isEmailVerified: false,
+    });
+
+    const accessToken = await this.generateAccessToken(newUser);
+    const { password, ...userWithoutPassword } = newUser;
+    return { user: userWithoutPassword, accessToken };
+  }
+
+  // --- JWT ---
+  async generateAccessToken(user: any): Promise<string> {
+    const payload: JwtPayload = {
+      sub: user.id,
+      email: user.email,
+      username: user.username,
+    };
+    return this.jwtService.signAsync(payload);
+  }
+
+  async validateUserByToken(payload: JwtPayload) {
+    const user = await this.userRepository.findById(payload.sub);
+    if (!user || !user.isActive) throw new UnauthorizedException('Invalid token');
+    const { password, ...userWithoutPassword } = user;
+    return userWithoutPassword;
+  }
+
+    async getSolanaNonce(walletAddress: string): Promise<{ nonce: string }> {
     let wallet = await this.walletsService.findOneByAddress(walletAddress);
     const nonce = crypto.randomUUID();
 
@@ -107,11 +227,10 @@ export class AuthService {
     // Clear nonce
     await this.walletsService.updateNonce(wallet.id, null);
 
-    let user: User;
-
+    let user;
     if (userId) {
       // Scenario A: Linking
-      user = await this.usersService.findById(userId);
+      user = await this.userRepository.findById(userId);
       if (!user) {
         throw new NotFoundException('User not found');
       }
@@ -131,44 +250,4 @@ export class AuthService {
     return { success: true, message: 'Wallet verified and linked successfully' };
   }
 
-  async validateUser(email: string, password: string): Promise<User> {
-    const user = await this.usersService.findByEmail(email);
-
-    if (!user || !user.isActive) {
-      throw new UnauthorizedException('Invalid credentials');
-    }
-
-    if (!user.password) {
-      throw new UnauthorizedException('Invalid credentials');
-    }
-
-    const isPasswordValid = await this.usersService.validatePassword(
-      password,
-      user.password,
-    );
-
-    if (!isPasswordValid) {
-        throw new UnauthorizedException('Invalid credentials');
-    }
-
-    return user;
-  }
-
-  async generateAccessToken(user: User): Promise<string> {
-    const payload: JwtPayload = {
-      sub: user.id,
-      email: user.email,
-      username: user.username,
-    };
-    return this.jwtService.signAsync(payload);
-  }
-  
-  async validateUserByToken(payload: JwtPayload): Promise<User | null> {
-    const user = await this.usersService.findById(payload.sub
-    );
-    if (user && user.isActive) {
-      return user;
-    }
-    return null;
-  }
 }
