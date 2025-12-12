@@ -3,6 +3,7 @@ import { AppModule } from './app.module';
 import { ConfigService } from '@nestjs/config';
 import { IoAdapter } from '@nestjs/platform-socket.io';
 import * as cookieParser from 'cookie-parser';
+import { setupApp } from './config/setup-app';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
