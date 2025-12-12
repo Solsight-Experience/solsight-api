@@ -1,5 +1,10 @@
+import { WalletsService } from '../../wallets/services/wallets.service';
+import * as nacl from 'tweetnacl';
+import bs58 from 'bs58';
+import * as crypto from 'crypto';
+
 // src/auth/services/auth.service.ts
-import { BadRequestException, Injectable, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, Injectable, UnauthorizedException, NotFoundException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { UserRepository } from '../repositories/user.repository';
@@ -28,11 +33,13 @@ export interface JwtPayload {
   username: string;
 }
 
+
 @Injectable()
 export class AuthService {
   constructor(
     private readonly userRepository: UserRepository,
     private readonly jwtService: JwtService,
+    private readonly walletsService: WalletsService,
   ) { }
 
   // --- Email/Password login ---
@@ -173,4 +180,74 @@ export class AuthService {
     const { password, ...userWithoutPassword } = user;
     return userWithoutPassword;
   }
+
+    async getSolanaNonce(walletAddress: string): Promise<{ nonce: string }> {
+    let wallet = await this.walletsService.findOneByAddress(walletAddress);
+    const nonce = crypto.randomUUID();
+
+    if (wallet) {
+      await this.walletsService.updateNonce(wallet.id, nonce);
+    } else {
+      await this.walletsService.createWithNonce(walletAddress, nonce);
+    }
+
+    return { nonce };
+  }
+
+  async verifySolanaWallet(
+    walletAddress: string,
+    signature: string,
+    walletIcon?: string,
+    userId?: string,
+  ): Promise<{ success: boolean; message: string }> {
+    const wallet = await this.walletsService.findByAddress(walletAddress);
+
+    if (!wallet || !wallet.nonce) {
+      throw new BadRequestException('Wallet not found or nonce not generated');
+    }
+
+    try {
+      const signatureUint8 = bs58.decode(signature);
+      const nonceUint8 = new TextEncoder().encode(wallet.nonce);
+      const publicKeyUint8 = bs58.decode(walletAddress);
+
+      const verified = nacl.sign.detached.verify(
+        nonceUint8,
+        signatureUint8,
+        publicKeyUint8,
+      );
+
+      if (!verified) {
+        throw new UnauthorizedException('Invalid signature');
+      }
+    } catch (error) {
+      throw new UnauthorizedException('Signature verification failed');
+    }
+
+    // Clear nonce
+    await this.walletsService.updateNonce(wallet.id, null);
+
+    let user;
+    if (userId) {
+      // Scenario A: Linking
+      user = await this.userRepository.findById(userId);
+      if (!user) {
+        throw new NotFoundException('User not found');
+      }
+    } else {
+      // Scenario B: Login
+      if (wallet.user) {
+        user = wallet.user;
+      } else {
+        throw new NotFoundException('User not found');
+      }
+    }
+    
+    // if (!wallet.userId || wallet.userId !== user.id) {
+         await this.walletsService.updateUser(wallet.id, user.id, walletIcon);
+    // }
+
+    return { success: true, message: 'Wallet verified and linked successfully' };
+  }
+
 }

@@ -6,12 +6,17 @@ import { AuthService } from './services/auth.service';
 import { AuthController } from './controllers/auth.controller';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
+import { UsersModule } from '../users/users.module';
+import { WalletsModule } from '../wallets/wallets.module';
+
 import { User } from '../users/entities/user.entity';
 import { UserRepository } from './repositories/user.repository'; 
 
 @Module({
   imports: [
     ConfigModule.forRoot(),
+    UsersModule,
+    WalletsModule,
     TypeOrmModule.forFeature([User]), 
     JwtModule.registerAsync({
       imports: [ConfigModule],

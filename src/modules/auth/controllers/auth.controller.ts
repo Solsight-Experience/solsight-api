@@ -1,4 +1,5 @@
-import { Controller, Post, Body, Res, HttpException, HttpStatus } from '@nestjs/common';
+import { Controller, Post, Body, UseGuards, Get, Request, Query, Res, HttpException, HttpStatus } from '@nestjs/common';
+import { VerifySolanaDto } from '../dtos/verify-solana.dto';
 import { AuthService, LoginDto, OauthLoginDto, } from '../services/auth.service';
 import { JwtAuthGuard } from '../guards/jwt-auth.guard';
 import { Response } from 'express';
@@ -77,5 +78,22 @@ export class AuthController {
     });
 
     return { user };
+  }
+
+
+  @Get('solana/nonce')
+  async getSolanaNonce(@Query('walletAddress') walletAddress: string) {
+    return await this.authService.getSolanaNonce(walletAddress);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('solana/verify')
+  async verifySolanaWallet(@Body() verifySolanaDto: VerifySolanaDto, @Request() req) {
+    return await this.authService.verifySolanaWallet(
+      verifySolanaDto.walletAddress,
+      verifySolanaDto.signature,
+      verifySolanaDto.walletIcon,
+      req.user.id
+    );
   }
 }

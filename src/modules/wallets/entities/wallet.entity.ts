@@ -20,8 +20,8 @@ export enum WalletType {
 export enum WalletIcon {
   SOLSIGHT = 'solsight',
   PHANTOM = 'phantom',
-  BACKPACK = 'backpack',
-  COINBASE = 'coinbase',
+  METAMASK = 'metamask',
+  WALLETCONNECT = 'walletconnect',
   CUSTOM = 'custom',
 }
 
@@ -30,8 +30,14 @@ export class Wallet {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column()
+  @Column({ type: 'varchar', unique: true })
   address: string;
+
+  @Column({ type: 'varchar', default: 'SOL' })
+  chain: string;
+
+  @Column({ type: 'text', nullable: true })
+  nonce: string | null;
 
   @Column({
     type: 'enum',
@@ -40,7 +46,7 @@ export class Wallet {
   })
   type: WalletType;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   name?: string;
 
   @Column({ default: true })
@@ -65,13 +71,13 @@ export class Wallet {
   @Column({ type: 'decimal', precision: 20, scale: 9, default: 0 })
   balance: number;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   publicKey?: string;
 
-  @Column({ nullable: true, select: false })
+  @Column({ type: 'varchar', nullable: true, select: false })
   encryptedPrivateKey?: string;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   derivationPath?: string;
 
   @CreateDateColumn()
@@ -80,10 +86,10 @@ export class Wallet {
   @UpdateDateColumn()
   updatedAt: Date;
 
-  @ManyToOne(() => User, (user) => user.wallets, { onDelete: 'CASCADE' })
+  @ManyToOne(() => User, (user) => user.wallets, { onDelete: 'CASCADE', nullable: true })
   user: User;
 
-  @Column()
+  @Column({ type: 'varchar', nullable: true })
   userId: string;
 
   @OneToMany(() => Transaction, (transaction) => transaction.fromWallet)
