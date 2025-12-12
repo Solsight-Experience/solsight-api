@@ -1,11 +1,17 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ConfigService } from '@nestjs/config';
+import { IoAdapter } from '@nestjs/platform-socket.io';
+import * as cookieParser from 'cookie-parser';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
     bufferLogs: true,
   });
+  setupApp(app);
+  app.useWebSocketAdapter(new IoAdapter(app));
+
+  app.use(cookieParser());
 
   app.enableCors({
     origin: 'http://localhost:3000',   // FE URL

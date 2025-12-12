@@ -389,10 +389,10 @@ export class TokensService {
         liquidity_change_24h: tokensInfo[index]?.stats24h?.liquidityChange,
 
         volume: {
-          '1h': tokensInfo[index]?.stats1h?.volumeChange ?? null,
-          '24h': tokensInfo[index]?.stats24h?.volumeChange,
-          '7d': tokensInfo[index]?.stats7d?.volumeChange,
-          '30d': tokensInfo[index]?.stats30d?.volumeChange,
+          '1h': tokensInfo[index]?.stats1h?.volumeChange ?? 0,
+          '24h': tokensInfo[index]?.stats24h?.volumeChange ?? 0,
+          '7d': tokensInfo[index]?.stats7d?.volumeChange ?? 0,
+          '30d': tokensInfo[index]?.stats30d?.volumeChange ?? 0,
         },
 
         txns: {
