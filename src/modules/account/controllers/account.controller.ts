@@ -1,4 +1,4 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, Post, Delete, Param, Body } from '@nestjs/common';
 import { AccountService } from '../services/account.service';
 
 @Controller('account/me')
@@ -23,6 +23,18 @@ export class AccountController {
     @Get('favorites')
     getFavorites() {
         return this.accountService.getFavorites();
+    }
+
+    // Thêm token vào danh sách yêu thích
+    @Post('favorites')
+    addFavorite(@Body() body: { token_address: string }) {
+        return this.accountService.addFavorite(body.token_address);
+    }
+
+    // Xóa token khỏi danh sách yêu thích
+    @Delete('favorites/:tokenAddress')
+    removeFavorite(@Param('tokenAddress') tokenAddress: string) {
+        return this.accountService.removeFavorite(tokenAddress);
     }
 
     // Lấy danh sách ví của người dùng

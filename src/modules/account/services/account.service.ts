@@ -94,6 +94,38 @@ export class AccountService {
         return this.favorites;
     }
 
+    addFavorite(tokenAddress: string) {
+        // Check if already exists
+        const exists = this.favorites.find(fav => fav.token_address === tokenAddress);
+        if (exists) {
+            return { success: true, message: 'Token already in favorites' };
+        }
+
+        // Add to favorites
+        this.favorites.push({
+            token_address: tokenAddress,
+            added_at: new Date().toISOString(),
+            token: {
+                name: 'Unknown Token',
+                symbol: 'UNK',
+                price_usd: 0,
+            },
+        });
+
+        return { success: true, message: 'Token added to favorites' };
+    }
+
+    removeFavorite(tokenAddress: string) {
+        const initialLength = this.favorites.length;
+        this.favorites = this.favorites.filter(fav => fav.token_address !== tokenAddress);
+        
+        if (this.favorites.length < initialLength) {
+            return { success: true, message: 'Token removed from favorites' };
+        }
+        
+        return { success: false, message: 'Token not found in favorites' };
+    }
+
     getWallets() {
         return {
             wallets: this.wallets,
