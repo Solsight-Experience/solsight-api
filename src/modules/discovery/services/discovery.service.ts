@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { Repository } from 'typeorm';
 import { Token } from '../../tokens/entities/token.entity';
 import { Category } from '../../tokens/entities/category.entity';
@@ -348,9 +349,6 @@ export class DiscoveryService {
   }
 
   async getCategories() {
-    // Sync categories from CoinGecko first
-    await this.syncCategories();
-
     const categories = await this.categoryRepository.find({
       order: { marketCap: 'DESC' },
     });
@@ -364,8 +362,10 @@ export class DiscoveryService {
 
   /**
    * Sync categories from CoinGecko
+   * Runs daily at 00:00
    */
-  private async syncCategories(): Promise<void> {
+  @Cron(CronExpression.EVERY_DAY_AT_MIDNIGHT)
+  async syncCategories(): Promise<void> {
     try {
       this.logger.log('Starting categories sync...');
 
@@ -405,9 +405,6 @@ export class DiscoveryService {
 
   async getCategoryDetail(categorySlug: string, dto: GetCategoryDto) {
     const { sort_by, limit, offset } = dto;
-
-    // Ensure categories are synced
-    await this.syncCategories();
 
     const category = await this.categoryRepository.findOne({
       where: { slug: categorySlug },

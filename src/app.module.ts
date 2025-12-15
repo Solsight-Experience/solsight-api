@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { ScheduleModule } from '@nestjs/schedule';
 import { DatabaseModule } from './database/database.module';
 import { LoggerModule } from './common/logger/logger.module';
 import { SolanaModule } from './infra/solana/solana.module';
@@ -26,6 +27,7 @@ import { AccountModule } from './modules/account/account.module';
         abortEarly: true,
       },
     }),
+    ScheduleModule.forRoot(),
     CacheModule.register({
       isGlobal: true,
     }),
