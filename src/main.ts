@@ -3,6 +3,7 @@ import { AppModule } from './app.module';
 import { ConfigService } from '@nestjs/config';
 import { IoAdapter } from '@nestjs/platform-socket.io';
 import * as cookieParser from 'cookie-parser';
+import { setupApp } from './config/setup-app';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
@@ -14,14 +15,14 @@ async function bootstrap() {
   app.use(cookieParser());
 
   app.enableCors({
-    origin: 'http://localhost:3000',   // FE URL
-    credentials: true,                 // Cho phép gửi cookie
+    origin: 'http://localhost:3001',   // FE URL
+    credentials: true,
     allowedHeaders: ['Content-Type', 'Authorization'],
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   });
 
   const configService = app.get(ConfigService);
-  const port = configService.get<number>('PORT', 3001); // backend port
+  const port = configService.get<number>('PORT', 3000); // backend port
   app.setGlobalPrefix('api');
   await app.listen(port);
 }

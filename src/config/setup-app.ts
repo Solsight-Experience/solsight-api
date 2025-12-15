@@ -18,12 +18,6 @@ export function setupApp(app: INestApplication) {
     }),
   );
 
-  // CORS
-  app.enableCors({
-    origin: '*',
-    credentials: true,
-  });
-
   console.log('Application setup completed.');
   return app;
 }
