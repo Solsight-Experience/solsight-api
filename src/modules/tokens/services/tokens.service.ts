@@ -138,46 +138,48 @@ export class TokensService {
     const whereConditions: any = {};
     if (filter?.metrics) {
       const m = filter.metrics;
+      
       if (m.age_min_minutes != null && m.age_max_minutes != null) {
         whereConditions.ageSeconds = Between(
           m.age_min_minutes,
           m.age_max_minutes,
         );
-        if (m.liquidity_min != null && m.liquidity_max != null) {
-          whereConditions.liquidity = Between(m.liquidity_min, m.liquidity_max);
-        }
+      }
 
-        if (m.market_cap_min != null && m.market_cap_max != null) {
-          whereConditions.marketCap = Between(
-            m.market_cap_min,
-            m.market_cap_max,
-          );
-        }
+      if (m.liquidity_min != null && m.liquidity_max != null) {
+        whereConditions.liquidity = Between(m.liquidity_min, m.liquidity_max);
+      }
 
-        if (m.volume_24h_min != null && m.volume_24h_max != null) {
-          whereConditions.volume24h = Between(
-            m.volume_24h_min,
-            m.volume_24h_max,
-          );
-        }
+      if (m.market_cap_min != null && m.market_cap_max != null) {
+        whereConditions.marketCap = Between(
+          m.market_cap_min,
+          m.market_cap_max,
+        );
+      }
 
-        if (m.txns_24h_min != null && m.txns_24h_max != null) {
-          whereConditions.txns24hTotal = Between(
-            m.txns_24h_min,
-            m.txns_24h_max,
-          );
-        }
+      if (m.volume_24h_min != null && m.volume_24h_max != null) {
+        whereConditions.volume24h = Between(
+          m.volume_24h_min,
+          m.volume_24h_max,
+        );
+      }
 
-        if (m.holders_min != null && m.holders_max != null) {
-          whereConditions.holdersCount = Between(m.holders_min, m.holders_max);
-        }
+      if (m.txns_24h_min != null && m.txns_24h_max != null) {
+        whereConditions.txns24hTotal = Between(
+          m.txns_24h_min,
+          m.txns_24h_max,
+        );
+      }
 
-        if (m.price_change_24h_min != null && m.price_change_24h_max != null) {
-          whereConditions.priceChange24h = Between(
-            m.price_change_24h_min,
-            m.price_change_24h_max,
-          );
-        }
+      if (m.holders_min != null && m.holders_max != null) {
+        whereConditions.holdersCount = Between(m.holders_min, m.holders_max);
+      }
+
+      if (m.price_change_24h_min != null && m.price_change_24h_max != null) {
+        whereConditions.priceChange24h = Between(
+          m.price_change_24h_min,
+          m.price_change_24h_max,
+        );
       }
     }
     if (filter?.holder_filters) {
