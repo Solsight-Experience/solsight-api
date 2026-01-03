@@ -1,5 +1,11 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { WebsocketGateway } from '../../../../websocket/websocket.gateway';
+import { TokenSocketGateway } from './token.socket.gateway';
+import {
+  ROOM_RULES,
+  RoomDomain,
+  RoomInterval,
+  parseRoomIntervalMs,
+} from './room/room.constants';
 import {
   getRandomTrade,
   getRandomTokenStats,
@@ -10,84 +16,109 @@ import {
 @Injectable()
 export class TokenSocketService implements OnModuleInit {
   private readonly logger = new Logger(TokenSocketService.name);
-  constructor(private readonly websocketGateway: WebsocketGateway) {}
+
+  constructor(private readonly gateway: TokenSocketGateway) {}
 
   onModuleInit() {
-    this.logger.log('Token socket service initialized.');
-    this.startTokenStatsStream();
-    this.startTradeStream();
-    this.startTopTradersStream();
-    this.startHolderStream();
-    this.startPriceStream();
-    this.startVolumeStream();
+    this.logger.log('Token socket service initialized');
+
+    for (const domain of Object.keys(ROOM_RULES) as RoomDomain[]) {
+      for (const interval of ROOM_RULES[domain]) {
+        this.startScheduler(domain, interval);
+      }
+    }
   }
 
-  startPriceStream() {
+  private startScheduler(domain: RoomDomain, interval: RoomInterval) {
+    const intervalMs = parseRoomIntervalMs(interval);
+
+    this.logger.log(`Start scheduler: domain=${domain}, interval=${interval}`);
+
     setInterval(() => {
-      const newPrice = {
-        price: getRandomTokenStats().price,
-        timestamp: getRandomTokenStats().timestamp,
-      };
-      this.websocketGateway.emitTokenEvent(
-        'So11111111111111111111111111111111111111112',
-        'price',
-        newPrice,
-      );
-    }, 5000);
+      const rooms = this.gateway.listTokenRooms(domain);
+      for (const room of rooms) {
+        if (!room.endsWith(`:${interval}`)) continue;
+
+        const data = this.buildData(domain, room);
+        if (!data) continue;
+
+        console.log(`Emitting to room ${room}`);
+        this.gateway.emit(room, domain, data);
+      }
+    }, intervalMs);
   }
 
-  startTokenStatsStream() {
-    setInterval(() => {
-      const newTokenStats = getRandomTokenStats();
-      this.websocketGateway.emitTokenEvent(
-        'So11111111111111111111111111111111111111112',
-        'stats',
-        newTokenStats,
-      );
-    }, 5000);
-  }
+  private buildData(domain: RoomDomain, room: string) {
+    const [, token] = room.split(':');
 
-  startVolumeStream() {
-    setInterval(() => {
-      const newVolume = {
-        volume: getRandomTokenStats().volume['24h'],
-        timestamp: getRandomTokenStats().timestamp,
-      };
-      this.websocketGateway.emitTokenEvent(
-        'So11111111111111111111111111111111111111112',
-        'volume',
-        newVolume,
-      );
-    }, 20000);
-  }
+    switch (domain) {
+      case 'price': {
+        const stats = getRandomTokenStats();
+        return {
+          token,
+          price: stats.price,
+          timestamp: stats.timestamp,
+        };
+      }
 
-  startTradeStream() {
-    setInterval(() => {
-      const newTrade = getRandomTrade();
-      const token = 'So11111111111111111111111111111111111111112';
-      this.websocketGateway.emitTokenEvent(token, 'trades', newTrade);
-    }, 3000);
-  }
+      case 'stats': {
+        return {
+          token,
+          ...getRandomTokenStats(),
+        };
+      }
 
-  startTopTradersStream() {
-    setInterval(() => {
-      const newTopTrader = getRandomTopTrader();
-      this.websocketGateway.emitTokenEvent(
-        'So11111111111111111111111111111111111111112',
-        'top_traders',
-        newTopTrader,
-      );
-    }, 5000);
-  }
+      case 'volume': {
+        const stats = getRandomTokenStats();
+        return {
+          token,
+          volume: stats.volume['24h'],
+          timestamp: stats.timestamp,
+        };
+      }
 
-  startHolderStream() {
-    setInterval(() => {
-      const newHolder = getRandomHolder();
-      this.websocketGateway.emitTokenEvent(
-        'So11111111111111111111111111111111111111112',
-        'holders',
-        newHolder,
-      );
-    }, 5000);
+      case 'trades': {
+        return {
+          token,
+          ...getRandomTrade(),
+        };
+      }
+
+      case 'top_traders': {
+        return {
+          token,
+          data: getRandomTopTrader(),
+        };
+      }
+
+      case 'holders': {
+        return {
+          token,
+          data: getRandomHolder(),
+        };
+      }
+
+      case 'chart': {
+        const stats = getRandomTokenStats();
+        return {
+          token,
+          open: stats.price * 0.98,
+          close: stats.price,
+          high: stats.price * 1.02,
+          low: stats.price * 0.96,
+          timestamp: stats.timestamp,
+        };
+      }
+
+      case 'tx': {
+        return {
+          token,
+          ...getRandomTrade(),
+        };
+      }
+
+      default:
+        return null;
+    }
   }
 }

@@ -8,6 +8,7 @@ import { SolanaModule } from 'src/infra/solana/solana.module';
 import { ConfigModule } from '@nestjs/config';
 import { WebsocketModule } from '../../websocket/websocket.module';
 import { TokenSocketService } from './services/socket/token.socket.service';
+import { TokenSocketGateway } from './services/socket/token.socket.gateway';
 
 @Module({
   imports: [
@@ -16,7 +17,12 @@ import { TokenSocketService } from './services/socket/token.socket.service';
     ConfigModule,
     WebsocketModule,
   ],
-  providers: [TokensService, TokenSocketService, TokenSeederService],
+  providers: [
+    TokensService,
+    TokenSocketService,
+    TokenSocketGateway,
+    // TokenSeederService,
+  ],
   controllers: [TokensController],
 })
 export class TokensModule {}

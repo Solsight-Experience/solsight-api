@@ -80,12 +80,12 @@ importers:
       class-validator:
         specifier: ^0.14.2
         version: 0.14.2
-      ioredis:
-        specifier: ^5.8.2
-        version: 5.8.2
       cookie-parser:
         specifier: ^1.4.7
         version: 1.4.7
+      ioredis:
+        specifier: ^5.8.2
+        version: 5.8.2
       joi:
         specifier: ^18.0.1
         version: 18.0.1
@@ -104,21 +104,18 @@ importers:
       rxjs:
         specifier: ^7.8.1
         version: 7.8.2
+      socket.io:
+        specifier: ^4.8.1
+        version: 4.8.1(bufferutil@4.0.9)(utf-8-validate@5.0.10)
       tweetnacl:
         specifier: ^1.0.3
         version: 1.0.3
       typeorm:
         specifier: ^0.3.26
-        version: 0.3.27(pg@8.16.3)(reflect-metadata@0.2.2)(ts-node@10.9.2(@swc/core@1.14.0(@swc/helpers@0.5.17))(@types/node@22.18.13)(typescript@5.9.3))
+        version: 0.3.27(ioredis@5.8.2)(pg@8.16.3)(reflect-metadata@0.2.2)(ts-node@10.9.2(@swc/core@1.14.0(@swc/helpers@0.5.17))(@types/node@22.18.13)(typescript@5.9.3))
       uuid:
         specifier: ^13.0.0
         version: 13.0.0
-      socket.io:
-        specifier: ^4.8.1
-        version: 4.8.1(bufferutil@4.0.9)(utf-8-validate@5.0.10)
-      typeorm:
-        specifier: ^0.3.26
-        version: 0.3.27(ioredis@5.8.2)(pg@8.16.3)(reflect-metadata@0.2.2)(ts-node@10.9.2(@swc/core@1.14.0(@swc/helpers@0.5.17))(@types/node@22.18.13)(typescript@5.9.3))
       winston:
         specifier: ^3.17.0
         version: 3.18.3
