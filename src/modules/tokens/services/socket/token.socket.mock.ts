@@ -7,6 +7,49 @@ function randomChangePercent(percent = 0.1) {
   return parseFloat(((Math.random() * 2 - 1) * percent).toFixed(2)); // ±percent %
 }
 
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function calcVolatility(
+  elapsedMs: number,
+  minPercent: number,
+  maxPercent: number,
+  scaleMs = 60 * 1000,
+) {
+  const factor = clamp(elapsedMs / scaleMs, 0, 1);
+  return minPercent + (maxPercent - minPercent) * factor;
+}
+
+function nextValue(
+  last: number,
+  base: number,
+  elapsedMs: number,
+  stepMinPct: number,
+  stepMaxPct: number,
+  devMinPct: number,
+  devMaxPct: number,
+) {
+  const stepPct = calcVolatility(elapsedMs, stepMinPct, stepMaxPct);
+  const deltaPct = randomChangePercent(stepPct);
+  const next = last * (1 + deltaPct / 100);
+
+  const devPct = calcVolatility(elapsedMs, devMinPct, devMaxPct);
+  const min = base * (1 - devPct / 100);
+  const max = base * (1 + devPct / 100);
+  return clamp(next, min, max);
+}
+
+let lastStatsTimestamp = 0;
+let lastStats: {
+  price: number;
+  market_cap: number;
+  liquidity: number;
+  holders: number;
+  txs: number;
+  volume: number;
+} | null = null;
+
 export function getRandomTokenStats() {
   const basePrice = 140;
   const baseMarketCap = 79_000_000_000;
@@ -15,25 +58,86 @@ export function getRandomTokenStats() {
   const baseTxs = 200_000_000;
   const baseVolume = 100_000_000;
 
-  const timestamp = Date.now();
+  const timestamp = Date.now() / 1000;
+  const elapsedMs =
+    lastStatsTimestamp > 0 ? timestamp - lastStatsTimestamp : 60 * 1000;
 
-  const price = randomAround(basePrice);
-  const priceChange24h = randomChangePercent();
+  if (!lastStats) {
+    lastStats = {
+      price: randomAround(basePrice, 0.5),
+      market_cap: randomAround(baseMarketCap, 0.5),
+      liquidity: randomAround(baseLiquidity, 0.5),
+      holders: randomAround(baseHolders, 0.5),
+      txs: Math.round(randomAround(baseTxs, 0.5)),
+      volume: randomAround(baseVolume, 0.5),
+    };
+  }
 
-  const marketCap = randomAround(baseMarketCap);
-  const marketCapChange24h = randomChangePercent();
+  const price = nextValue(lastStats.price, basePrice, elapsedMs, 0.2, 4, 2, 20);
+  const marketCap = nextValue(
+    lastStats.market_cap,
+    baseMarketCap,
+    elapsedMs,
+    0.15,
+    3.5,
+    2,
+    25,
+  );
+  const liquidity = nextValue(
+    lastStats.liquidity,
+    baseLiquidity,
+    elapsedMs,
+    0.2,
+    4,
+    2,
+    30,
+  );
+  const holders = nextValue(
+    lastStats.holders,
+    baseHolders,
+    elapsedMs,
+    0.1,
+    2,
+    1,
+    15,
+  );
+  const txs = Math.round(
+    nextValue(lastStats.txs, baseTxs, elapsedMs, 0.3, 5, 2, 30),
+  );
+  const volume = nextValue(
+    lastStats.volume,
+    baseVolume,
+    elapsedMs,
+    0.3,
+    5,
+    2,
+    35,
+  );
 
-  const liquidity = randomAround(baseLiquidity);
-  const liquidityChange24h = randomChangePercent();
+  const priceChange24h = randomChangePercent(calcVolatility(elapsedMs, 0.2, 6));
+  const marketCapChange24h = randomChangePercent(
+    calcVolatility(elapsedMs, 0.2, 6),
+  );
+  const liquidityChange24h = randomChangePercent(
+    calcVolatility(elapsedMs, 0.2, 6),
+  );
+  const holdersChange24h = randomChangePercent(
+    calcVolatility(elapsedMs, 0.1, 3),
+  );
+  const txsChange24h = randomChangePercent(calcVolatility(elapsedMs, 0.2, 6));
+  const volumeChange24h = randomChangePercent(
+    calcVolatility(elapsedMs, 0.2, 7),
+  );
 
-  const holders = randomAround(baseHolders);
-  const holdersChange24h = randomChangePercent();
-
-  const txs = Math.round(randomAround(baseTxs));
-  const txsChange24h = randomChangePercent();
-
-  const volume = randomAround(baseVolume);
-  const volumeChange24h = randomChangePercent();
+  lastStats = {
+    price,
+    market_cap: marketCap,
+    liquidity,
+    holders,
+    txs,
+    volume,
+  };
+  lastStatsTimestamp = timestamp;
 
   return {
     timestamp,
@@ -68,6 +172,30 @@ export function getRandomTokenStats() {
       },
     },
     txns_change_24h: txsChange24h,
+  };
+}
+
+let lastOhlcTimestamp = 0;
+let lastOhlcClose: number | null = null;
+
+export function getRandomOhlc(basePrice: number) {
+  const timestamp = Date.now();
+  const elapsedMs =
+    lastOhlcTimestamp > 0 ? timestamp - lastOhlcTimestamp : 60 * 1000;
+  const open = lastOhlcClose ?? randomAround(basePrice, 0.4);
+  const close = nextValue(open, basePrice, elapsedMs, 0.2, 4.5, 2, 18);
+  const wickPct = calcVolatility(elapsedMs, 0.5, 6);
+  const high = Math.max(open, close, randomAround(basePrice, wickPct));
+  const low = Math.min(open, close, randomAround(basePrice, wickPct));
+
+  lastOhlcTimestamp = timestamp;
+  lastOhlcClose = close;
+
+  return {
+    open,
+    close,
+    high,
+    low,
   };
 }
 
@@ -125,9 +253,8 @@ export function getRandomHolder() {
     unrealized_pnl: unrealizedPnl,
     total_pnl: parseFloat((realizedPnl + unrealizedPnl).toFixed(2)),
     roi_percent: parseFloat((Math.random() * 200 - 50).toFixed(2)),
-    first_tx_time:
-      Date.now() - Math.floor(Math.random() * 60 * 24 * 3600 * 1000),
-    last_tx_time: Date.now() - Math.floor(Math.random() * 24 * 3600 * 1000),
+    first_tx_time: Date.now(),
+    last_tx_time: Date.now(),
     tx_count: Math.floor(Math.random() * 200),
   };
 }

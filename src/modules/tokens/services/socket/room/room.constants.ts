@@ -1,6 +1,6 @@
 export const ROOM_RULES = {
   price: ['5s'],
-  chart: ['10s', '1m', '5m'],
+  priceOHLC: ['10s', '1m', '5m'],
   tx: ['5s'],
   stats: ['5s'],
   trades: ['5s'],

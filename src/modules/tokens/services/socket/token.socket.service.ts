@@ -11,6 +11,7 @@ import {
   getRandomTokenStats,
   getRandomTopTrader,
   getRandomHolder,
+  getRandomOhlc,
 } from './token.socket.mock';
 
 @Injectable()
@@ -98,15 +99,18 @@ export class TokenSocketService implements OnModuleInit {
         };
       }
 
-      case 'chart': {
+      case 'priceOHLC': {
         const stats = getRandomTokenStats();
+        const ohlc = getRandomOhlc(stats.price);
         return {
           token,
-          open: stats.price * 0.98,
-          close: stats.price,
-          high: stats.price * 1.02,
-          low: stats.price * 0.96,
-          timestamp: stats.timestamp,
+          priceOHLC: {
+            open: ohlc.open,
+            close: ohlc.close,
+            high: ohlc.high,
+            low: ohlc.low,
+          },
+          time: stats.timestamp,
         };
       }
 
