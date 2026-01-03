@@ -180,13 +180,11 @@ let lastOhlcClose: number | null = null;
 
 export function getRandomOhlc(basePrice: number) {
   const timestamp = Date.now();
-  const elapsedMs =
-    lastOhlcTimestamp > 0 ? timestamp - lastOhlcTimestamp : 60 * 1000;
-  const open = lastOhlcClose ?? randomAround(basePrice, 0.4);
-  const close = nextValue(open, basePrice, elapsedMs, 0.2, 4.5, 2, 18);
-  const wickPct = calcVolatility(elapsedMs, 0.5, 6);
-  const high = Math.max(open, close, randomAround(basePrice, wickPct));
-  const low = Math.min(open, close, randomAround(basePrice, wickPct));
+  const open = lastOhlcClose ?? randomAround(basePrice, 0.2);
+  const delta = (Math.random() - 0.5) * 0.8; // biên độ ±0.4
+  const close = open + delta;
+  const high = Math.max(open, close) + Math.random() * 0.3;
+  const low = Math.min(open, close) - Math.random() * 0.3;
 
   lastOhlcTimestamp = timestamp;
   lastOhlcClose = close;
