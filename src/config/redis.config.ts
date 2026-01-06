@@ -1,6 +1,5 @@
 import { ConfigService } from '@nestjs/config';
 import { RedisModuleOptions } from '@liaoliaots/nestjs-redis';
-import * as tls from 'tls';
 
 export const getRedisConfig = (
   configService: ConfigService,
@@ -18,7 +17,6 @@ export const getRedisConfig = (
       host,
       port,
       password,
-      // tls: { rejectUnauthorized: false } as tls.ConnectionOptions,
     },
     readyLog: true,
     closeClient: true,
