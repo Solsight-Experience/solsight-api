@@ -15,6 +15,12 @@ export default () => ({
     logging: process.env.NODE_ENV === 'development',
   },
 
+  redis: {
+    host: process.env.REDIS_HOST || 'localhost',
+    port: parseInt(process.env.REDIS_PORT || '', 10) || 6379,
+    password: process.env.REDIS_PASSWORD || '',
+  },
+
   solana: {
     rpcUrl: process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com',
     heliusRpcUrl: process.env.HELIUS_RPC_URL,
