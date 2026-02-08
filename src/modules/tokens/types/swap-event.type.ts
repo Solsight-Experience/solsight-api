@@ -1,5 +1,47 @@
 export type TradeDirection = 'BUY' | 'SELL';
 
+const STABLECOIN_SYMBOLS = new Set(['USDC', 'USDT']);
+
+export function isStablecoin(token: TokenInfo): boolean {
+  return STABLECOIN_SYMBOLS.has(token.symbol);
+}
+
+export interface SwapPriceResult {
+  priceUsdTokenIn: number;
+  priceUsdTokenOut: number;
+  volumeUsdTokenIn: number;
+  volumeUsdTokenOut: number;
+}
+
+export function calculateSwapPrices(swap: SwapEvent): SwapPriceResult {
+  const priceNative = swap.price_native;
+  const priceUsd = swap.price_usd ?? 0;
+
+  let priceUsdTokenIn: number;
+  let priceUsdTokenOut: number;
+
+  if (isStablecoin(swap.token_in)) {
+    priceUsdTokenOut = priceUsd;
+    priceUsdTokenIn = priceUsd * priceNative;
+  } else if (isStablecoin(swap.token_out)) {
+    priceUsdTokenIn = priceUsd;
+    priceUsdTokenOut = priceNative > 0 ? priceUsd / priceNative : 0;
+  } else if (swap.token_in.is_quote) {
+    priceUsdTokenOut = priceUsd;
+    priceUsdTokenIn = priceUsd * priceNative;
+  } else {
+    priceUsdTokenIn = priceUsd;
+    priceUsdTokenOut = priceNative > 0 ? priceUsd / priceNative : 0;
+  }
+
+  return {
+    priceUsdTokenIn,
+    priceUsdTokenOut,
+    volumeUsdTokenIn: swap.token_in.amount_ui * priceUsdTokenIn,
+    volumeUsdTokenOut: swap.token_out.amount_ui * priceUsdTokenOut,
+  };
+}
+
 export interface TokenInfo {
   mint: string;
   symbol: string;
@@ -21,6 +63,7 @@ export interface SwapEvent {
   token_out: TokenInfo;
   price_native: number;
   price_usd: number | null;
+  fee_amount_ui: number | null;
 }
 
 export interface TradeData {

@@ -3,7 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { RedisService } from '../../../../redis/services/redis.service';
 import { Token } from '../../entities/token.entity';
-import { SwapEvent, TokenStats } from '../../types/swap-event.type';
+import { SwapEvent, TokenStats, SwapPriceResult } from '../../types/swap-event.type';
 
 @Injectable()
 export class StatsAggregationService {
@@ -15,34 +15,21 @@ export class StatsAggregationService {
     private readonly tokenRepository: Repository<Token>,
   ) {}
 
-  async onSwapEvent(swap: SwapEvent): Promise<void> {
-    const priceNative = swap.price_native;
-    const priceUsdTokenOut = swap.price_usd ?? 0;
-
-    // Calculate price for both tokens
-    // price_usd = price of token_out
-    // price_native = ratio token_out / token_in
-    // => price_token_in = price_usd / price_native
-    const priceUsdTokenIn = priceNative > 0 ? priceUsdTokenOut / priceNative : 0;
-
+  async onSwapEvent(swap: SwapEvent, prices: SwapPriceResult): Promise<void> {
     const tokenOutMint = swap.token_out.mint;
     const tokenInMint = swap.token_in.mint;
 
-    // Calculate volume (USD) for each token
-    const volumeTokenOut = swap.token_out.amount_ui * priceUsdTokenOut;
-    const volumeTokenIn = swap.token_in.amount_ui * priceUsdTokenIn;
-
-    this.logger.log(`[SET] out="${tokenOutMint}" price=${priceUsdTokenOut} | in="${tokenInMint}" price=${priceUsdTokenIn}`);
+    this.logger.log(`[SET] out="${tokenOutMint}" price=${prices.priceUsdTokenOut} | in="${tokenInMint}" price=${prices.priceUsdTokenIn}`);
 
     // Store price for both tokens
-    await this.storePriceData(tokenOutMint, priceUsdTokenOut);
-    await this.storePriceData(tokenInMint, priceUsdTokenIn);
+    await this.storePriceData(tokenOutMint, prices.priceUsdTokenOut);
+    await this.storePriceData(tokenInMint, prices.priceUsdTokenIn);
 
     // Store volume and txns for both tokens
     // token_out = user is BUYING this token
     // token_in = user is SELLING this token
-    await this.storeVolumeAndTxns(tokenOutMint, volumeTokenOut, 'buy');
-    await this.storeVolumeAndTxns(tokenInMint, volumeTokenIn, 'sell');
+    await this.storeVolumeAndTxns(tokenOutMint, prices.volumeUsdTokenOut, 'buy');
+    await this.storeVolumeAndTxns(tokenInMint, prices.volumeUsdTokenIn, 'sell');
   }
 
   private async storePriceData(tokenMint: string, priceUsd: number): Promise<void> {

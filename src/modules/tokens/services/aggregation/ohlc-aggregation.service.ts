@@ -1,8 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { RedisService } from '../../../../redis/services/redis.service';
-import { SwapEvent, OhlcData } from '../../types/swap-event.type';
-
-type OhlcInterval = '10s' | '1m' | '5m';
+import { SwapEvent, OhlcData, SwapPriceResult } from '../../types/swap-event.type';
+import { OhlcInterval } from '../socket/room/room.constants';
 
 const INTERVAL_MS: Record<OhlcInterval, number> = {
   '10s': 10 * 1000,
@@ -22,22 +21,12 @@ export class OhlcAggregationService {
 
   constructor(private readonly redisService: RedisService) {}
 
-  async onSwapEvent(swap: SwapEvent): Promise<void> {
-    const priceNative = swap.price_native;
-    const priceUsdTokenOut = swap.price_usd ?? 0;
-    const priceUsdTokenIn = priceNative > 0 ? priceUsdTokenOut / priceNative : 0;
-
-    // Volume (USD) cho mỗi token
-    const volumeTokenOut = swap.token_out.amount_ui * priceUsdTokenOut;
-    const volumeTokenIn = swap.token_in.amount_ui * priceUsdTokenIn;
-
+  async onSwapEvent(swap: SwapEvent, prices: SwapPriceResult): Promise<void> {
     const intervals: OhlcInterval[] = ['10s', '1m', '5m'];
 
     for (const interval of intervals) {
-      // Update OHLC cho token_out
-      await this.updateOhlc(swap.token_out.mint, interval, priceUsdTokenOut, volumeTokenOut);
-      // Update OHLC cho token_in
-      await this.updateOhlc(swap.token_in.mint, interval, priceUsdTokenIn, volumeTokenIn);
+      await this.updateOhlc(swap.token_out.mint, interval, prices.priceUsdTokenOut, prices.volumeUsdTokenOut);
+      await this.updateOhlc(swap.token_in.mint, interval, prices.priceUsdTokenIn, prices.volumeUsdTokenIn);
     }
   }
 
@@ -68,54 +57,65 @@ export class OhlcAggregationService {
     volume: number,
   ): Promise<void> {
     const bucket = this.getBucketTimestamp(interval);
-    const key = `ohlc:${tokenMint}:${interval}:${bucket}`;
+    const bucketKey = `ohlc:${tokenMint}:${interval}:${bucket}`;
+    const lastCloseKey = `ohlc:${tokenMint}:${interval}:last_close`;
 
     const redis = this.redisService.getClient();
 
-    // Use Lua script for atomic OHLC update
     const luaScript = `
-      local key = KEYS[1]
+      local bucketKey = KEYS[1]
+      local lastCloseKey = KEYS[2]
       local price = tonumber(ARGV[1])
       local volume = tonumber(ARGV[2])
       local ttl = tonumber(ARGV[3])
 
-      -- Set open only if not exists
-      local exists = redis.call('EXISTS', key)
+      local exists = redis.call('EXISTS', bucketKey)
       if exists == 0 then
-        redis.call('HSET', key, 'open', price)
-        redis.call('HSET', key, 'high', price)
-        redis.call('HSET', key, 'low', price)
-        redis.call('HSET', key, 'volume', 0)
+        -- New bucket: open = previous candle's close (price at time "a")
+        local prevClose = redis.call('GET', lastCloseKey)
+        local openPrice = price
+        if prevClose then
+          openPrice = tonumber(prevClose)
+        end
+
+        redis.call('HSET', bucketKey, 'open', openPrice)
+        redis.call('HSET', bucketKey, 'high', math.max(openPrice, price))
+        redis.call('HSET', bucketKey, 'low', math.min(openPrice, price))
+        redis.call('HSET', bucketKey, 'volume', 0)
       end
 
-      -- Always update close
-      redis.call('HSET', key, 'close', price)
+      -- Always update close to latest price
+      redis.call('HSET', bucketKey, 'close', price)
 
       -- Update high if higher
-      local currentHigh = tonumber(redis.call('HGET', key, 'high')) or 0
+      local currentHigh = tonumber(redis.call('HGET', bucketKey, 'high')) or 0
       if price > currentHigh then
-        redis.call('HSET', key, 'high', price)
+        redis.call('HSET', bucketKey, 'high', price)
       end
 
       -- Update low if lower
-      local currentLow = tonumber(redis.call('HGET', key, 'low')) or 0
+      local currentLow = tonumber(redis.call('HGET', bucketKey, 'low')) or 0
       if price < currentLow or currentLow == 0 then
-        redis.call('HSET', key, 'low', price)
+        redis.call('HSET', bucketKey, 'low', price)
       end
 
       -- Increment volume
-      redis.call('HINCRBYFLOAT', key, 'volume', volume)
+      redis.call('HINCRBYFLOAT', bucketKey, 'volume', volume)
 
-      -- Set TTL
-      redis.call('EXPIRE', key, ttl)
+      -- Set TTL on bucket
+      redis.call('EXPIRE', bucketKey, ttl)
+
+      -- Persist last_close for next candle's open
+      redis.call('SET', lastCloseKey, price)
+      redis.call('EXPIRE', lastCloseKey, ttl * 3)
 
       return 1
     `;
 
-    await redis.eval(luaScript, 1, key, price, volume, INTERVAL_TTL[interval]);
+    await redis.eval(luaScript, 2, bucketKey, lastCloseKey, price, volume, INTERVAL_TTL[interval]);
   }
 
-  private getBucketTimestamp(interval: OhlcInterval): number {
+  getBucketTimestamp(interval: OhlcInterval): number {
     const now = Date.now();
     const intervalMs = INTERVAL_MS[interval];
     return Math.floor(now / intervalMs) * intervalMs;

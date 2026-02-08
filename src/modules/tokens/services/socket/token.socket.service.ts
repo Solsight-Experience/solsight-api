@@ -4,6 +4,7 @@ import {
   ROOM_RULES,
   RoomDomain,
   RoomInterval,
+  OhlcInterval,
   parseRoomIntervalMs,
 } from './room/room.constants';
 import { PubSubService } from '../../../../redis/services/pubsub.service';
@@ -13,7 +14,9 @@ import { TraderAggregationService } from '../aggregation/trader-aggregation.serv
 import { HolderAggregationService } from '../aggregation/holder-aggregation.service';
 import {
   SwapEvent,
+  TradeData,
   transformSwapToTradeForToken,
+  calculateSwapPrices,
 } from '../../types/swap-event.type';
 
 const REDIS_TRADES_CHANNEL = 'trades';
@@ -21,6 +24,8 @@ const REDIS_TRADES_CHANNEL = 'trades';
 @Injectable()
 export class TokenSocketService implements OnModuleInit {
   private readonly logger = new Logger(TokenSocketService.name);
+  private readonly tradesBuffer = new Map<string, (TradeData & { token: string })[]>();
+  private readonly lastEmittedClose = new Map<string, number>();
 
   constructor(
     private readonly gateway: TokenSocketGateway,
@@ -61,59 +66,48 @@ export class TokenSocketService implements OnModuleInit {
   }
 
   private async processSwapEvent(swap: SwapEvent): Promise<void> {
+    // Skip swap if price_usd is not available
+    if (swap.price_usd == null) {
+      this.logger.warn(`Skipping swap ${swap.signature}: price_usd is null`);
+      return;
+    }
+
+    // Compute prices ONCE for all downstream consumers
+    const prices = calculateSwapPrices(swap);
+
     // Update all aggregations
     await Promise.all([
-      this.statsAggregation.onSwapEvent(swap),
-      this.ohlcAggregation.onSwapEvent(swap),
+      this.statsAggregation.onSwapEvent(swap, prices),
+      this.ohlcAggregation.onSwapEvent(swap, prices),
       this.traderAggregation.onSwapEvent(swap),
       this.holderAggregation.onSwapEvent(swap),
     ]);
 
-    // Calculate prices for both tokens
-    const priceNative = swap.price_native;
-    const priceUsdTokenOut = swap.price_usd ?? 0;
-    const priceUsdTokenIn = priceNative > 0 ? priceUsdTokenOut / priceNative : 0;
+    // Buffer trades for scheduler emission
+    const tradeDataTokenOut = transformSwapToTradeForToken(swap, swap.token_out.mint, prices.priceUsdTokenOut);
+    this.bufferTrade(swap.token_out.mint, tradeDataTokenOut);
 
-    // Emit real-time trade to subscribed rooms for BOTH tokens
-    const tradeRooms = this.gateway.listTokenRooms('trades');
-    const txRooms = this.gateway.listTokenRooms('tx');
-    const allRooms = [...tradeRooms, ...txRooms];
-
-    // Emit for token_out (BUY)
-    const tradeDataTokenOut = transformSwapToTradeForToken(swap, swap.token_out.mint, priceUsdTokenOut);
-    for (const room of allRooms) {
-      const [, roomToken] = room.split(':');
-      if (roomToken === swap.token_out.mint) {
-        const eventName = room.startsWith('trades') ? 'trades' : 'tx';
-        this.gateway.emit(room, eventName, { token: swap.token_out.mint, ...tradeDataTokenOut });
-      }
-    }
-
-    // Emit for token_in (SELL)
-    const tradeDataTokenIn = transformSwapToTradeForToken(swap, swap.token_in.mint, priceUsdTokenIn);
-    for (const room of allRooms) {
-      const [, roomToken] = room.split(':');
-      if (roomToken === swap.token_in.mint) {
-        const eventName = room.startsWith('trades') ? 'trades' : 'tx';
-        this.gateway.emit(room, eventName, { token: swap.token_in.mint, ...tradeDataTokenIn });
-      }
-    }
+    const tradeDataTokenIn = transformSwapToTradeForToken(swap, swap.token_in.mint, prices.priceUsdTokenIn);
+    this.bufferTrade(swap.token_in.mint, tradeDataTokenIn);
   }
 
   private startScheduler(domain: RoomDomain, interval: RoomInterval) {
     const intervalMs = parseRoomIntervalMs(interval);
 
-    this.logger.log(`Start scheduler: domain=${domain}, interval=${interval}`);
+    this.logger.log(`Start scheduler: domain=${domain}, interval=${interval}, emitEvery=${intervalMs}ms`);
 
     setInterval(async () => {
       const rooms = this.gateway.listTokenRooms(domain);
       for (const room of rooms) {
         if (!room.endsWith(`:${interval}`)) continue;
 
-        const data = await this.buildData(domain, room, interval);
-        if (!data) continue;
-
-        this.gateway.emit(room, domain, data);
+        if (domain === 'priceOHLC') {
+          await this.emitOhlc(room, interval as OhlcInterval);
+        } else {
+          const data = await this.buildData(domain, room, interval);
+          if (!data) continue;
+          this.gateway.emit(room, domain, data);
+        }
       }
     }, intervalMs);
   }
@@ -154,9 +148,11 @@ export class TokenSocketService implements OnModuleInit {
 
       case 'trades':
       case 'tx': {
-        // Real-time trades are emitted in processSwapEvent
-        // This scheduler can return null since trades are pushed on-demand
-        return null;
+        const buffered = this.tradesBuffer.get(token);
+        if (!buffered || buffered.length === 0) return null;
+        const trades = [...buffered];
+        this.tradesBuffer.delete(token);
+        return { token, trades };
       }
 
       case 'top_traders': {
@@ -177,37 +173,54 @@ export class TokenSocketService implements OnModuleInit {
         };
       }
 
-      case 'priceOHLC': {
-        const ohlcInterval = interval as '10s' | '1m' | '5m';
-        const ohlc = await this.ohlcAggregation.getOhlc(token, ohlcInterval);
-        if (!ohlc) {
-          // Return current price as OHLC if no data
-          const stats = await this.statsAggregation.getStats(token);
-          return {
-            token,
-            priceOHLC: {
-              open: stats.price,
-              close: stats.price,
-              high: stats.price,
-              low: stats.price,
-            },
-            time: stats.timestamp,
-          };
-        }
-        return {
-          token,
-          priceOHLC: {
-            open: ohlc.open,
-            close: ohlc.close,
-            high: ohlc.high,
-            low: ohlc.low,
-          },
-          time: Date.now() / 1000,
-        };
-      }
-
       default:
         return null;
     }
+  }
+
+  private async emitOhlc(room: string, ohlcInterval: OhlcInterval): Promise<void> {
+    const [, token] = room.split(':');
+    const bucketTime = this.ohlcAggregation.getBucketTimestamp(ohlcInterval) / 1000;
+    const lastClose = this.lastEmittedClose.get(room);
+
+    const currentOhlc = await this.ohlcAggregation.getOhlc(token, ohlcInterval);
+
+    if (!currentOhlc) {
+      // Bucket trống (không có swap) → emit flat candle từ lastClose
+      if (lastClose == null) return;
+      this.gateway.emit(room, 'priceOHLC', {
+        token,
+        priceOHLC: { open: lastClose, close: lastClose, high: lastClose, low: lastClose },
+        time: bucketTime,
+      });
+      return;
+    }
+
+    if (currentOhlc.open === 0) return;
+
+    // Override open = close của candle trước → đảm bảo liên tục trên FE
+    const open = lastClose ?? currentOhlc.open;
+    const candle = {
+      open,
+      close: currentOhlc.close,
+      high: Math.max(open, currentOhlc.high),
+      low: Math.min(open, currentOhlc.low),
+    };
+
+    this.gateway.emit(room, 'priceOHLC', {
+      token,
+      priceOHLC: candle,
+      time: bucketTime,
+    });
+    this.lastEmittedClose.set(room, candle.close);
+  }
+
+  private bufferTrade(tokenMint: string, trade: TradeData): void {
+    if (!this.tradesBuffer.has(tokenMint)) {
+      this.tradesBuffer.set(tokenMint, []);
+    }
+    const buffer = this.tradesBuffer.get(tokenMint)!;
+    if (buffer.some((t) => t.tx_hash === trade.tx_hash)) return;
+    buffer.push({ token: tokenMint, ...trade });
   }
 }
