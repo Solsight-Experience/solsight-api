@@ -90,6 +90,7 @@ export class StatsAggregationService {
     const txns24h = await this.getTxns24h(tokenMint);
 
     const price = priceUsd ?? token?.price ?? 0;
+    const totalSupply = await this.getTotalSupply(tokenMint);
     this.logger.log(`[GET] token="${tokenMint}" price=${price} (${latestPriceData ? 'Redis' : 'DB'})`);
 
     return {
@@ -98,7 +99,7 @@ export class StatsAggregationService {
       price_change: {
         '24h': priceChange24h ?? Number(token?.priceChange24h ?? 0),
       },
-      market_cap: Number(token?.marketCap ?? 0),
+      market_cap: Number(price) * totalSupply,
       market_cap_change_24h: Number(token?.marketCapChange24h ?? 0),
       liquidity: Number(token?.liquidity ?? 0),
       liquidity_change_24h: Number(token?.liquidityChange24h ?? 0),
@@ -119,6 +120,17 @@ export class StatsAggregationService {
       },
       txns_change_24h: Number(token?.txns24hChange ?? 0),
     };
+  }
+
+  async getTotalSupply(tokenMint: string): Promise<number> {
+    const cacheKey = `supply:${tokenMint}`;
+    const cached = await this.redisService.get<number>(cacheKey);
+    if (cached != null) return cached;
+
+    const token = await this.tokenRepository.findOneBy({ address: tokenMint });
+    const totalSupply = Number(token?.totalSupply ?? 0);
+    await this.redisService.set(cacheKey, totalSupply, 60);
+    return totalSupply;
   }
 
   async getLatestPrice(tokenMint: string): Promise<{ native: number; usd: number } | null> {

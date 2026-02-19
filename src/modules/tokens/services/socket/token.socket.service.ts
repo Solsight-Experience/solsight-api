@@ -84,10 +84,15 @@ export class TokenSocketService implements OnModuleInit {
     ]);
 
     // Buffer trades for scheduler emission
-    const tradeDataTokenOut = transformSwapToTradeForToken(swap, swap.token_out.mint, prices.priceUsdTokenOut);
+    const [supplyOut, supplyIn] = await Promise.all([
+      this.statsAggregation.getTotalSupply(swap.token_out.mint),
+      this.statsAggregation.getTotalSupply(swap.token_in.mint),
+    ]);
+
+    const tradeDataTokenOut = transformSwapToTradeForToken(swap, swap.token_out.mint, prices.priceUsdTokenOut, prices.priceUsdTokenOut * supplyOut);
     this.bufferTrade(swap.token_out.mint, tradeDataTokenOut);
 
-    const tradeDataTokenIn = transformSwapToTradeForToken(swap, swap.token_in.mint, prices.priceUsdTokenIn);
+    const tradeDataTokenIn = transformSwapToTradeForToken(swap, swap.token_in.mint, prices.priceUsdTokenIn, prices.priceUsdTokenIn * supplyIn);
     this.bufferTrade(swap.token_in.mint, tradeDataTokenIn);
   }
 
