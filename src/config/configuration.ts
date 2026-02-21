@@ -12,7 +12,14 @@ export default () => ({
     password: process.env.DATABASE_PASSWORD || 'password',
     database: process.env.DATABASE_NAME || 'flaxh_trade',
     synchronize: process.env.NODE_ENV === 'development',
-    logging: process.env.NODE_ENV === 'development',
+    logging: false, // Tạm tắt log query DB
+  },
+
+  redis: {
+    url: process.env.REDIS_URL,
+    host: process.env.REDIS_HOST || 'localhost',
+    port: parseInt(process.env.REDIS_PORT || '', 10) || 6379,
+    password: process.env.REDIS_PASSWORD || '',
   },
 
   solana: {

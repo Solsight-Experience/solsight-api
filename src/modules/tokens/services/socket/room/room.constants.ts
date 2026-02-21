@@ -11,6 +11,8 @@ export const ROOM_RULES = {
 
 export type RoomDomain = keyof typeof ROOM_RULES;
 export type RoomInterval = (typeof ROOM_RULES)[RoomDomain][number];
+export type OhlcInterval = (typeof ROOM_RULES)['priceOHLC'][number];
+
 export const parseRoomIntervalMs = (interval: RoomInterval): number => {
   const value = Number.parseInt(interval, 10);
   const unit = interval.slice(-1);
