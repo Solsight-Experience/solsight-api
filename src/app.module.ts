@@ -16,6 +16,7 @@ import { PortfolioModule } from './modules/portfolio/portfolio.module';
 import { TransactionsModule } from './modules/transactions/transactions.module';
 import { DiscoveryModule } from './modules/discovery/discovery.module';
 import { AccountModule } from './modules/account/account.module';
+import { LimitOrderModule } from './modules/limit-order/limit-order.module';
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -42,6 +43,7 @@ import { AccountModule } from './modules/account/account.module';
     TokensModule,
     AccountModule,
     PortfolioModule,
+    LimitOrderModule,
   ],
   controllers: [],
   providers: [],
