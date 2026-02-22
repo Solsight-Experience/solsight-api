@@ -17,6 +17,7 @@ import { TransactionsModule } from './modules/transactions/transactions.module';
 import { DiscoveryModule } from './modules/discovery/discovery.module';
 import { AccountModule } from './modules/account/account.module';
 import { LimitOrderModule } from './modules/limit-order/limit-order.module';
+import { RedisModule } from './redis/redis.module';
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -33,6 +34,7 @@ import { LimitOrderModule } from './modules/limit-order/limit-order.module';
       isGlobal: true,
     }),
     WebsocketModule,
+    RedisModule,
     DatabaseModule,
     LoggerModule,
     AuthModule,
