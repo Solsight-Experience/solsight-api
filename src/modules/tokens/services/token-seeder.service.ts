@@ -25,19 +25,26 @@ export class TokenSeederService implements OnModuleInit {
   }
 
   async onModuleInit() {
+    console.log('Initializing TokenSeederService...');
     await this.seedTokens();
+    // await this.updateTokenDecimals();
     // this.updateTokenOnChainData();
   }
 
   async seedTokens() {
-    const count = await this.tokenRepository.count();
-    if (count > 0) {
-      this.logger.log('Token data already exists. Skipping seed.');
-      return;
-    }
+    try {
+      console.log('Checking existing token data...');
+      const count = await this.tokenRepository.count();
+      if (count > 0) {
+        this.logger.log('Token data already exists. Skipping seed.');
+        return;
+      }
 
-    this.logger.log('Seeding token data...');
-    await this.seekTokensBasicData();
+      this.logger.log('Seeding token data...');
+      await this.seekTokensBasicData();
+    } catch (error) {
+      this.logger.error('Failed to seed tokens', error.stack);
+    }
   }
 
   async seekTokensBasicData() {
@@ -62,6 +69,7 @@ export class TokenSeederService implements OnModuleInit {
             address: token.address,
             symbol: token.symbol,
             name: token.name,
+            decimals: token.decimals,
             logoUri: token.logoURI,
             description: token.extensions?.description,
             website: token.extensions?.website,
@@ -113,6 +121,49 @@ export class TokenSeederService implements OnModuleInit {
       this.logger.log('Successfully seeded token data.');
     } catch (error) {
       this.logger.error('Failed to seed token data', error.stack);
+    }
+  }
+
+  async updateTokenDecimals() {
+    try {
+      console.log('[DEBUG] updateTokenDecimals called');
+      this.logger.log('Updating token decimals...');
+      const tokenListProvider = new TokenListProvider();
+      const tokens = await tokenListProvider.resolve();
+
+      const decimalsMap = new Map<string, number>(
+        tokens
+          .filterByChainId(101)
+          .getList()
+          .map((token) => [token.address, token.decimals]),
+      );
+
+      const allTokens = await this.tokenRepository.find({
+        select: ['id', 'address', 'decimals'],
+      });
+
+      const toUpdate = allTokens
+        .filter(
+          (t) =>
+            decimalsMap.has(t.address) &&
+            decimalsMap.get(t.address) !== t.decimals,
+        )
+        .map((t) => ({ ...t, decimals: decimalsMap.get(t.address)! }));
+
+      if (!toUpdate.length) {
+        this.logger.log('All token decimals are already up to date.');
+        return;
+      }
+
+      const BATCH_SIZE = 1000;
+      for (let i = 0; i < toUpdate.length; i += BATCH_SIZE) {
+        const batch = toUpdate.slice(i, i + BATCH_SIZE);
+        await this.tokenRepository.save(batch);
+      }
+
+      this.logger.log(`Updated decimals for ${toUpdate.length} tokens.`);
+    } catch (error) {
+      this.logger.error('Failed to update token decimals', error.stack);
     }
   }
 
