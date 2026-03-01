@@ -45,6 +45,9 @@ export class Token {
     discord?: string;
   };
 
+  @Column({ type: 'int', default: 9 })
+  decimals: number;
+
   // Supply Info
   @Column({ type: 'decimal', precision: 30, scale: 0, nullable: true })
   totalSupply?: number;
