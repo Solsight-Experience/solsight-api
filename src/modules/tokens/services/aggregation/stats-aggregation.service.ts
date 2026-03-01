@@ -33,23 +33,29 @@ export class StatsAggregationService {
   }
 
   private async storePriceData(tokenMint: string, priceUsd: number): Promise<void> {
-    // Store latest price
-    await this.redisService.set(`price:${tokenMint}:latest`, { usd: priceUsd });
-
-    // Store price in history for 24h change calculation
-    const now = Date.now();
-    const historyKey = `price:${tokenMint}:history`;
     const redis = this.redisService.getClient();
+    if (!redis) return;
 
-    // Add to sorted set with timestamp as score
-    await redis.zadd(historyKey, now, `${priceUsd}:${now}`);
+    try {
+      // Store latest price
+      await this.redisService.set(`price:${tokenMint}:latest`, { usd: priceUsd });
 
-    // Remove entries older than 24h
-    const cutoff = now - 24 * 60 * 60 * 1000;
-    await redis.zremrangebyscore(historyKey, '-inf', cutoff);
+      // Store price in history for 24h change calculation
+      const now = Date.now();
+      const historyKey = `price:${tokenMint}:history`;
 
-    // Set TTL on history key (25 hours to be safe)
-    await redis.expire(historyKey, 25 * 60 * 60);
+      // Add to sorted set with timestamp as score
+      await redis.zadd(historyKey, now, `${priceUsd}:${now}`);
+
+      // Remove entries older than 24h
+      const cutoff = now - 24 * 60 * 60 * 1000;
+      await redis.zremrangebyscore(historyKey, '-inf', cutoff);
+
+      // Set TTL on history key (25 hours to be safe)
+      await redis.expire(historyKey, 25 * 60 * 60);
+    } catch (error) {
+      this.logger.error(`Redis error in storePriceData for "${tokenMint}":`, error);
+    }
   }
 
   private async storeVolumeAndTxns(
@@ -58,20 +64,26 @@ export class StatsAggregationService {
     txType: 'buy' | 'sell',
   ): Promise<void> {
     const redis = this.redisService.getClient();
-    const now = Date.now();
-    const cutoff = now - 24 * 60 * 60 * 1000;
+    if (!redis) return;
 
-    // Store volume in sorted set (rolling 24h window)
-    const volumeKey = `volume:${tokenMint}:24h`;
-    await redis.zadd(volumeKey, now, `${volumeUsd}:${now}`);
-    await redis.zremrangebyscore(volumeKey, '-inf', cutoff);
-    await redis.expire(volumeKey, 25 * 60 * 60);
+    try {
+      const now = Date.now();
+      const cutoff = now - 24 * 60 * 60 * 1000;
 
-    // Store transaction in sorted set (rolling 24h window)
-    const txnsKey = `txns:${tokenMint}:24h`;
-    await redis.zadd(txnsKey, now, `${txType}:${now}`);
-    await redis.zremrangebyscore(txnsKey, '-inf', cutoff);
-    await redis.expire(txnsKey, 25 * 60 * 60);
+      // Store volume in sorted set (rolling 24h window)
+      const volumeKey = `volume:${tokenMint}:24h`;
+      await redis.zadd(volumeKey, now, `${volumeUsd}:${now}`);
+      await redis.zremrangebyscore(volumeKey, '-inf', cutoff);
+      await redis.expire(volumeKey, 25 * 60 * 60);
+
+      // Store transaction in sorted set (rolling 24h window)
+      const txnsKey = `txns:${tokenMint}:24h`;
+      await redis.zadd(txnsKey, now, `${txType}:${now}`);
+      await redis.zremrangebyscore(txnsKey, '-inf', cutoff);
+      await redis.expire(txnsKey, 25 * 60 * 60);
+    } catch (error) {
+      this.logger.error(`Redis error in storeVolumeAndTxns for "${tokenMint}":`, error);
+    }
   }
 
   async getStats(tokenMint: string): Promise<TokenStats> {
@@ -139,42 +151,48 @@ export class StatsAggregationService {
 
   private async getVolume24h(tokenMint: string): Promise<number> {
     const redis = this.redisService.getClient();
-    const volumeKey = `volume:${tokenMint}:24h`;
+    if (!redis) return 0;
 
-    // Get all volume entries in 24h window
-    const entries = await redis.zrange(volumeKey, 0, -1);
-    if (!entries || entries.length === 0) return 0;
+    try {
+      const volumeKey = `volume:${tokenMint}:24h`;
+      const entries = await redis.zrange(volumeKey, 0, -1);
+      if (!entries || entries.length === 0) return 0;
 
-    // Sum up all volumes
-    let totalVolume = 0;
-    for (const entry of entries) {
-      const [volumeStr] = entry.split(':');
-      totalVolume += parseFloat(volumeStr) || 0;
+      let totalVolume = 0;
+      for (const entry of entries) {
+        const [volumeStr] = entry.split(':');
+        totalVolume += parseFloat(volumeStr) || 0;
+      }
+      return totalVolume;
+    } catch (error) {
+      this.logger.error(`Redis error in getVolume24h for "${tokenMint}":`, error);
+      return 0;
     }
-
-    return totalVolume;
   }
 
   private async getTxns24h(tokenMint: string): Promise<{ total: number; buys: number; sells: number }> {
     const redis = this.redisService.getClient();
-    const txnsKey = `txns:${tokenMint}:24h`;
+    if (!redis) return { total: 0, buys: 0, sells: 0 };
 
-    // Get all txn entries in 24h window
-    const entries = await redis.zrange(txnsKey, 0, -1);
-    if (!entries || entries.length === 0) {
+    try {
+      const txnsKey = `txns:${tokenMint}:24h`;
+      const entries = await redis.zrange(txnsKey, 0, -1);
+      if (!entries || entries.length === 0) {
+        return { total: 0, buys: 0, sells: 0 };
+      }
+
+      let buys = 0;
+      let sells = 0;
+      for (const entry of entries) {
+        const [txType] = entry.split(':');
+        if (txType === 'buy') buys++;
+        else if (txType === 'sell') sells++;
+      }
+      return { total: buys + sells, buys, sells };
+    } catch (error) {
+      this.logger.error(`Redis error in getTxns24h for "${tokenMint}":`, error);
       return { total: 0, buys: 0, sells: 0 };
     }
-
-    // Count buys and sells
-    let buys = 0;
-    let sells = 0;
-    for (const entry of entries) {
-      const [txType] = entry.split(':');
-      if (txType === 'buy') buys++;
-      else if (txType === 'sell') sells++;
-    }
-
-    return { total: buys + sells, buys, sells };
   }
 
   private async calculatePriceChange24h(
@@ -184,18 +202,21 @@ export class StatsAggregationService {
     if (!currentPrice) return null;
 
     const redis = this.redisService.getClient();
-    const historyKey = `price:${tokenMint}:history`;
+    if (!redis) return null;
 
-    // Get oldest price in the 24h window
-    const oldest = await redis.zrange(historyKey, 0, 0);
-    if (!oldest || oldest.length === 0) return null;
+    try {
+      const historyKey = `price:${tokenMint}:history`;
+      const oldest = await redis.zrange(historyKey, 0, 0);
+      if (!oldest || oldest.length === 0) return null;
 
-    const [oldPriceStr] = oldest[0].split(':');
-    const oldPrice = parseFloat(oldPriceStr);
+      const [oldPriceStr] = oldest[0].split(':');
+      const oldPrice = parseFloat(oldPriceStr);
 
-    if (oldPrice === 0) return null;
-
-    return ((currentPrice - oldPrice) / oldPrice) * 100;
+      if (oldPrice === 0) return null;
+      return ((currentPrice - oldPrice) / oldPrice) * 100;
+    } catch (error) {
+      this.logger.error(`Redis error in calculatePriceChange24h for "${tokenMint}":`, error);
+      return null;
+    }
   }
-
 }

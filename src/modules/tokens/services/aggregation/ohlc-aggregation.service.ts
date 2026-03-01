@@ -31,23 +31,29 @@ export class OhlcAggregationService {
   }
 
   async getOhlc(tokenMint: string, interval: OhlcInterval): Promise<OhlcData | null> {
-    const bucket = this.getBucketTimestamp(interval);
-    const key = `ohlc:${tokenMint}:${interval}:${bucket}`;
-
     const redis = this.redisService.getClient();
-    const data = await redis.hgetall(key);
+    if (!redis) return null;
 
-    if (!data || Object.keys(data).length === 0) {
+    try {
+      const bucket = this.getBucketTimestamp(interval);
+      const key = `ohlc:${tokenMint}:${interval}:${bucket}`;
+      const data = await redis.hgetall(key);
+
+      if (!data || Object.keys(data).length === 0) {
+        return null;
+      }
+
+      return {
+        open: parseFloat(data.open) || 0,
+        high: parseFloat(data.high) || 0,
+        low: parseFloat(data.low) || 0,
+        close: parseFloat(data.close) || 0,
+        volume: parseFloat(data.volume) || 0,
+      };
+    } catch (error) {
+      this.logger.error(`Redis error in getOhlc for "${tokenMint}" interval "${interval}":`, error);
       return null;
     }
-
-    return {
-      open: parseFloat(data.open) || 0,
-      high: parseFloat(data.high) || 0,
-      low: parseFloat(data.low) || 0,
-      close: parseFloat(data.close) || 0,
-      volume: parseFloat(data.volume) || 0,
-    };
   }
 
   private async updateOhlc(
@@ -56,13 +62,15 @@ export class OhlcAggregationService {
     price: number,
     volume: number,
   ): Promise<void> {
-    const bucket = this.getBucketTimestamp(interval);
-    const bucketKey = `ohlc:${tokenMint}:${interval}:${bucket}`;
-    const lastCloseKey = `ohlc:${tokenMint}:${interval}:last_close`;
-
     const redis = this.redisService.getClient();
+    if (!redis) return;
 
-    const luaScript = `
+    try {
+      const bucket = this.getBucketTimestamp(interval);
+      const bucketKey = `ohlc:${tokenMint}:${interval}:${bucket}`;
+      const lastCloseKey = `ohlc:${tokenMint}:${interval}:last_close`;
+
+      const luaScript = `
       local bucketKey = KEYS[1]
       local lastCloseKey = KEYS[2]
       local price = tonumber(ARGV[1])
@@ -112,7 +120,10 @@ export class OhlcAggregationService {
       return 1
     `;
 
-    await redis.eval(luaScript, 2, bucketKey, lastCloseKey, price, volume, INTERVAL_TTL[interval]);
+      await redis.eval(luaScript, 2, bucketKey, lastCloseKey, price, volume, INTERVAL_TTL[interval]);
+    } catch (error) {
+      this.logger.error(`Redis error in updateOhlc for "${tokenMint}" interval "${interval}":`, error);
+    }
   }
 
   getBucketTimestamp(interval: OhlcInterval): number {
@@ -120,5 +131,4 @@ export class OhlcAggregationService {
     const intervalMs = INTERVAL_MS[interval];
     return Math.floor(now / intervalMs) * intervalMs;
   }
-
 }
