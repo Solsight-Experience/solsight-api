@@ -49,4 +49,10 @@ export const validationSchema = Joi.object({
 
   // CORS
   CORS_ORIGIN: Joi.string().default('http://localhost:3000'),
+
+  // LLM
+  LLM_API_KEY: Joi.string().required(),
+  LLM_API_URL: Joi.string().uri().default('https://api.openai.com/v1'),
+  LLM_MODEL: Joi.string().default('gpt-4o'),
+  LLM_TIMEOUT_MS: Joi.number().default(30000),
 });

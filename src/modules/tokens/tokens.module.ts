@@ -34,5 +34,6 @@ import { HolderAggregationService } from './services/aggregation/holder-aggregat
     // TokenSeederService,
   ],
   controllers: [TokensController],
+  exports: [TokensService],
 })
 export class TokensModule {}

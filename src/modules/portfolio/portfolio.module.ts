@@ -9,5 +9,6 @@ import { CacheModule } from '@nestjs/cache-manager';
   imports: [WalletsModule, SolanaModule, CacheModule.register()],
   controllers: [PortfolioController],
   providers: [PortfolioService],
+  exports: [PortfolioService],
 })
 export class PortfolioModule {}

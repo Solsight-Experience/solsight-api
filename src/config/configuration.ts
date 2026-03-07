@@ -53,6 +53,13 @@ export default () => ({
     apiKey: process.env.COINGECKO_API_KEY || '',
   },
 
+  llm: {
+    apiKey: process.env.LLM_API_KEY || '',
+    apiUrl: process.env.LLM_API_URL || 'https://api.openai.com/v1',
+    model: process.env.LLM_MODEL || 'gpt-4o',
+    timeoutMs: parseInt(process.env.LLM_TIMEOUT_MS || '', 10) || 30000,
+  },
+
   jwt: {
     secret: process.env.JWT_SECRET || 'your-secret-key',
     expiresIn: process.env.JWT_EXPIRES_IN || '7d',
