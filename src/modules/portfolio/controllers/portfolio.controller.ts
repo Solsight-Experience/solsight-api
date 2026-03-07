@@ -1,11 +1,4 @@
-import {
-  Controller,
-  Get,
-  Query,
-  UseGuards,
-  Request,
-  BadRequestException,
-} from '@nestjs/common';
+import { Controller, Get, Query, UseGuards, Request } from '@nestjs/common';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { PortfolioService } from '../services/portfolio.service';
 import { User } from '../../users/entities/user.entity';
@@ -32,22 +25,17 @@ export class PortfolioController {
     );
   }
 
+  @UseGuards(JwtAuthGuard)
   @Get('pnl-chart')
   async getPnlChart(
-    @Request() req: any,
+    @Request() req: AuthenticatedRequest,
     @Query('wallet_addresses') walletAddresses: string[],
     @Query('wallet_address') walletAddress: string,
     @Query('time_frame') timeFrame: string,
     @Query('interval') interval: string,
   ) {
     const addresses = walletAddresses || (walletAddress ? [walletAddress] : []);
-    const userId = req.user?.id || 'test-user';
-    return this.portfolioService.getPnlChart(
-      userId,
-      addresses,
-      timeFrame,
-      interval,
-    );
+    return this.portfolioService.getPnlChart(req.user.id, addresses, timeFrame, interval);
   }
 
   @UseGuards(JwtAuthGuard)
@@ -70,23 +58,12 @@ export class PortfolioController {
   @Get('activities')
   async getActivities(
     @Request() req: AuthenticatedRequest,
-    @Query('wallet_address') walletAddress: string,
+    @Query('wallet_address') walletAddress?: string,
     @Query('type') type: string = 'all',
     @Query('limit') limit: number = 50,
     @Query('before') before?: string,
-    @Query('from') from?: string,
-    @Query('to') to?: string,
   ) {
-    if (!walletAddress) {
-      throw new BadRequestException('walletAddress is required');
-    }
-    return this.portfolioService.getActivities(
-      req.user.id,
-      walletAddress,
-      type,
-      limit,
-      before,
-    );
+    return this.portfolioService.getActivities(req.user.id, walletAddress, type, limit, before);
   }
 
   @UseGuards(JwtAuthGuard)

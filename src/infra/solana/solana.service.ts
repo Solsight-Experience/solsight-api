@@ -63,6 +63,16 @@ export class SolanaService {
     return this.network;
   }
 
+  getHeliusBaseUrl(): string {
+    return this.network === 'devnet'
+      ? 'https://api-devnet.helius.xyz'
+      : 'https://api.helius.xyz';
+  }
+
+  getProgramId(): PublicKey | undefined {
+    return this.programId;
+  }
+
   async getBalance(publicKey: PublicKey, useHelius = false): Promise<number> {
     const conn = useHelius ? this.heliusConnection : this.connection;
     try {

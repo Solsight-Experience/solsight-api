@@ -1,8 +1,12 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { CACHE_MANAGER } from '@nestjs/cache-manager';
+import { Cache } from 'cache-manager';
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore
 import axios, { AxiosInstance } from 'axios';
+
+const CG_TTL = 5 * 60 * 1000; // 5 minutes
 
 export interface CoinGeckoMarketData {
   id: string;
@@ -67,8 +71,13 @@ export interface CoinGeckoTrending {
 export class CoinGeckoService {
   private readonly logger = new Logger(CoinGeckoService.name);
   private readonly apiClient: AxiosInstance;
+  private readonly cgRateLimitRpm = 8;
+  private cgRequestTimestamps: number[] = [];
 
-  constructor(private readonly configService: ConfigService) {
+  constructor(
+    private readonly configService: ConfigService,
+    @Inject(CACHE_MANAGER) private cacheManager: Cache,
+  ) {
     const apiUrl = this.configService.get<string>('coingecko.apiUrl');
     const apiKey = this.configService.get<string>('coingecko.apiKey');
 
@@ -84,17 +93,39 @@ export class CoinGeckoService {
     this.logger.log(`CoinGecko API initialized: ${apiUrl}`);
   }
 
+  private async cgGet<T>(url: string, params?: Record<string, any>): Promise<T> {
+    const windowMs = 60_000;
+    const now = Date.now();
+    this.cgRequestTimestamps = this.cgRequestTimestamps.filter(
+      (ts) => now - ts < windowMs,
+    );
+    if (this.cgRequestTimestamps.length >= this.cgRateLimitRpm) {
+      const oldest = this.cgRequestTimestamps[0];
+      const waitMs = windowMs - (now - oldest) + 50;
+      await new Promise((resolve) => setTimeout(resolve, waitMs));
+    }
+    this.cgRequestTimestamps.push(Date.now());
+    const response = await this.apiClient.get<T>(
+      url,
+      params ? { params } : undefined,
+    );
+    return response.data;
+  }
+
   /**
    * Get trending coins from CoinGecko
    */
   async getTrendingCoins(): Promise<CoinGeckoTrending | null> {
+    const cacheKey = 'cg-trending';
+    const cached = await this.cacheManager.get<CoinGeckoTrending>(cacheKey);
+    if (cached) return cached;
     try {
-      const response =
-        await this.apiClient.get<CoinGeckoTrending>('/search/trending');
+      const data = await this.cgGet<CoinGeckoTrending>('/search/trending');
       this.logger.log(
-        `Fetched ${response.data.coins.length} trending coins from CoinGecko`,
+        `Fetched ${data.coins.length} trending coins from CoinGecko`,
       );
-      return response.data;
+      await this.cacheManager.set(cacheKey, data, CG_TTL);
+      return data;
     } catch (error) {
       this.logger.error('Failed to fetch trending coins from CoinGecko', error);
       return null;
@@ -108,28 +139,27 @@ export class CoinGeckoService {
     coinIds: string[],
     vsCurrency = 'usd',
   ): Promise<CoinGeckoMarketData[]> {
+    const cacheKey = `cg-market-${vsCurrency}-${[...coinIds].sort().join(',')}`;
+    const cached = await this.cacheManager.get<CoinGeckoMarketData[]>(cacheKey);
+    if (cached) return cached;
     try {
-      const response = await this.apiClient.get<CoinGeckoMarketData[]>(
-        '/coins/markets',
-        {
-          params: {
-            vs_currency: vsCurrency,
-            ids: coinIds.join(','),
-            order: 'market_cap_desc',
-            per_page: 250,
-            page: 1,
-            sparkline: false,
-            price_change_percentage: '1h,24h,7d',
-          },
-        },
-      );
+      const data = await this.cgGet<CoinGeckoMarketData[]>('/coins/markets', {
+        vs_currency: vsCurrency,
+        ids: coinIds.join(','),
+        order: 'market_cap_desc',
+        per_page: 250,
+        page: 1,
+        sparkline: false,
+        price_change_percentage: '1h,24h,7d',
+      });
 
       this.logger.log(
-        `Fetched market data for ${response.data.length} coins from CoinGecko`,
+        `Fetched market data for ${data.length} coins from CoinGecko`,
       );
-      return response.data;
+      await this.cacheManager.set(cacheKey, data, CG_TTL);
+      return data;
     } catch (error) {
-      this.logger.error('Failed to fetch market data from CoinGecko', error);
+      this.logger.error('Failed to fetch market data from CoinGecko');
       return [];
     }
   }
@@ -138,14 +168,15 @@ export class CoinGeckoService {
    * Get categories from CoinGecko
    */
   async getCategories(): Promise<CoinGeckoCategory[]> {
+    const cacheKey = 'cg-categories';
+    const cached = await this.cacheManager.get<CoinGeckoCategory[]>(cacheKey);
+    if (cached) return cached;
     try {
-      const response =
-        await this.apiClient.get<CoinGeckoCategory[]>('/coins/categories');
+      const data = await this.cgGet<CoinGeckoCategory[]>('/coins/categories');
 
-      this.logger.log(
-        `Fetched ${response.data.length} categories from CoinGecko`,
-      );
-      return response.data;
+      this.logger.log(`Fetched ${data.length} categories from CoinGecko`);
+      await this.cacheManager.set(cacheKey, data, 10 * 60 * 1000);
+      return data;
     } catch (error) {
       this.logger.error('Failed to fetch categories from CoinGecko', error);
       return [];
@@ -159,26 +190,25 @@ export class CoinGeckoService {
     categoryId: string,
     vsCurrency = 'usd',
   ): Promise<CoinGeckoMarketData[]> {
+    const cacheKey = `cg-category-${vsCurrency}-${categoryId}`;
+    const cached = await this.cacheManager.get<CoinGeckoMarketData[]>(cacheKey);
+    if (cached) return cached;
     try {
-      const response = await this.apiClient.get<CoinGeckoMarketData[]>(
-        '/coins/markets',
-        {
-          params: {
-            vs_currency: vsCurrency,
-            category: categoryId,
-            order: 'market_cap_desc',
-            per_page: 100,
-            page: 1,
-            sparkline: false,
-            price_change_percentage: '1h,24h,7d',
-          },
-        },
-      );
+      const data = await this.cgGet<CoinGeckoMarketData[]>('/coins/markets', {
+        vs_currency: vsCurrency,
+        category: categoryId,
+        order: 'market_cap_desc',
+        per_page: 100,
+        page: 1,
+        sparkline: false,
+        price_change_percentage: '1h,24h,7d',
+      });
 
       this.logger.log(
-        `Fetched ${response.data.length} coins for category ${categoryId} from CoinGecko`,
+        `Fetched ${data.length} coins for category ${categoryId} from CoinGecko`,
       );
-      return response.data;
+      await this.cacheManager.set(cacheKey, data, CG_TTL);
+      return data;
     } catch (error) {
       this.logger.error(
         `Failed to fetch coins for category ${categoryId} from CoinGecko`,
@@ -195,23 +225,21 @@ export class CoinGeckoService {
     limit = 50,
     vsCurrency = 'usd',
   ): Promise<CoinGeckoMarketData[]> {
+    const cacheKey = `cg-recent-${vsCurrency}-${limit}`;
+    const cached = await this.cacheManager.get<CoinGeckoMarketData[]>(cacheKey);
+    if (cached) return cached;
     try {
-      const response = await this.apiClient.get<CoinGeckoMarketData[]>(
-        '/coins/markets',
-        {
-          params: {
-            vs_currency: vsCurrency,
-            order: 'market_cap_desc',
-            per_page: limit,
-            page: 1,
-            sparkline: false,
-            price_change_percentage: '1h,24h,7d',
-          },
-        },
-      );
+      const raw = await this.cgGet<CoinGeckoMarketData[]>('/coins/markets', {
+        vs_currency: vsCurrency,
+        order: 'market_cap_desc',
+        per_page: limit,
+        page: 1,
+        sparkline: false,
+        price_change_percentage: '1h,24h,7d',
+      });
 
       // Sort by last_updated to get most recent
-      const sortedByRecent = response.data.sort((a, b) => {
+      const sortedByRecent = raw.sort((a, b) => {
         return (
           new Date(b.last_updated).getTime() -
           new Date(a.last_updated).getTime()
@@ -221,8 +249,13 @@ export class CoinGeckoService {
       this.logger.log(
         `Fetched ${sortedByRecent.length} recently added coins from CoinGecko`,
       );
+      await this.cacheManager.set(cacheKey, sortedByRecent, CG_TTL);
       return sortedByRecent;
     } catch (error) {
+      this.logger.error(
+        'Failed to fetch recently added coins from CoinGecko',
+        error,
+      );
       this.logger.error(
         'Failed to fetch recently added coins from CoinGecko',
         error,
@@ -238,25 +271,22 @@ export class CoinGeckoService {
     limit = 100,
     vsCurrency = 'usd',
   ): Promise<CoinGeckoMarketData[]> {
+    const cacheKey = `cg-top-${vsCurrency}-${limit}`;
+    const cached = await this.cacheManager.get<CoinGeckoMarketData[]>(cacheKey);
+    if (cached) return cached;
     try {
-      const response = await this.apiClient.get<CoinGeckoMarketData[]>(
-        '/coins/markets',
-        {
-          params: {
-            vs_currency: vsCurrency,
-            order: 'market_cap_desc',
-            per_page: limit,
-            page: 1,
-            sparkline: false,
-            price_change_percentage: '24h',
-          },
-        },
-      );
+      const data = await this.cgGet<CoinGeckoMarketData[]>('/coins/markets', {
+        vs_currency: vsCurrency,
+        order: 'market_cap_desc',
+        per_page: limit,
+        page: 1,
+        sparkline: false,
+        price_change_percentage: '24h',
+      });
 
-      this.logger.log(
-        `Fetched top ${response.data.length} coins from CoinGecko`,
-      );
-      return response.data;
+      this.logger.log(`Fetched top ${data.length} coins from CoinGecko`);
+      await this.cacheManager.set(cacheKey, data, CG_TTL);
+      return data;
     } catch (error) {
       this.logger.error('Failed to fetch top coins from CoinGecko', error);
       return [];
@@ -267,19 +297,21 @@ export class CoinGeckoService {
    * Get coin details by ID
    */
   async getCoinDetails(coinId: string): Promise<any> {
+    const cacheKey = `cg-coin-${coinId}`;
+    const cached = await this.cacheManager.get<any>(cacheKey);
+    if (cached) return cached;
     try {
-      const response = await this.apiClient.get(`/coins/${coinId}`, {
-        params: {
-          localization: false,
-          tickers: false,
-          market_data: true,
-          community_data: false,
-          developer_data: false,
-        },
+      const data = await this.cgGet<any>(`/coins/${coinId}`, {
+        localization: false,
+        tickers: false,
+        market_data: true,
+        community_data: false,
+        developer_data: false,
       });
 
       this.logger.log(`Fetched details for coin: ${coinId}`);
-      return response.data;
+      await this.cacheManager.set(cacheKey, data, CG_TTL);
+      return data;
     } catch (error) {
       this.logger.error(`Failed to fetch coin details for ${coinId}`, error);
       return null;
@@ -290,15 +322,17 @@ export class CoinGeckoService {
    * Search coins by query
    */
   async searchCoins(query: string): Promise<any> {
+    const cacheKey = `cg-search-${query.toLowerCase().trim()}`;
+    const cached = await this.cacheManager.get<any>(cacheKey);
+    if (cached) return cached;
     try {
-      const response = await this.apiClient.get('/search', {
-        params: { query },
-      });
+      const data = await this.cgGet<any>('/search', { query });
 
       this.logger.log(
-        `Search results for "${query}": ${response.data.coins?.length || 0} coins`,
+        `Search results for "${query}": ${data.coins?.length || 0} coins`,
       );
-      return response.data;
+      await this.cacheManager.set(cacheKey, data, CG_TTL);
+      return data;
     } catch (error) {
       this.logger.error(`Failed to search coins for query: ${query}`, error);
       return { coins: [] };

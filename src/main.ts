@@ -18,7 +18,7 @@ async function bootstrap() {
     origin: 'http://localhost:3001', // FE URL
     credentials: true,
     allowedHeaders: ['Content-Type', 'Authorization'],
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   });
 
   const configService = app.get(ConfigService);
