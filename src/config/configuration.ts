@@ -28,7 +28,6 @@ export default () => ({
     heliusApiKey: process.env.HELIUS_API_KEY,
     network: process.env.SOLANA_NETWORK || 'mainnet-beta',
     commitment: 'confirmed',
-    programId: process.env.SOLANA_PROGRAM_ID || '',
     jupiterApi: {
       searchToken:
         process.env.JUPITER_TOKEN_SEARCH_API ||

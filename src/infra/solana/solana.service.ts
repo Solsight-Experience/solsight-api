@@ -18,7 +18,6 @@ export class SolanaService {
   private readonly logger = new Logger(SolanaService.name);
   private connection: Connection;
   private readonly network: string;
-  private readonly programId?: PublicKey;
   private heliusConnection: Connection;
 
   constructor(private configService: ConfigService) {
@@ -45,11 +44,6 @@ export class SolanaService {
     this.connection = new Connection(rpcUrl, commitment);
     this.heliusConnection = new Connection(heliusRpcUrl, commitment);
 
-    const programIdStr = this.configService.get<string>('solana.programId');
-    if (programIdStr) {
-      this.programId = new PublicKey(programIdStr);
-    }
-
     this.logger.log(`Connected to Solana ${this.network} network`);
   }
 
@@ -67,10 +61,6 @@ export class SolanaService {
 
   getNetwork(): string {
     return this.network;
-  }
-
-  getProgramId(): PublicKey | undefined {
-    return this.programId;
   }
 
   async getBalance(publicKey: PublicKey, useHelius = false): Promise<number> {

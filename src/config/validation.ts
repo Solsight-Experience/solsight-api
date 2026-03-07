@@ -31,7 +31,6 @@ export const validationSchema = Joi.object({
   SOLANA_NETWORK: Joi.string()
     .valid('mainnet-beta', 'devnet', 'testnet')
     .default('devnet'),
-  SOLANA_PROGRAM_ID: Joi.string(),
 
   // JWT
   JWT_SECRET: Joi.string().required(),
