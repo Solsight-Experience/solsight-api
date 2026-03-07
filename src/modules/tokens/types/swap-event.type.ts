@@ -143,7 +143,10 @@ export interface HolderData {
   tx_count: number;
 }
 
-export function transformSwapToTrade(swap: SwapEvent, marketCap = 0): TradeData {
+export function transformSwapToTrade(
+  swap: SwapEvent,
+  marketCap = 0,
+): TradeData {
   const isBuy = swap.direction === 'BUY';
   return {
     tx_hash: swap.signature,

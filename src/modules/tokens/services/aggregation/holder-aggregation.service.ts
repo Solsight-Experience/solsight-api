@@ -22,7 +22,9 @@ export class HolderAggregationService {
       const holderAddress = swap.maker;
       const isBuy = swap.direction === 'BUY';
 
-      const tokenAmount = isBuy ? swap.token_out.amount_ui : swap.token_in.amount_ui;
+      const tokenAmount = isBuy
+        ? swap.token_out.amount_ui
+        : swap.token_in.amount_ui;
       const price = swap.price_usd ?? swap.price_native;
       const volumeUsd = tokenAmount * price;
 
@@ -53,7 +55,9 @@ export class HolderAggregationService {
       await redis.expire(holderKey, HOLDER_TTL);
 
       // Update ranking by balance
-      const balance = parseFloat((await redis.hget(holderKey, 'balance')) || '0');
+      const balance = parseFloat(
+        (await redis.hget(holderKey, 'balance')) || '0',
+      );
       if (balance > 0) {
         await redis.zadd(rankingKey, balance, holderAddress);
       } else {
@@ -104,12 +108,18 @@ export class HolderAggregationService {
 
       return holders;
     } catch (error) {
-      this.logger.error(`Redis error in getTopHolders for "${tokenMint}":`, error);
+      this.logger.error(
+        `Redis error in getTopHolders for "${tokenMint}":`,
+        error,
+      );
       return [];
     }
   }
 
-  async getHolder(tokenMint: string, address: string): Promise<HolderData | null> {
+  async getHolder(
+    tokenMint: string,
+    address: string,
+  ): Promise<HolderData | null> {
     const redis = this.redisService.getClient();
     if (!redis) return null;
 
@@ -138,7 +148,10 @@ export class HolderAggregationService {
         tx_count: parseInt(data.tx_count || '0', 10),
       };
     } catch (error) {
-      this.logger.error(`Redis error in getHolder for "${tokenMint}" address "${address}":`, error);
+      this.logger.error(
+        `Redis error in getHolder for "${tokenMint}" address "${address}":`,
+        error,
+      );
       return null;
     }
   }

@@ -3,7 +3,11 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { RedisService } from '../../../../redis/services/redis.service';
 import { Token } from '../../entities/token.entity';
-import { SwapEvent, TokenStats, SwapPriceResult } from '../../types/swap-event.type';
+import {
+  SwapEvent,
+  TokenStats,
+  SwapPriceResult,
+} from '../../types/swap-event.type';
 
 @Injectable()
 export class StatsAggregationService {
@@ -19,7 +23,9 @@ export class StatsAggregationService {
     const tokenOutMint = swap.token_out.mint;
     const tokenInMint = swap.token_in.mint;
 
-    this.logger.log(`[SET] out="${tokenOutMint}" price=${prices.priceUsdTokenOut} | in="${tokenInMint}" price=${prices.priceUsdTokenIn}`);
+    this.logger.log(
+      `[SET] out="${tokenOutMint}" price=${prices.priceUsdTokenOut} | in="${tokenInMint}" price=${prices.priceUsdTokenIn}`,
+    );
 
     // Store price for both tokens
     await this.storePriceData(tokenOutMint, prices.priceUsdTokenOut);
@@ -28,17 +34,26 @@ export class StatsAggregationService {
     // Store volume and txns for both tokens
     // token_out = user is BUYING this token
     // token_in = user is SELLING this token
-    await this.storeVolumeAndTxns(tokenOutMint, prices.volumeUsdTokenOut, 'buy');
+    await this.storeVolumeAndTxns(
+      tokenOutMint,
+      prices.volumeUsdTokenOut,
+      'buy',
+    );
     await this.storeVolumeAndTxns(tokenInMint, prices.volumeUsdTokenIn, 'sell');
   }
 
-  private async storePriceData(tokenMint: string, priceUsd: number): Promise<void> {
+  private async storePriceData(
+    tokenMint: string,
+    priceUsd: number,
+  ): Promise<void> {
     const redis = this.redisService.getClient();
     if (!redis) return;
 
     try {
       // Store latest price
-      await this.redisService.set(`price:${tokenMint}:latest`, { usd: priceUsd });
+      await this.redisService.set(`price:${tokenMint}:latest`, {
+        usd: priceUsd,
+      });
 
       // Store price in history for 24h change calculation
       const now = Date.now();
@@ -54,7 +69,10 @@ export class StatsAggregationService {
       // Set TTL on history key (25 hours to be safe)
       await redis.expire(historyKey, 25 * 60 * 60);
     } catch (error) {
-      this.logger.error(`Redis error in storePriceData for "${tokenMint}":`, error);
+      this.logger.error(
+        `Redis error in storePriceData for "${tokenMint}":`,
+        error,
+      );
     }
   }
 
@@ -82,20 +100,29 @@ export class StatsAggregationService {
       await redis.zremrangebyscore(txnsKey, '-inf', cutoff);
       await redis.expire(txnsKey, 25 * 60 * 60);
     } catch (error) {
-      this.logger.error(`Redis error in storeVolumeAndTxns for "${tokenMint}":`, error);
+      this.logger.error(
+        `Redis error in storeVolumeAndTxns for "${tokenMint}":`,
+        error,
+      );
     }
   }
 
   async getStats(tokenMint: string): Promise<TokenStats> {
     // Get latest price from Redis (object with native and usd)
-    const latestPriceData = await this.redisService.get<{ native: number; usd: number }>(`price:${tokenMint}:latest`);
+    const latestPriceData = await this.redisService.get<{
+      native: number;
+      usd: number;
+    }>(`price:${tokenMint}:latest`);
 
     // Get token from database for other stats
     const token = await this.tokenRepository.findOneBy({ address: tokenMint });
 
     // Calculate 24h price change (use USD price)
     const priceUsd = latestPriceData?.usd ?? null;
-    const priceChange24h = await this.calculatePriceChange24h(tokenMint, priceUsd);
+    const priceChange24h = await this.calculatePriceChange24h(
+      tokenMint,
+      priceUsd,
+    );
 
     // Get volume and txns from Redis (real-time from swap events)
     const volume24h = await this.getVolume24h(tokenMint);
@@ -103,7 +130,9 @@ export class StatsAggregationService {
 
     const price = priceUsd ?? token?.price ?? 0;
     const totalSupply = await this.getTotalSupply(tokenMint);
-    this.logger.log(`[GET] token="${tokenMint}" price=${price} (${latestPriceData ? 'Redis' : 'DB'})`);
+    this.logger.log(
+      `[GET] token="${tokenMint}" price=${price} (${latestPriceData ? 'Redis' : 'DB'})`,
+    );
 
     return {
       timestamp: Date.now() / 1000,
@@ -145,8 +174,12 @@ export class StatsAggregationService {
     return totalSupply;
   }
 
-  async getLatestPrice(tokenMint: string): Promise<{ native: number; usd: number } | null> {
-    return this.redisService.get<{ native: number; usd: number }>(`price:${tokenMint}:latest`);
+  async getLatestPrice(
+    tokenMint: string,
+  ): Promise<{ native: number; usd: number } | null> {
+    return this.redisService.get<{ native: number; usd: number }>(
+      `price:${tokenMint}:latest`,
+    );
   }
 
   private async getVolume24h(tokenMint: string): Promise<number> {
@@ -165,12 +198,17 @@ export class StatsAggregationService {
       }
       return totalVolume;
     } catch (error) {
-      this.logger.error(`Redis error in getVolume24h for "${tokenMint}":`, error);
+      this.logger.error(
+        `Redis error in getVolume24h for "${tokenMint}":`,
+        error,
+      );
       return 0;
     }
   }
 
-  private async getTxns24h(tokenMint: string): Promise<{ total: number; buys: number; sells: number }> {
+  private async getTxns24h(
+    tokenMint: string,
+  ): Promise<{ total: number; buys: number; sells: number }> {
     const redis = this.redisService.getClient();
     if (!redis) return { total: 0, buys: 0, sells: 0 };
 
@@ -215,7 +253,10 @@ export class StatsAggregationService {
       if (oldPrice === 0) return null;
       return ((currentPrice - oldPrice) / oldPrice) * 100;
     } catch (error) {
-      this.logger.error(`Redis error in calculatePriceChange24h for "${tokenMint}":`, error);
+      this.logger.error(
+        `Redis error in calculatePriceChange24h for "${tokenMint}":`,
+        error,
+      );
       return null;
     }
   }

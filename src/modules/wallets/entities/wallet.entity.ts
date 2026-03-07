@@ -86,7 +86,10 @@ export class Wallet {
   @UpdateDateColumn()
   updatedAt: Date;
 
-  @ManyToOne(() => User, (user) => user.wallets, { onDelete: 'CASCADE', nullable: true })
+  @ManyToOne(() => User, (user) => user.wallets, {
+    onDelete: 'CASCADE',
+    nullable: true,
+  })
   user: User;
 
   @Column({ type: 'varchar', nullable: true })

@@ -24,7 +24,10 @@ const REDIS_TRADES_CHANNEL = 'trades';
 @Injectable()
 export class TokenSocketService implements OnModuleInit {
   private readonly logger = new Logger(TokenSocketService.name);
-  private readonly tradesBuffer = new Map<string, (TradeData & { token: string })[]>();
+  private readonly tradesBuffer = new Map<
+    string,
+    (TradeData & { token: string })[]
+  >();
   private readonly lastEmittedClose = new Map<string, number>();
 
   constructor(
@@ -53,14 +56,17 @@ export class TokenSocketService implements OnModuleInit {
   private async subscribeToTrades(): Promise<void> {
     this.logger.log(`Subscribing to Redis channel: ${REDIS_TRADES_CHANNEL}`);
 
-    await this.pubSubService.subscribe(REDIS_TRADES_CHANNEL, async (message) => {
-      try {
-        const swap = message as SwapEvent;
-        await this.processSwapEvent(swap);
-      } catch (error) {
-        this.logger.error('Error processing swap event:', error);
-      }
-    });
+    await this.pubSubService.subscribe(
+      REDIS_TRADES_CHANNEL,
+      async (message) => {
+        try {
+          const swap = message as SwapEvent;
+          await this.processSwapEvent(swap);
+        } catch (error) {
+          this.logger.error('Error processing swap event:', error);
+        }
+      },
+    );
 
     this.logger.log(`Subscribed to Redis channel: ${REDIS_TRADES_CHANNEL}`);
   }
@@ -89,17 +95,29 @@ export class TokenSocketService implements OnModuleInit {
       this.statsAggregation.getTotalSupply(swap.token_in.mint),
     ]);
 
-    const tradeDataTokenOut = transformSwapToTradeForToken(swap, swap.token_out.mint, prices.priceUsdTokenOut, prices.priceUsdTokenOut * supplyOut);
+    const tradeDataTokenOut = transformSwapToTradeForToken(
+      swap,
+      swap.token_out.mint,
+      prices.priceUsdTokenOut,
+      prices.priceUsdTokenOut * supplyOut,
+    );
     this.bufferTrade(swap.token_out.mint, tradeDataTokenOut);
 
-    const tradeDataTokenIn = transformSwapToTradeForToken(swap, swap.token_in.mint, prices.priceUsdTokenIn, prices.priceUsdTokenIn * supplyIn);
+    const tradeDataTokenIn = transformSwapToTradeForToken(
+      swap,
+      swap.token_in.mint,
+      prices.priceUsdTokenIn,
+      prices.priceUsdTokenIn * supplyIn,
+    );
     this.bufferTrade(swap.token_in.mint, tradeDataTokenIn);
   }
 
   private startScheduler(domain: RoomDomain, interval: RoomInterval) {
     const intervalMs = parseRoomIntervalMs(interval);
 
-    this.logger.log(`Start scheduler: domain=${domain}, interval=${interval}, emitEvery=${intervalMs}ms`);
+    this.logger.log(
+      `Start scheduler: domain=${domain}, interval=${interval}, emitEvery=${intervalMs}ms`,
+    );
 
     setInterval(async () => {
       const rooms = this.gateway.listTokenRooms(domain);
@@ -183,9 +201,13 @@ export class TokenSocketService implements OnModuleInit {
     }
   }
 
-  private async emitOhlc(room: string, ohlcInterval: OhlcInterval): Promise<void> {
+  private async emitOhlc(
+    room: string,
+    ohlcInterval: OhlcInterval,
+  ): Promise<void> {
     const [, token] = room.split(':');
-    const bucketTime = this.ohlcAggregation.getBucketTimestamp(ohlcInterval) / 1000;
+    const bucketTime =
+      this.ohlcAggregation.getBucketTimestamp(ohlcInterval) / 1000;
     const lastClose = this.lastEmittedClose.get(room);
 
     const currentOhlc = await this.ohlcAggregation.getOhlc(token, ohlcInterval);
@@ -195,7 +217,12 @@ export class TokenSocketService implements OnModuleInit {
       if (lastClose == null) return;
       this.gateway.emit(room, 'priceOHLC', {
         token,
-        priceOHLC: { open: lastClose, close: lastClose, high: lastClose, low: lastClose },
+        priceOHLC: {
+          open: lastClose,
+          close: lastClose,
+          high: lastClose,
+          low: lastClose,
+        },
         time: bucketTime,
       });
       return;

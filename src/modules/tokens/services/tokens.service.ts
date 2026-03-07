@@ -138,7 +138,7 @@ export class TokensService {
     const whereConditions: any = {};
     if (filter?.metrics) {
       const m = filter.metrics;
-      
+
       if (m.age_min_minutes != null && m.age_max_minutes != null) {
         whereConditions.ageSeconds = Between(
           m.age_min_minutes,
@@ -151,24 +151,15 @@ export class TokensService {
       }
 
       if (m.market_cap_min != null && m.market_cap_max != null) {
-        whereConditions.marketCap = Between(
-          m.market_cap_min,
-          m.market_cap_max,
-        );
+        whereConditions.marketCap = Between(m.market_cap_min, m.market_cap_max);
       }
 
       if (m.volume_24h_min != null && m.volume_24h_max != null) {
-        whereConditions.volume24h = Between(
-          m.volume_24h_min,
-          m.volume_24h_max,
-        );
+        whereConditions.volume24h = Between(m.volume_24h_min, m.volume_24h_max);
       }
 
       if (m.txns_24h_min != null && m.txns_24h_max != null) {
-        whereConditions.txns24hTotal = Between(
-          m.txns_24h_min,
-          m.txns_24h_max,
-        );
+        whereConditions.txns24hTotal = Between(m.txns_24h_min, m.txns_24h_max);
       }
 
       if (m.holders_min != null && m.holders_max != null) {

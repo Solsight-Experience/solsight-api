@@ -1,6 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { RedisService } from '../../../../redis/services/redis.service';
-import { SwapEvent, OhlcData, SwapPriceResult } from '../../types/swap-event.type';
+import {
+  SwapEvent,
+  OhlcData,
+  SwapPriceResult,
+} from '../../types/swap-event.type';
 import { OhlcInterval } from '../socket/room/room.constants';
 
 const INTERVAL_MS: Record<OhlcInterval, number> = {
@@ -25,12 +29,25 @@ export class OhlcAggregationService {
     const intervals: OhlcInterval[] = ['10s', '1m', '5m'];
 
     for (const interval of intervals) {
-      await this.updateOhlc(swap.token_out.mint, interval, prices.priceUsdTokenOut, prices.volumeUsdTokenOut);
-      await this.updateOhlc(swap.token_in.mint, interval, prices.priceUsdTokenIn, prices.volumeUsdTokenIn);
+      await this.updateOhlc(
+        swap.token_out.mint,
+        interval,
+        prices.priceUsdTokenOut,
+        prices.volumeUsdTokenOut,
+      );
+      await this.updateOhlc(
+        swap.token_in.mint,
+        interval,
+        prices.priceUsdTokenIn,
+        prices.volumeUsdTokenIn,
+      );
     }
   }
 
-  async getOhlc(tokenMint: string, interval: OhlcInterval): Promise<OhlcData | null> {
+  async getOhlc(
+    tokenMint: string,
+    interval: OhlcInterval,
+  ): Promise<OhlcData | null> {
     const redis = this.redisService.getClient();
     if (!redis) return null;
 
@@ -51,7 +68,10 @@ export class OhlcAggregationService {
         volume: parseFloat(data.volume) || 0,
       };
     } catch (error) {
-      this.logger.error(`Redis error in getOhlc for "${tokenMint}" interval "${interval}":`, error);
+      this.logger.error(
+        `Redis error in getOhlc for "${tokenMint}" interval "${interval}":`,
+        error,
+      );
       return null;
     }
   }
@@ -120,9 +140,20 @@ export class OhlcAggregationService {
       return 1
     `;
 
-      await redis.eval(luaScript, 2, bucketKey, lastCloseKey, price, volume, INTERVAL_TTL[interval]);
+      await redis.eval(
+        luaScript,
+        2,
+        bucketKey,
+        lastCloseKey,
+        price,
+        volume,
+        INTERVAL_TTL[interval],
+      );
     } catch (error) {
-      this.logger.error(`Redis error in updateOhlc for "${tokenMint}" interval "${interval}":`, error);
+      this.logger.error(
+        `Redis error in updateOhlc for "${tokenMint}" interval "${interval}":`,
+        error,
+      );
     }
   }
 

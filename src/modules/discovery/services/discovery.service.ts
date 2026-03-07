@@ -19,7 +19,10 @@ import { GetCategoryDto } from '../dtos/get-category.dto';
 import { JupiterService } from '../../../infra/jupiter/jupiter.service';
 import { CoinGeckoService } from '../../../infra/coingecko/coingecko.service';
 import { SolanaService } from '../../../infra/solana/solana.service';
-import { TokenOverview, CategoryOverview } from '../dtos/discovery.response.dto';
+import {
+  TokenOverview,
+  CategoryOverview,
+} from '../dtos/discovery.response.dto';
 
 @Injectable()
 export class DiscoveryService {
@@ -139,7 +142,9 @@ export class DiscoveryService {
       relations: ['category'],
     });
 
-    const transformedTokens = tokens.map(token => this.transformToTokenOverview(token));
+    const transformedTokens = tokens.map((token) =>
+      this.transformToTokenOverview(token),
+    );
 
     return {
       tokens: transformedTokens,
@@ -160,7 +165,9 @@ export class DiscoveryService {
         return;
       }
 
-      this.logger.log(`Fetched ${trendingData.coins.length} trending coins from CoinGecko`);
+      this.logger.log(
+        `Fetched ${trendingData.coins.length} trending coins from CoinGecko`,
+      );
 
       // Try to get Jupiter token list (optional - may fail if network issues)
       let solanaTokenMap = new Map<string, any>();
@@ -173,16 +180,21 @@ export class DiscoveryService {
           this.logger.log(`Loaded ${jupiterTokens.length} tokens from Jupiter`);
         }
       } catch (error) {
-        this.logger.warn('Jupiter API unavailable, proceeding without Solana matching');
+        this.logger.warn(
+          'Jupiter API unavailable, proceeding without Solana matching',
+        );
       }
 
       // Get existing tokens from database
       const existingTokens = await this.tokenRepository.find();
-      const existingTokenMap = new Map(existingTokens.map((t) => [t.symbol, t]));
+      const existingTokenMap = new Map(
+        existingTokens.map((t) => [t.symbol, t]),
+      );
 
       // Get market data from CoinGecko for top trending coins
       const coinIds = trendingData.coins.slice(0, 20).map((c) => c.item.id);
-      const marketData = await this.coingeckoService.getCoinsMarketData(coinIds);
+      const marketData =
+        await this.coingeckoService.getCoinsMarketData(coinIds);
       const marketDataMap = new Map(marketData.map((m) => [m.id, m]));
 
       // Update or create tokens (only Solana tokens)
@@ -190,11 +202,11 @@ export class DiscoveryService {
       for (const item of trendingData.coins.slice(0, 20)) {
         const symbol = item.item.symbol.toUpperCase();
         const market = marketDataMap.get(item.item.id);
-        
+
         if (!market) continue;
 
         const jupiterToken = solanaTokenMap.get(item.item.symbol.toLowerCase());
-        
+
         // Skip if not a Solana token
         if (!jupiterToken) {
           this.logger.debug(`Skipping ${symbol} - not found on Solana`);
@@ -265,7 +277,9 @@ export class DiscoveryService {
 
     const [tokens, total] = await query.getManyAndCount();
 
-    const transformedTokens = tokens.map(token => this.transformToTokenOverview(token));
+    const transformedTokens = tokens.map((token) =>
+      this.transformToTokenOverview(token),
+    );
 
     return {
       tokens: transformedTokens,
@@ -306,7 +320,7 @@ export class DiscoveryService {
       let syncedCount = 0;
       for (const coin of recentCoins) {
         const jupiterToken = solanaTokenMap.get(coin.symbol.toLowerCase());
-        
+
         // Skip if not a Solana token
         if (!jupiterToken) {
           continue;
@@ -345,7 +359,7 @@ export class DiscoveryService {
       );
     } catch (error) {
       this.logger.error('Failed to sync new listings', error);
-    };
+    }
   }
 
   async getCategories() {
@@ -353,7 +367,9 @@ export class DiscoveryService {
       order: { marketCap: 'DESC' },
     });
 
-    const transformedCategories = categories.map(category => this.transformToCategory(category));
+    const transformedCategories = categories.map((category) =>
+      this.transformToCategory(category),
+    );
 
     return {
       categories: transformedCategories,
@@ -395,9 +411,7 @@ export class DiscoveryService {
         });
       }
 
-      this.logger.log(
-        `Synced ${categories.length} categories from CoinGecko`,
-      );
+      this.logger.log(`Synced ${categories.length} categories from CoinGecko`);
     } catch (error) {
       this.logger.error('Failed to sync categories', error);
     }
@@ -441,7 +455,9 @@ export class DiscoveryService {
     });
 
     const transformedCategory = this.transformToCategory(category);
-    const transformedTokens = tokens.map(token => this.transformToTokenOverview(token));
+    const transformedTokens = tokens.map((token) =>
+      this.transformToTokenOverview(token),
+    );
 
     return {
       category: transformedCategory,
@@ -461,7 +477,8 @@ export class DiscoveryService {
       this.logger.log(`Starting token sync for category: ${categorySlug}...`);
 
       // Fetch coins by category from CoinGecko
-      const coins = await this.coingeckoService.getCoinsByCategory(categorySlug);
+      const coins =
+        await this.coingeckoService.getCoinsByCategory(categorySlug);
 
       if (!coins || coins.length === 0) {
         this.logger.warn(`No coins found for category ${categorySlug}`);
@@ -485,7 +502,7 @@ export class DiscoveryService {
       let syncedCount = 0;
       for (const coin of coins) {
         const jupiterToken = solanaTokenMap.get(coin.symbol.toLowerCase());
-        
+
         // Skip if not a Solana token
         if (!jupiterToken) {
           continue;
@@ -563,8 +580,12 @@ export class DiscoveryService {
       });
     }
 
-    const transformedGainers = gainers.map(token => this.transformToTokenOverview(token));
-    const transformedLosers = losers.map(token => this.transformToTokenOverview(token));
+    const transformedGainers = gainers.map((token) =>
+      this.transformToTokenOverview(token),
+    );
+    const transformedLosers = losers.map((token) =>
+      this.transformToTokenOverview(token),
+    );
 
     return {
       gainers: transformedGainers,
