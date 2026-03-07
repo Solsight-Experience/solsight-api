@@ -8,10 +8,18 @@ import {
   Post,
 } from '@nestjs/common';
 import { TokensService } from '../services/tokens.service';
+import { TokenSummaryService } from '../services/token-summary.service';
+import {
+  SummarizeTokenRequestDto,
+  TokenSummaryResponseDto,
+} from '../dtos/token-summary.dto';
 
 @Controller('tokens')
 export class TokensController {
-  constructor(private readonly tokensService: TokensService) {}
+  constructor(
+    private readonly tokensService: TokensService,
+    private readonly tokenSummaryService: TokenSummaryService,
+  ) {}
 
   @Get('search')
   search(@Query('q') q: string, @Query('limit') limit: number = 10) {
@@ -40,5 +48,21 @@ export class TokensController {
     const data = this.tokensService.findOne(address);
     if (data) return data;
     else throw new NotFoundException('Token not found');
+  }
+
+  @Post('summarize')
+  async summarize(
+    @Body() dto: SummarizeTokenRequestDto,
+  ): Promise<TokenSummaryResponseDto> {
+    const result = await this.tokenSummaryService.generateSummary(dto.address, {
+      includePriceAnalysis: dto.includePriceAnalysis,
+      includeRiskAssessment: dto.includeRiskAssessment,
+      includeTradingMetrics: dto.includeTradingMetrics,
+      includeMarketComparison: dto.includeMarketComparison,
+      includeSocialSentiment: dto.includeSocialSentiment,
+      forceRefresh: dto.forceRefresh,
+    });
+
+    return result;
   }
 }
