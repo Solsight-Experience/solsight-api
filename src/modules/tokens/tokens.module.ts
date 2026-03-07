@@ -14,6 +14,9 @@ import { StatsAggregationService } from './services/aggregation/stats-aggregatio
 import { OhlcAggregationService } from './services/aggregation/ohlc-aggregation.service';
 import { TraderAggregationService } from './services/aggregation/trader-aggregation.service';
 import { HolderAggregationService } from './services/aggregation/holder-aggregation.service';
+import { TokenSummaryService } from './services/token-summary.service';
+import { PromptBuilderService } from './services/prompt-builder.service';
+import { GeminiModule } from '../../infra/gemini/gemini.module';
 
 @Module({
   imports: [
@@ -22,6 +25,7 @@ import { HolderAggregationService } from './services/aggregation/holder-aggregat
     ConfigModule,
     WebsocketModule,
     RedisModule,
+    GeminiModule,
   ],
   providers: [
     TokensService,
@@ -31,6 +35,8 @@ import { HolderAggregationService } from './services/aggregation/holder-aggregat
     OhlcAggregationService,
     TraderAggregationService,
     HolderAggregationService,
+    TokenSummaryService,
+    PromptBuilderService,
     // TokenSeederService,
   ],
   controllers: [TokensController],
