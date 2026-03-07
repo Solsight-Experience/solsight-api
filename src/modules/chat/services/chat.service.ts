@@ -257,6 +257,50 @@ export class ChatService {
     }
   }
 
+  async *sendMessageStream(
+    payload: SendMessagePayload,
+  ): AsyncGenerator<string, void, unknown> {
+    const session = this.getOrCreateSession(payload.sessionId);
+
+    if (session.processing) {
+      this.logger.warn(
+        `Session ${payload.sessionId} is already processing a message, rejecting`,
+        ChatService.name,
+      );
+      throw new HttpException('Already processing a message', 429);
+    }
+
+    this.logger.log(
+      `Received stream message for session=${payload.sessionId} wallet=${payload.walletAddress ?? 'none'} length=${payload.message.length}`,
+      ChatService.name,
+    );
+
+    session.messages.push({
+      role: 'user',
+      content: payload.message,
+    });
+
+    session.processing = true;
+
+    try {
+      yield* this.runLlmLoopStream(session, payload.walletAddress);
+      this.logger.log(
+        `Session ${payload.sessionId} stream completed`,
+        ChatService.name,
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown LLM error';
+      this.logger.error(
+        `Failed to process stream message: ${message}`,
+        error instanceof Error ? error.stack : undefined,
+        ChatService.name,
+      );
+      throw error;
+    } finally {
+      session.processing = false;
+    }
+  }
+
   async runLlmLoop(
     session: ChatSession,
     walletAddress?: string,
@@ -389,6 +433,178 @@ export class ChatService {
       const message = error instanceof Error ? error.message : 'Unknown LLM error';
       this.logger.error(
         `OpenAI chat completion failed: ${message}`,
+        error instanceof Error ? error.stack : undefined,
+        ChatService.name,
+      );
+      throw error;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  async *runLlmLoopStream(
+    session: ChatSession,
+    walletAddress?: string,
+  ): AsyncGenerator<string, void, unknown> {
+    const recentMessages = session.messages.slice(-10);
+    const messages: ChatCompletionMessageParam[] = [
+      {
+        role: 'system',
+        content: SYSTEM_PROMPT,
+      },
+      ...recentMessages.map((message): ChatCompletionMessageParam => {
+        if (message.role === 'tool') {
+          return {
+            role: 'tool' as const,
+            content: message.content,
+            tool_call_id: message.toolCallId || '',
+          };
+        }
+
+        return {
+          role: message.role,
+          content: message.content,
+        };
+      }),
+    ];
+
+    this.logger.debug(
+      `LLM stream request: model=${this.model} messages=${messages.length}`,
+      ChatService.name,
+    );
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => {
+      this.logger.warn(
+        `LLM stream request timed out after ${LLM_TIMEOUT_MS}ms`,
+        ChatService.name,
+      );
+      controller.abort();
+    }, LLM_TIMEOUT_MS);
+
+    let fullContent = '';
+    const toolCallMap: Record<string, { function: { name: string; arguments: string } }> = {};
+
+    try {
+      const stream = await this.openai.chat.completions.create(
+        {
+          model: this.model,
+          messages,
+          tools: TOOL_DEFINITIONS,
+          tool_choice: 'auto',
+          parallel_tool_calls: false,
+          stream: true,
+        },
+        {
+          signal: controller.signal,
+        },
+      );
+
+      for await (const chunk of stream) {
+        const choice = chunk.choices[0];
+        if (!choice) {
+          continue;
+        }
+
+        const delta = choice.delta;
+
+        if (delta.content) {
+          fullContent += delta.content;
+          yield delta.content;
+        }
+
+        if (delta.tool_calls) {
+          for (const toolCall of delta.tool_calls) {
+            const id = toolCall.id;
+            if (!id) {
+              continue;
+            }
+
+            if (!toolCallMap[id]) {
+              toolCallMap[id] = {
+                function: { name: toolCall.function?.name || '', arguments: '' },
+              };
+            }
+
+            if (toolCall.function?.name) {
+              toolCallMap[id].function.name = toolCall.function.name;
+            }
+
+            if (toolCall.function?.arguments) {
+              toolCallMap[id].function.arguments += toolCall.function.arguments;
+            }
+          }
+        }
+
+        if (choice.finish_reason === 'tool_calls') {
+          this.logger.debug(
+            `Stream finish reason: tool_calls, accumulated content length=${fullContent.length}`,
+            ChatService.name,
+          );
+
+          session.messages.push({
+            role: 'assistant',
+            content: fullContent,
+          });
+
+          for (const [toolCallId, toolCall] of Object.entries(toolCallMap)) {
+            const toolName = toolCall.function.name;
+            let args: Record<string, unknown> = {};
+
+            try {
+              args = JSON.parse(toolCall.function.arguments || '{}') as Record<
+                string,
+                unknown
+              >;
+            } catch (error) {
+              this.logger.warn(
+                `Invalid tool arguments for ${toolName}: ${toolCall.function.arguments}`,
+                ChatService.name,
+              );
+            }
+
+            this.logger.log(
+              `Executing tool (stream): ${toolName} args=${JSON.stringify(args)}`,
+              ChatService.name,
+            );
+
+            const result = await this.executeTool(toolName, args, walletAddress);
+
+            this.logger.debug(
+              `Tool ${toolName} result length=${result.length}`,
+              ChatService.name,
+            );
+
+            session.messages.push({
+              role: 'tool',
+              content: result,
+              toolCallId,
+              toolName,
+            });
+          }
+
+          yield* this.runLlmLoopStream(session, walletAddress);
+          return;
+        }
+
+        if (choice.finish_reason === 'stop') {
+          this.logger.debug(
+            `Stream finish reason: stop, total content length=${fullContent.length}`,
+            ChatService.name,
+          );
+
+          session.messages.push({
+            role: 'assistant',
+            content: fullContent,
+          });
+
+          return;
+        }
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown LLM error';
+      this.logger.error(
+        `OpenAI chat stream failed: ${message}`,
         error instanceof Error ? error.stack : undefined,
         ChatService.name,
       );

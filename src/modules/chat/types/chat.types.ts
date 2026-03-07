@@ -23,6 +23,11 @@ export interface ChatResponsePayload {
   data?: Record<string, unknown>;
 }
 
+export interface ChatStreamChunkPayload {
+  sessionId: string;
+  chunk: string;
+}
+
 export interface ChatErrorPayload {
   sessionId: string;
   code: 'rate_limited' | 'processing' | 'llm_error' | 'unknown';

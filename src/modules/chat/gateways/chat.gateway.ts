@@ -6,7 +6,7 @@ import { ChatService } from '../services/chat.service';
 import {
   SendMessagePayload,
   ChatErrorPayload,
-  ChatResponsePayload,
+  ChatStreamChunkPayload,
 } from '../types/chat.types';
 
 @Injectable()
@@ -59,11 +59,19 @@ export class ChatGateway {
     );
 
     try {
-      const result: ChatResponsePayload = await this.chatService.sendMessage(payload);
-      client.emit('chat:response', result);
+      const stream = this.chatService.sendMessageStream(payload);
+
+      for await (const chunk of stream) {
+        const chunkPayload: ChatStreamChunkPayload = {
+          sessionId: payload.sessionId,
+          chunk,
+        };
+        client.emit('chat:stream', chunkPayload);
+      }
+
       client.emit('chat:complete', { sessionId: payload.sessionId });
       this.logger.log(
-        `chat:response sent client=${clientKey} session=${payload.sessionId} type=${result.type}`,
+        `chat:stream completed client=${clientKey} session=${payload.sessionId}`,
         ChatGateway.name,
       );
     } catch (error) {
