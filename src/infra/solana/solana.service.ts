@@ -121,10 +121,7 @@ export class SolanaService {
     const conn = useHelius ? this.heliusConnection : this.connection;
     try {
       const options = { limit, before, until };
-      const signatures = await conn.getSignaturesForAddress(
-        publicKey,
-        options,
-      );
+      const signatures = await conn.getSignaturesForAddress(publicKey, options);
       const transactions = await Promise.all(
         signatures.map(async (sig) => {
           const tx = await conn.getTransaction(sig.signature, {

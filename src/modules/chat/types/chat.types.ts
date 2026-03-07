@@ -3,6 +3,7 @@ export interface ChatMessageDto {
   content: string;
   toolCallId?: string;
   toolName?: string;
+  userId?: string;
 }
 
 export interface ChatSession {
@@ -13,12 +14,18 @@ export interface ChatSession {
 export interface SendMessagePayload {
   message: string;
   sessionId: string;
+  userId?: string;
   walletAddress?: string;
 }
 
 export interface ChatResponsePayload {
   sessionId: string;
-  type: 'text' | 'token_brief' | 'portfolio_summary' | 'navigation' | 'trade_intent';
+  type:
+    | 'text'
+    | 'token_brief'
+    | 'portfolio_summary'
+    | 'navigation'
+    | 'trade_intent';
   content?: string;
   data?: Record<string, unknown>;
 }

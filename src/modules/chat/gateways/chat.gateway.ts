@@ -1,27 +1,57 @@
 import { Injectable } from '@nestjs/common';
+import { JwtService } from '@nestjs/jwt';
 import { Socket } from 'socket.io';
 import { AppLoggerService } from '../../../common/logger/logger.service';
 import { WebsocketGateway } from '../../../websocket/websocket.gateway';
 import { ChatService } from '../services/chat.service';
-import {
-  SendMessagePayload,
-  ChatErrorPayload,
-  ChatStreamChunkPayload,
-} from '../types/chat.types';
+import { SendMessagePayload, ChatErrorPayload } from '../types/chat.types';
 
 @Injectable()
 export class ChatGateway {
-  private rateLimitMap = new Map<string, { count: number; windowStart: number }>();
+  private rateLimitMap = new Map<
+    string,
+    { count: number; windowStart: number }
+  >();
   private readonly RATE_LIMIT = 20;
   private readonly WINDOW_MS = 60_000;
 
   constructor(
     private gateway: WebsocketGateway,
     private chatService: ChatService,
+    private readonly jwtService: JwtService,
     private readonly logger: AppLoggerService,
   ) {
     this.gateway.register('chat:message', this.handleMessage.bind(this));
-    this.logger.log('ChatGateway registered handler for chat:message', ChatGateway.name);
+    this.logger.log(
+      'ChatGateway registered handler for chat:message',
+      ChatGateway.name,
+    );
+  }
+
+  private extractUserId(client: Socket): string | undefined {
+    const authToken = (client.handshake.auth as Record<string, unknown>)
+      ?.token as string | undefined;
+
+    const cookieHeader = client.handshake.headers.cookie;
+    const cookieToken = cookieHeader
+      ?.split(';')
+      .map((c) => c.trim())
+      .find((c) => c.startsWith('auth_token='))
+      ?.split('=')[1];
+
+    const token = authToken ?? cookieToken;
+    if (!token) return undefined;
+
+    try {
+      const decoded = this.jwtService.verify<{ sub: string }>(token);
+      return decoded.sub;
+    } catch {
+      this.logger.warn(
+        `Invalid JWT in socket handshake for client=${client.id}`,
+        ChatGateway.name,
+      );
+      return undefined;
+    }
   }
 
   private async handleMessage(client: Socket, payload: SendMessagePayload) {
@@ -53,25 +83,23 @@ export class ChatGateway {
       this.rateLimitMap.set(clientKey, { count: 1, windowStart: now });
     }
 
+    const userId = this.extractUserId(client);
+
     this.logger.log(
-      `chat:message received client=${clientKey} session=${payload.sessionId}`,
+      `chat:message received client=${clientKey} session=${payload.sessionId} userId=${userId ?? 'anonymous'}`,
       ChatGateway.name,
     );
 
     try {
-      const stream = this.chatService.sendMessageStream(payload);
+      const response = await this.chatService.sendMessage({
+        ...payload,
+        userId: userId ?? payload.userId,
+      });
 
-      for await (const chunk of stream) {
-        const chunkPayload: ChatStreamChunkPayload = {
-          sessionId: payload.sessionId,
-          chunk,
-        };
-        client.emit('chat:stream', chunkPayload);
-      }
-
+      client.emit('chat:response', response);
       client.emit('chat:complete', { sessionId: payload.sessionId });
       this.logger.log(
-        `chat:stream completed client=${clientKey} session=${payload.sessionId}`,
+        `chat:message completed client=${clientKey} session=${payload.sessionId}`,
         ChatGateway.name,
       );
     } catch (error) {

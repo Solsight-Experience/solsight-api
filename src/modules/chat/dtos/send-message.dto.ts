@@ -12,5 +12,9 @@ export class SendMessageDto {
 
   @IsOptional()
   @IsString()
+  userId?: string;
+
+  @IsOptional()
+  @IsString()
   walletAddress?: string;
 }
