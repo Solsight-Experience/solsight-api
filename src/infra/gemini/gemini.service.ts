@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { GoogleGenerativeAI, GenerativeModel } from '@google/generative-ai';
+import OpenAI from 'openai';
 import {
   GeminiGenerateRequest,
   GeminiGenerateResponse,
@@ -10,25 +10,27 @@ import {
 @Injectable()
 export class GeminiService {
   private readonly logger = new Logger(GeminiService.name);
-  private readonly genAI: GoogleGenerativeAI;
-  private readonly model: GenerativeModel;
+  private readonly openai: OpenAI;
   private readonly modelName: string;
 
   constructor(private readonly configService: ConfigService) {
-    const apiKey = this.configService.get<string>('gemini.apiKey') || '';
+    const apiKey = this.configService.get<string>('openai.apiKey') || '';
+    const baseURL = this.configService.get<string>('openai.baseURL');
     this.modelName =
-      this.configService.get<string>('gemini.model') || 'gemini-2.0-flash-exp';
+      this.configService.get<string>('openai.model') || 'gemini-2.0-flash-exp';
 
     if (!apiKey) {
-      this.logger.warn('Gemini API key not configured');
+      this.logger.warn('OpenAI API key not configured');
     }
 
-    this.genAI = new GoogleGenerativeAI(apiKey);
-    this.model = this.genAI.getGenerativeModel({ model: this.modelName });
+    this.openai = new OpenAI({
+      apiKey,
+      baseURL,
+    });
   }
 
   /**
-   * Generate text using Gemini AI
+   * Generate text using OpenAI-compatible API (Google Gemini endpoint)
    * @param request - Generation request parameters
    * @returns Generated text response
    */
@@ -39,37 +41,34 @@ export class GeminiService {
       this.logger.log(`Generating text with model: ${this.modelName}`);
       const startTime = Date.now();
 
-      const generationConfig = {
-        temperature: request.temperature ?? 0.7,
-        maxOutputTokens: request.maxOutputTokens ?? 2048,
-        topP: request.topP ?? 0.95,
-        topK: request.topK ?? 40,
-      };
-
-      const result = await this.model.generateContent({
-        contents: [{ role: 'user', parts: [{ text: request.prompt }] }],
-        generationConfig,
+      const completion = await this.openai.chat.completions.create({
+        model: this.modelName,
+        messages: [
+          {
+            role: 'user',
+            content: request.prompt,
+          },
+        ],
+        temperature: request.temperature ?? 0.5,
+        max_tokens: request.maxOutputTokens ?? 800,
+        top_p: request.topP ?? 0.95,
       });
 
-      const response = result.response;
-      const text = response.text();
+      const text = completion.choices[0]?.message?.content || '';
       const duration = Date.now() - startTime;
 
       this.logger.log(`Text generated successfully in ${duration}ms`);
 
-      // Extract token usage if available
-      const usageMetadata = response.usageMetadata;
-
       return {
         text,
-        model: this.modelName,
-        finishReason: response.candidates?.[0]?.finishReason,
-        promptTokenCount: usageMetadata?.promptTokenCount,
-        candidatesTokenCount: usageMetadata?.candidatesTokenCount,
-        totalTokenCount: usageMetadata?.totalTokenCount,
+        model: completion.model,
+        finishReason: completion.choices[0]?.finish_reason,
+        promptTokenCount: completion.usage?.prompt_tokens,
+        candidatesTokenCount: completion.usage?.completion_tokens,
+        totalTokenCount: completion.usage?.total_tokens,
       };
     } catch (error) {
-      this.logger.error('Error generating text with Gemini', error);
+      this.logger.error('Error generating text with OpenAI', error);
 
       const geminiError: GeminiError = {
         message:
@@ -94,36 +93,40 @@ export class GeminiService {
         `Generating streaming text with model: ${this.modelName}`,
       );
 
-      const generationConfig = {
-        temperature: request.temperature ?? 0.7,
-        maxOutputTokens: request.maxOutputTokens ?? 2048,
-        topP: request.topP ?? 0.95,
-        topK: request.topK ?? 40,
-      };
-
-      const result = await this.model.generateContentStream({
-        contents: [{ role: 'user', parts: [{ text: request.prompt }] }],
-        generationConfig,
+      const stream = await this.openai.chat.completions.create({
+        model: this.modelName,
+        messages: [
+          {
+            role: 'user',
+            content: request.prompt,
+          },
+        ],
+        temperature: request.temperature ?? 0.5,
+        max_tokens: request.maxOutputTokens ?? 800,
+        top_p: request.topP ?? 0.95,
+        stream: true,
       });
 
       async function* streamGenerator() {
-        for await (const chunk of result.stream) {
-          const chunkText = chunk.text();
-          yield chunkText;
+        for await (const chunk of stream) {
+          const content = chunk.choices[0]?.delta?.content || '';
+          if (content) {
+            yield content;
+          }
         }
       }
 
       return streamGenerator();
     } catch (error) {
-      this.logger.error('Error generating streaming text with Gemini', error);
+      this.logger.error('Error generating streaming text with OpenAI', error);
       throw error;
     }
   }
 
   /**
-   * Check if Gemini service is configured properly
+   * Check if OpenAI service is configured properly
    */
   isConfigured(): boolean {
-    return !!this.configService.get<string>('gemini.apiKey');
+    return !!this.configService.get<string>('openai.apiKey');
   }
 }

@@ -20,7 +20,6 @@
     "test:e2e": "jest --config ./test/jest-e2e.json"
   },
   "dependencies": {
-    "@google/generative-ai": "^0.24.1",
     "@liaoliaots/nestjs-redis": "^10.0.0",
     "@nestjs-modules/ioredis": "^2.0.2",
     "@nestjs/axios": "^4.0.1",
@@ -48,6 +47,7 @@
     "cookie-parser": "^1.4.7",
     "ioredis": "^5.8.2",
     "joi": "^18.0.1",
+    "openai": "^4",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
     "pg": "^8.16.3",
