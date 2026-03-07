@@ -198,14 +198,28 @@ export class ChatService {
       apiKey,
       baseURL,
     });
+
+    this.logger.log(
+      `ChatService initialized: model=${this.model} baseURL=${baseURL ?? 'default'}`,
+      ChatService.name,
+    );
   }
 
   async sendMessage(payload: SendMessagePayload): Promise<ChatResponsePayload> {
     const session = this.getOrCreateSession(payload.sessionId);
 
     if (session.processing) {
+      this.logger.warn(
+        `Session ${payload.sessionId} is already processing a message, rejecting`,
+        ChatService.name,
+      );
       throw new HttpException('Already processing a message', 429);
     }
+
+    this.logger.log(
+      `Received message for session=${payload.sessionId} wallet=${payload.walletAddress ?? 'none'} length=${payload.message.length}`,
+      ChatService.name,
+    );
 
     session.messages.push({
       role: 'user',
@@ -216,6 +230,10 @@ export class ChatService {
 
     try {
       const response = await this.runLlmLoop(session, payload.walletAddress);
+      this.logger.log(
+        `Session ${payload.sessionId} completed: responseType=${response.type}`,
+        ChatService.name,
+      );
       return {
         ...response,
         sessionId: payload.sessionId,
@@ -265,8 +283,19 @@ export class ChatService {
       }),
     ];
 
+    this.logger.debug(
+      `LLM request: model=${this.model} messages=${messages.length}`,
+      ChatService.name,
+    );
+
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), LLM_TIMEOUT_MS);
+    const timeout = setTimeout(() => {
+      this.logger.warn(
+        `LLM request timed out after ${LLM_TIMEOUT_MS}ms`,
+        ChatService.name,
+      );
+      controller.abort();
+    }, LLM_TIMEOUT_MS);
 
     try {
       const completion = await this.openai.chat.completions.create(
@@ -285,12 +314,18 @@ export class ChatService {
 
       const choice = completion.choices[0];
       if (!choice) {
+        this.logger.warn('LLM returned no choices', ChatService.name);
         return {
           sessionId: '',
           type: 'text',
           content: 'No response received from LLM.',
         };
       }
+
+      this.logger.debug(
+        `LLM response: finish_reason=${choice.finish_reason}`,
+        ChatService.name,
+      );
 
       if (choice.finish_reason === 'tool_calls') {
         const assistantMessage = choice.message;
@@ -320,7 +355,18 @@ export class ChatService {
             );
           }
 
+          this.logger.log(
+            `Executing tool: ${toolName} args=${JSON.stringify(args)}`,
+            ChatService.name,
+          );
+
           const result = await this.executeTool(toolName, args, walletAddress);
+
+          this.logger.debug(
+            `Tool ${toolName} result length=${result.length}`,
+            ChatService.name,
+          );
+
           session.messages.push({
             role: 'tool',
             content: result,
@@ -427,6 +473,10 @@ export class ChatService {
 
         case 'fetch_portfolio': {
           if (!walletAddress) {
+            this.logger.warn(
+              'fetch_portfolio called without wallet address',
+              ChatService.name,
+            );
             return JSON.stringify({ error: 'Wallet address required' });
           }
 
@@ -461,6 +511,10 @@ export class ChatService {
             STATIC_ROUTES.includes(route) || TOKEN_ROUTE_REGEX.test(route);
 
           if (!isAllowed) {
+            this.logger.warn(
+              `navigate_to: rejected disallowed route="${route}"`,
+              ChatService.name,
+            );
             return '{"error": "Route not allowed"}';
           }
 
@@ -471,6 +525,7 @@ export class ChatService {
         }
 
         default:
+          this.logger.warn(`Unknown tool requested: ${toolName}`, ChatService.name);
           return JSON.stringify({ error: `Unknown tool: ${toolName}` });
       }
     } catch (error) {
@@ -514,7 +569,12 @@ export class ChatService {
           data,
         };
       }
-    } catch {}
+    } catch {
+      this.logger.debug(
+        'LLM response is not structured JSON, returning as plain text',
+        ChatService.name,
+      );
+    }
 
     return {
       sessionId: '',
@@ -526,6 +586,10 @@ export class ChatService {
   getOrCreateSession(sessionId: string): ChatSession {
     const existing = this.sessions.get(sessionId);
     if (existing) {
+      this.logger.debug(
+        `Resumed session=${sessionId} messages=${existing.messages.length}`,
+        ChatService.name,
+      );
       return existing;
     }
 
@@ -535,6 +599,7 @@ export class ChatService {
     };
 
     this.sessions.set(sessionId, session);
+    this.logger.log(`Created new session=${sessionId}`, ChatService.name);
     return session;
   }
 }
