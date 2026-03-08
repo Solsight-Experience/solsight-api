@@ -32,7 +32,7 @@ const STATIC_ROUTES = [
 ];
 
 const TOKEN_ROUTE_REGEX = /^\/token\/[1-9A-HJ-NP-Za-km-z]{32,44}$/;
-const LLM_TIMEOUT_MS = 30000;
+const LLM_TIMEOUT_MS = 300000;
 
 const RESPONSE_TYPES: ChatResponsePayload['type'][] = [
   'text',
@@ -753,6 +753,14 @@ export class ChatService {
         }
 
         case 'prepare_swap': {
+          // Wallet guard: ensure a wallet is connected before preparing swap
+          if (!walletAddress) {
+            return JSON.stringify({
+              error: 'no_wallet',
+              message:
+                'No wallet connected. Please connect a wallet to swap tokens.',
+            });
+          }
           const inputMint = String(args.inputMint || '');
           const outputMint = String(args.outputMint || '');
           const amount = Number(args.amount || 0);
@@ -863,7 +871,9 @@ export class ChatService {
 
       if (toolMessage.toolName === 'navigate_to') {
         const route =
-          typeof parsedToolOutput.route === 'string' ? parsedToolOutput.route : '';
+          typeof parsedToolOutput.route === 'string'
+            ? parsedToolOutput.route
+            : '';
 
         this.logger.log(
           'parseResponse fallback: inferred navigation from navigate_to',
@@ -972,8 +982,11 @@ export class ChatService {
                 ? parsedToolOutput.price
                 : undefined,
             priceChange24h:
-              typeof priceChange24hRaw === 'number' ? priceChange24hRaw : undefined,
-            marketCap: typeof marketCapRaw === 'number' ? marketCapRaw : undefined,
+              typeof priceChange24hRaw === 'number'
+                ? priceChange24hRaw
+                : undefined,
+            marketCap:
+              typeof marketCapRaw === 'number' ? marketCapRaw : undefined,
             logoUri:
               typeof parsedToolOutput.logo_uri === 'string'
                 ? parsedToolOutput.logo_uri
@@ -987,18 +1000,6 @@ export class ChatService {
   }
 
   parseResponse(content: string, session?: ChatSession): ChatResponsePayload {
-    if (!content) {
-      this.logger.debug(
-        'parseResponse: empty content, fallback to text',
-        ChatService.name,
-      );
-      return {
-        sessionId: '',
-        type: 'text',
-        content: '',
-      };
-    }
-
     try {
       const parsed = JSON.parse(content) as Partial<ChatResponsePayload> &
         Record<string, unknown>;
@@ -1053,7 +1054,10 @@ export class ChatService {
       }
     }
 
-    this.logger.log('parseResponse: fallback response type=text', ChatService.name);
+    this.logger.log(
+      'parseResponse: fallback response type=text',
+      ChatService.name,
+    );
 
     return {
       sessionId: '',
