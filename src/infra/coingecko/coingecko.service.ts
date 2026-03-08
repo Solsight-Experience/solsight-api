@@ -139,9 +139,8 @@ export class CoinGeckoService {
    */
   async getCategories(): Promise<CoinGeckoCategory[]> {
     try {
-      const response = await this.apiClient.get<CoinGeckoCategory[]>(
-        '/coins/categories',
-      );
+      const response =
+        await this.apiClient.get<CoinGeckoCategory[]>('/coins/categories');
 
       this.logger.log(
         `Fetched ${response.data.length} categories from CoinGecko`,
@@ -213,7 +212,10 @@ export class CoinGeckoService {
 
       // Sort by last_updated to get most recent
       const sortedByRecent = response.data.sort((a, b) => {
-        return new Date(b.last_updated).getTime() - new Date(a.last_updated).getTime();
+        return (
+          new Date(b.last_updated).getTime() -
+          new Date(a.last_updated).getTime()
+        );
       });
 
       this.logger.log(
@@ -221,7 +223,10 @@ export class CoinGeckoService {
       );
       return sortedByRecent;
     } catch (error) {
-      this.logger.error('Failed to fetch recently added coins from CoinGecko', error);
+      this.logger.error(
+        'Failed to fetch recently added coins from CoinGecko',
+        error,
+      );
       return [];
     }
   }

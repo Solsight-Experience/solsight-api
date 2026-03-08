@@ -40,3 +40,8 @@ export interface ChatErrorPayload {
   code: 'rate_limited' | 'processing' | 'llm_error' | 'unknown';
   message: string;
 }
+
+export interface ChatToolProgressPayload {
+  sessionId: string;
+  label: string;
+}

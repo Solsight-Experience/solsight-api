@@ -29,8 +29,6 @@ export class WalletsService {
     private readonly coinGeckoService: CoinGeckoService,
   ) {}
 
-
-
   async createWithNonce(address: string, nonce: string): Promise<Wallet> {
     const wallet = this.walletRepository.create({
       address,
@@ -44,7 +42,11 @@ export class WalletsService {
     await this.walletRepository.update(walletId, { nonce });
   }
 
-  async updateUser(walletId: string, userId: string, icon?: string ): Promise<void> {
+  async updateUser(
+    walletId: string,
+    userId: string,
+    icon?: string,
+  ): Promise<void> {
     await this.walletRepository.update(walletId, { userId, icon: icon as any });
   }
 
@@ -178,7 +180,7 @@ export class WalletsService {
 
         // Get price from Jupiter
         let priceUsd = 0;
-        let priceChange24h = 0; // TODO: Get price change from CoinGecko if needed
+        const priceChange24h = 0; // TODO: Get price change from CoinGecko if needed
         try {
           const price = await this.jupiterService.getTokenPrice(mintAddress);
           priceUsd = price || 0;
@@ -352,8 +354,14 @@ export class WalletsService {
     return await this.findById(id);
   }
 
-  async updateByAddress(userId: string, address: string, updateData: Partial<Wallet>) {
-    const wallet = await this.walletRepository.findOne({ where: { address, userId } });
+  async updateByAddress(
+    userId: string,
+    address: string,
+    updateData: Partial<Wallet>,
+  ) {
+    const wallet = await this.walletRepository.findOne({
+      where: { address, userId },
+    });
     if (!wallet) throw new NotFoundException('Wallet not found');
 
     await this.walletRepository.update({ id: wallet.id }, updateData);
@@ -361,13 +369,17 @@ export class WalletsService {
   }
 
   async deleteByAddress(userId: string, address: string): Promise<void> {
-    const wallet = await this.walletRepository.findOne({ where: { address, userId } });
+    const wallet = await this.walletRepository.findOne({
+      where: { address, userId },
+    });
     if (!wallet) throw new NotFoundException('Wallet not found');
     await this.walletRepository.remove(wallet);
   }
 
   async setDefaultForAddress(userId: string, address: string): Promise<Wallet> {
-    const wallet = await this.walletRepository.findOne({ where: { address, userId } });
+    const wallet = await this.walletRepository.findOne({
+      where: { address, userId },
+    });
     if (!wallet) throw new NotFoundException('Wallet not found');
 
     // unset other wallets
@@ -380,7 +392,10 @@ export class WalletsService {
   // Get SOL price in USD from CoinGecko
   private async getSolPriceUsd(): Promise<number> {
     try {
-      const marketData = await this.coinGeckoService.getCoinsMarketData(['solana'], 'usd');
+      const marketData = await this.coinGeckoService.getCoinsMarketData(
+        ['solana'],
+        'usd',
+      );
       if (marketData && marketData.length > 0) {
         return marketData[0].current_price;
       }

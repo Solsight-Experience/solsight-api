@@ -21,7 +21,7 @@ export const getDatabaseConfig = (
           : false,
     };
   }
-  
+
   return {
     type: 'postgres',
     host: configService.get('database.host'),

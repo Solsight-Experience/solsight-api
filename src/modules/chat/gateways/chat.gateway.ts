@@ -4,7 +4,11 @@ import { Socket } from 'socket.io';
 import { AppLoggerService } from '../../../common/logger/logger.service';
 import { WebsocketGateway } from '../../../websocket/websocket.gateway';
 import { ChatService } from '../services/chat.service';
-import { SendMessagePayload, ChatErrorPayload } from '../types/chat.types';
+import {
+  SendMessagePayload,
+  ChatErrorPayload,
+  ChatToolProgressPayload,
+} from '../types/chat.types';
 
 @Injectable()
 export class ChatGateway {
@@ -91,10 +95,19 @@ export class ChatGateway {
     );
 
     try {
-      const response = await this.chatService.sendMessage({
-        ...payload,
-        userId: userId ?? payload.userId,
-      });
+      const response = await this.chatService.sendMessage(
+        {
+          ...payload,
+          userId: userId ?? payload.userId,
+        },
+        (label: string) => {
+          const progress: ChatToolProgressPayload = {
+            sessionId: payload.sessionId,
+            label,
+          };
+          client.emit('chat:tool_progress', progress);
+        },
+      );
 
       client.emit('chat:response', response);
       client.emit('chat:complete', { sessionId: payload.sessionId });

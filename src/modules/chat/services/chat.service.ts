@@ -42,6 +42,31 @@ const RESPONSE_TYPES: ChatResponsePayload['type'][] = [
   'trade_intent',
 ];
 
+function toolLabel(toolName: string, args: Record<string, unknown>): string {
+  switch (toolName) {
+    case 'fetch_token_data': {
+      const address = typeof args.address === 'string' ? args.address : '…';
+      return `Fetching token data for ${address}`;
+    }
+    case 'search_tokens': {
+      const query = typeof args.query === 'string' ? args.query : '…';
+      return `Searching for "${query}"`;
+    }
+    case 'fetch_discovery':
+      return 'Fetching discovery list…';
+    case 'fetch_portfolio':
+      return 'Fetching portfolio overview…';
+    case 'prepare_swap':
+      return 'Preparing swap quote…';
+    case 'navigate_to': {
+      const route = typeof args.route === 'string' ? args.route : '…';
+      return `Navigating to ${route}`;
+    }
+    default:
+      return `Executing ${toolName}…`;
+  }
+}
+
 export const TOOL_DEFINITIONS: ChatCompletionTool[] = [
   {
     type: 'function',
@@ -207,7 +232,10 @@ export class ChatService {
     );
   }
 
-  async sendMessage(payload: SendMessagePayload): Promise<ChatResponsePayload> {
+  async sendMessage(
+    payload: SendMessagePayload,
+    onToolProgress: (label: string) => void = () => {},
+  ): Promise<ChatResponsePayload> {
     const session = this.getOrCreateSession(payload.sessionId);
 
     if (session.processing) {
@@ -236,6 +264,7 @@ export class ChatService {
         session,
         payload.walletAddress,
         payload.userId,
+        onToolProgress,
       );
       this.logger.log(
         `Session ${payload.sessionId} completed: responseType=${response.type}`,
@@ -318,6 +347,7 @@ export class ChatService {
     session: ChatSession,
     walletAddress?: string,
     userId?: string,
+    onToolProgress: (label: string) => void = () => {},
   ): Promise<ChatResponsePayload> {
     const recentMessages = session.messages.slice(-10);
     const messages: ChatCompletionMessageParam[] = [
@@ -418,6 +448,8 @@ export class ChatService {
             ChatService.name,
           );
 
+          onToolProgress(toolLabel(toolName, args));
+
           const result = await this.executeTool(
             toolName,
             args,
@@ -438,7 +470,7 @@ export class ChatService {
           });
         }
 
-        return this.runLlmLoop(session, walletAddress, userId);
+        return this.runLlmLoop(session, walletAddress, userId, onToolProgress);
       }
 
       const assistantContent = choice.message.content || '';

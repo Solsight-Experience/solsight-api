@@ -4,7 +4,12 @@ import bs58 from 'bs58';
 import * as crypto from 'crypto';
 
 // src/auth/services/auth.service.ts
-import { BadRequestException, Injectable, UnauthorizedException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  UnauthorizedException,
+  NotFoundException,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { UserRepository } from '../repositories/user.repository';
@@ -33,26 +38,33 @@ export interface JwtPayload {
   username: string;
 }
 
-
 @Injectable()
 export class AuthService {
   constructor(
     private readonly userRepository: UserRepository,
     private readonly jwtService: JwtService,
     private readonly walletsService: WalletsService,
-  ) { }
+  ) {}
 
   // --- Email/Password login ---
   async login(loginDto: LoginDto) {
-    const user = await this.userRepository.findActiveByEmailWithPassword(loginDto.email);
+    const user = await this.userRepository.findActiveByEmailWithPassword(
+      loginDto.email,
+    );
 
     if (!user) throw new BadRequestException('Email not found or inactive');
     if (!user.password) {
-      throw new BadRequestException('Invalid account configuration. Please contact support.');
+      throw new BadRequestException(
+        'Invalid account configuration. Please contact support.',
+      );
     }
 
-    const isPasswordValid = await bcrypt.compare(loginDto.password, user.password);
-    if (!isPasswordValid) throw new BadRequestException('Password is incorrect');
+    const isPasswordValid = await bcrypt.compare(
+      loginDto.password,
+      user.password,
+    );
+    if (!isPasswordValid)
+      throw new BadRequestException('Password is incorrect');
 
     const accessToken = await this.generateAccessToken(user);
     const { password, ...userWithoutPassword } = user;
@@ -69,7 +81,7 @@ export class AuthService {
     try {
       // Verify Google token
       const googleRes = await fetch(
-        `https://oauth2.googleapis.com/tokeninfo?id_token=${token}`
+        `https://oauth2.googleapis.com/tokeninfo?id_token=${token}`,
       );
 
       if (!googleRes.ok) {
@@ -92,7 +104,7 @@ export class AuthService {
         console.log('Creating new OAuth user...');
         const dummyPassword = await bcrypt.hash(
           randomBytes(32).toString('hex'),
-          10
+          10,
         );
         const username = profile.name
           ? profile.name.replace(/\s+/g, '_').toLowerCase()
@@ -118,7 +130,9 @@ export class AuthService {
           console.error('❌ Database error:', dbError);
           console.error('Error code:', dbError.code);
           console.error('Error detail:', dbError.detail);
-          throw new BadRequestException(`Failed to create user: ${dbError.message}`);
+          throw new BadRequestException(
+            `Failed to create user: ${dbError.message}`,
+          );
         }
       } else {
         console.log('✅ Existing user found:', user.id);
@@ -128,7 +142,6 @@ export class AuthService {
       const { password, ...userWithoutPassword } = user;
 
       return { user: userWithoutPassword, accessToken };
-
     } catch (error) {
       console.error('💥 OAuth login error:', error);
 
@@ -136,16 +149,15 @@ export class AuthService {
         throw error;
       }
 
-      throw new BadRequestException(
-        `OAuth login failed: ${error.message}`
-      );
+      throw new BadRequestException(`OAuth login failed: ${error.message}`);
     }
   }
 
-
   // --- Register ---
   async register(registerDto: RegisterDto) {
-    const emailExists = await this.userRepository.existsByEmail(registerDto.email);
+    const emailExists = await this.userRepository.existsByEmail(
+      registerDto.email,
+    );
     if (emailExists) throw new BadRequestException('Email already exists');
 
     const hashedPassword = await bcrypt.hash(registerDto.password, 10);
@@ -176,13 +188,14 @@ export class AuthService {
 
   async validateUserByToken(payload: JwtPayload) {
     const user = await this.userRepository.findById(payload.sub);
-    if (!user || !user.isActive) throw new UnauthorizedException('Invalid token');
+    if (!user || !user.isActive)
+      throw new UnauthorizedException('Invalid token');
     const { password, ...userWithoutPassword } = user;
     return userWithoutPassword;
   }
 
-    async getSolanaNonce(walletAddress: string): Promise<{ nonce: string }> {
-    let wallet = await this.walletsService.findOneByAddress(walletAddress);
+  async getSolanaNonce(walletAddress: string): Promise<{ nonce: string }> {
+    const wallet = await this.walletsService.findOneByAddress(walletAddress);
     const nonce = crypto.randomUUID();
 
     if (wallet) {
@@ -242,12 +255,14 @@ export class AuthService {
         throw new NotFoundException('User not found');
       }
     }
-    
+
     // if (!wallet.userId || wallet.userId !== user.id) {
-         await this.walletsService.updateUser(wallet.id, user.id, walletIcon);
+    await this.walletsService.updateUser(wallet.id, user.id, walletIcon);
     // }
 
-    return { success: true, message: 'Wallet verified and linked successfully' };
+    return {
+      success: true,
+      message: 'Wallet verified and linked successfully',
+    };
   }
-
 }
