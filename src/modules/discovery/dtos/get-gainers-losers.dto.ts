@@ -16,8 +16,7 @@ export enum GainersLosersTimeFrame {
 export class GetGainersLosersDto {
   @IsOptional()
   @IsEnum(GainersLosersTimeFrame)
-  time_frame?: GainersLosersTimeFrame =
-    GainersLosersTimeFrame.TWENTY_FOUR_HOURS;
+  time_frame?: GainersLosersTimeFrame = GainersLosersTimeFrame.TWENTY_FOUR_HOURS;
 
   @IsOptional()
   @IsEnum(GainersLosersType)

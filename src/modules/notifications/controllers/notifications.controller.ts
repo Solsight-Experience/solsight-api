@@ -1,12 +1,4 @@
-import {
-  Controller,
-  Get,
-  Patch,
-  Param,
-  Query,
-  UseGuards,
-  Request,
-} from '@nestjs/common';
+import { Controller, Get, Patch, Param, Query, UseGuards, Request } from '@nestjs/common';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { NotificationsService } from '../services/notifications.service';
 import { QueryNotificationsDto } from '../dtos/query-notifications.dto';
@@ -22,14 +14,8 @@ export class NotificationsController {
   constructor(private readonly notificationsService: NotificationsService) {}
 
   @Get()
-  async getNotifications(
-    @Request() req: AuthenticatedRequest,
-    @Query() query: QueryNotificationsDto,
-  ) {
-    return this.notificationsService.getNotificationsForUser(
-      req.user.id,
-      query,
-    );
+  async getNotifications(@Request() req: AuthenticatedRequest, @Query() query: QueryNotificationsDto) {
+    return this.notificationsService.getNotificationsForUser(req.user.id, query);
   }
 
   @Get('unread-count')
@@ -39,10 +25,7 @@ export class NotificationsController {
   }
 
   @Patch(':id/read')
-  async markAsRead(
-    @Request() req: AuthenticatedRequest,
-    @Param('id') id: string,
-  ) {
+  async markAsRead(@Request() req: AuthenticatedRequest, @Param('id') id: string) {
     await this.notificationsService.markAsRead(id, req.user.id);
     return { success: true };
   }

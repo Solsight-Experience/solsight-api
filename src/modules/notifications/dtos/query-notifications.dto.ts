@@ -1,12 +1,4 @@
-import {
-  IsEnum,
-  IsOptional,
-  IsString,
-  IsBoolean,
-  IsNumber,
-  IsDateString,
-  ValidateNested,
-} from 'class-validator';
+import { IsEnum, IsOptional, IsString, IsBoolean, IsNumber, IsDateString, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 import { NotificationEventType } from '../entities/notification.entity';
 

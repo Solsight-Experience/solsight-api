@@ -1,9 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { WebsocketGateway } from '../../../websocket/websocket.gateway';
-import {
-  Notification,
-  NotificationChannel,
-} from '../entities/notification.entity';
+import { Notification, NotificationChannel } from '../entities/notification.entity';
 
 export interface NotificationDeliveryPayload {
   notification: Notification;
@@ -28,9 +25,7 @@ export class NotificationDeliveryService {
           this.deliverViaEmail(notification);
           break;
         default:
-          this.logger.warn(
-            `Unknown notification channel: ${channel as string}`,
-          );
+          this.logger.warn(`Unknown notification channel: ${channel as string}`);
       }
     }
   }
@@ -46,10 +41,7 @@ export class NotificationDeliveryService {
         createdAt: notification.createdAt,
       });
     } catch (error) {
-      this.logger.error(
-        'Failed to broadcast notification via WebSocket',
-        error,
-      );
+      this.logger.error('Failed to broadcast notification via WebSocket', error);
     }
   }
 
@@ -66,10 +58,7 @@ export class NotificationDeliveryService {
         createdAt: notification.createdAt,
       });
     } catch (error) {
-      this.logger.error(
-        `Failed to deliver notification ${notification.id} via WebSocket`,
-        error,
-      );
+      this.logger.error(`Failed to deliver notification ${notification.id} via WebSocket`, error);
     }
   }
 

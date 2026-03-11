@@ -1,11 +1,4 @@
-import {
-  Controller,
-  Post,
-  Body,
-  UseGuards,
-  Request,
-  HttpException,
-} from '@nestjs/common';
+import { Controller, Post, Body, UseGuards, Request, HttpException } from '@nestjs/common';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { ChatService } from '../services/chat.service';
 import { SendMessageDto } from '../dtos/send-message.dto';
@@ -15,10 +8,7 @@ import { AppLoggerService } from 'src/common/logger/logger.service';
 @Controller('chat')
 @UseGuards(JwtAuthGuard)
 export class ChatController {
-  private rateLimitMap = new Map<
-    string,
-    { count: number; windowStart: number }
-  >();
+  private rateLimitMap = new Map<string, { count: number; windowStart: number }>();
   private readonly RATE_LIMIT = 20;
   private readonly WINDOW_MS = 60_000;
 
@@ -28,16 +18,10 @@ export class ChatController {
   ) {}
 
   @Post('message')
-  async sendMessage(
-    @Body() dto: SendMessageDto,
-    @Request() req: any,
-  ): Promise<ChatResponsePayload> {
+  async sendMessage(@Body() dto: SendMessageDto, @Request() req: any): Promise<ChatResponsePayload> {
     const userId = req.user?.id;
     if (!userId) {
-      this.logger.warn(
-        `Unauthorized chat message attempt: no userId in request`,
-        ChatController.name,
-      );
+      this.logger.warn(`Unauthorized chat message attempt: no userId in request`, ChatController.name);
       // Should be guarded by JwtAuthGuard, but be defensive
       throw new HttpException('Unauthorized', 401);
     }
@@ -59,10 +43,7 @@ export class ChatController {
       }
     }
 
-    this.logger.log(
-      `Received chat message from userId=${userId} session=${dto.sessionId}`,
-      ChatController.name,
-    );
+    this.logger.log(`Received chat message from userId=${userId} session=${dto.sessionId}`, ChatController.name);
 
     return this.chatService.sendMessage({
       message: dto.message,

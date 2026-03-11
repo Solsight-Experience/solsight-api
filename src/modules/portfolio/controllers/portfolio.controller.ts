@@ -18,11 +18,7 @@ export class PortfolioController {
     @Query('wallet_addresses') walletAddresses: string[],
     @Query('time_frame') timeFrame: string,
   ) {
-    return this.portfolioService.getOverview(
-      req.user.id,
-      walletAddresses,
-      timeFrame,
-    );
+    return this.portfolioService.getOverview(req.user.id, walletAddresses, timeFrame);
   }
 
   @UseGuards(JwtAuthGuard)
@@ -46,12 +42,7 @@ export class PortfolioController {
     @Query('sort_by') sortBy: string,
     @Query('show_zero_balance') showZeroBalance: boolean,
   ) {
-    return this.portfolioService.getPositions(
-      req.user.id,
-      walletAddress,
-      sortBy,
-      showZeroBalance,
-    );
+    return this.portfolioService.getPositions(req.user.id, walletAddress, sortBy, showZeroBalance);
   }
 
   @UseGuards(JwtAuthGuard)
@@ -73,10 +64,6 @@ export class PortfolioController {
     @Query('wallet_addresses') walletAddresses: string[],
     @Query('time_frame') timeFrame: string,
   ) {
-    return this.portfolioService.getPerformance(
-      req.user.id,
-      walletAddresses,
-      timeFrame,
-    );
+    return this.portfolioService.getPerformance(req.user.id, walletAddresses, timeFrame);
   }
 }

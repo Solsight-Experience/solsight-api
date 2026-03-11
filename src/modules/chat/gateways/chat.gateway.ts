@@ -4,18 +4,11 @@ import { Socket } from 'socket.io';
 import { AppLoggerService } from '../../../common/logger/logger.service';
 import { WebsocketGateway } from '../../../websocket/websocket.gateway';
 import { ChatService } from '../services/chat.service';
-import {
-  SendMessagePayload,
-  ChatErrorPayload,
-  ChatToolProgressPayload,
-} from '../types/chat.types';
+import { SendMessagePayload, ChatErrorPayload, ChatToolProgressPayload } from '../types/chat.types';
 
 @Injectable()
 export class ChatGateway {
-  private rateLimitMap = new Map<
-    string,
-    { count: number; windowStart: number }
-  >();
+  private rateLimitMap = new Map<string, { count: number; windowStart: number }>();
   private readonly RATE_LIMIT = 20;
   private readonly WINDOW_MS = 60_000;
 
@@ -26,15 +19,11 @@ export class ChatGateway {
     private readonly logger: AppLoggerService,
   ) {
     this.gateway.register('chat:message', this.handleMessage.bind(this));
-    this.logger.log(
-      'ChatGateway registered handler for chat:message',
-      ChatGateway.name,
-    );
+    this.logger.log('ChatGateway registered handler for chat:message', ChatGateway.name);
   }
 
   private extractUserId(client: Socket): string | undefined {
-    const authToken = (client.handshake.auth as Record<string, unknown>)
-      ?.token as string | undefined;
+    const authToken = (client.handshake.auth as Record<string, unknown>)?.token as string | undefined;
 
     const cookieHeader = client.handshake.headers.cookie;
     const cookieToken = cookieHeader
@@ -50,10 +39,7 @@ export class ChatGateway {
       const decoded = this.jwtService.verify<{ sub: string }>(token);
       return decoded.sub;
     } catch {
-      this.logger.warn(
-        `Invalid JWT in socket handshake for client=${client.id}`,
-        ChatGateway.name,
-      );
+      this.logger.warn(`Invalid JWT in socket handshake for client=${client.id}`, ChatGateway.name);
       return undefined;
     }
   }
@@ -111,10 +97,7 @@ export class ChatGateway {
 
       client.emit('chat:response', response);
       client.emit('chat:complete', { sessionId: payload.sessionId });
-      this.logger.log(
-        `chat:message completed client=${clientKey} session=${payload.sessionId}`,
-        ChatGateway.name,
-      );
+      this.logger.log(`chat:message completed client=${clientKey} session=${payload.sessionId}`, ChatGateway.name);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       this.logger.error(

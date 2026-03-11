@@ -1,12 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import {
-  Connection,
-  PublicKey,
-  Keypair,
-  Transaction,
-  LAMPORTS_PER_SOL,
-} from '@solana/web3.js';
+import { Connection, PublicKey, Keypair, Transaction, LAMPORTS_PER_SOL } from '@solana/web3.js';
 import {
   TOKEN_PROGRAM_ID,
   getAssociatedTokenAddress,
@@ -31,9 +25,7 @@ export class SolanaService {
       throw new Error('Helius RPC URL is required');
     }
 
-    const commitment = this.configService.get<string>(
-      'solana.commitment',
-    ) as any;
+    const commitment = this.configService.get<string>('solana.commitment') as any;
 
     const network = this.configService.get<string>('solana.network');
     if (!network) {
@@ -64,9 +56,7 @@ export class SolanaService {
   }
 
   getHeliusBaseUrl(): string {
-    return this.network === 'devnet'
-      ? 'https://api-devnet.helius.xyz'
-      : 'https://api.helius.xyz';
+    return this.network === 'devnet' ? 'https://api-devnet.helius.xyz' : 'https://api.helius.xyz';
   }
 
   getProgramId(): PublicKey | undefined {
@@ -79,25 +69,15 @@ export class SolanaService {
       const balance = await conn.getBalance(publicKey);
       return balance / LAMPORTS_PER_SOL;
     } catch (error) {
-      this.logger.error(
-        `Failed to get balance for ${publicKey.toString()}`,
-        error,
-      );
+      this.logger.error(`Failed to get balance for ${publicKey.toString()}`, error);
       throw error;
     }
   }
 
-  async getTokenBalance(
-    walletAddress: PublicKey,
-    mintAddress: PublicKey,
-  ): Promise<number> {
+  async getTokenBalance(walletAddress: PublicKey, mintAddress: PublicKey): Promise<number> {
     try {
-      const tokenAccount = await getAssociatedTokenAddress(
-        mintAddress,
-        walletAddress,
-      );
-      const tokenBalance =
-        await this.connection.getTokenAccountBalance(tokenAccount);
+      const tokenAccount = await getAssociatedTokenAddress(mintAddress, walletAddress);
+      const tokenBalance = await this.connection.getTokenAccountBalance(tokenAccount);
       return tokenBalance.value.uiAmount || 0;
     } catch (error) {
       this.logger.error(`Failed to get token balance`, error);
@@ -113,10 +93,7 @@ export class SolanaService {
       });
       return result.value;
     } catch (error) {
-      this.logger.error(
-        `Failed to get parsed token accounts for ${owner.toString()}`,
-        error,
-      );
+      this.logger.error(`Failed to get parsed token accounts for ${owner.toString()}`, error);
       throw error;
     }
   }
@@ -147,23 +124,14 @@ export class SolanaService {
       );
       return transactions;
     } catch (error) {
-      this.logger.error(
-        `Failed to get transaction history for ${publicKey.toString()}`,
-        error,
-      );
+      this.logger.error(`Failed to get transaction history for ${publicKey.toString()}`, error);
       throw error;
     }
   }
 
-  async sendTransaction(
-    transaction: Transaction,
-    signers: Keypair[],
-  ): Promise<string> {
+  async sendTransaction(transaction: Transaction, signers: Keypair[]): Promise<string> {
     try {
-      const signature = await this.connection.sendTransaction(
-        transaction,
-        signers,
-      );
+      const signature = await this.connection.sendTransaction(transaction, signers);
       await this.connection.confirmTransaction(signature);
       this.logger.log(`Transaction sent successfully: ${signature}`);
       return signature;
@@ -173,16 +141,9 @@ export class SolanaService {
     }
   }
 
-  async createAssociatedTokenAccount(
-    payer: PublicKey,
-    owner: PublicKey,
-    mint: PublicKey,
-  ): Promise<PublicKey> {
+  async createAssociatedTokenAccount(payer: PublicKey, owner: PublicKey, mint: PublicKey): Promise<PublicKey> {
     try {
-      const associatedTokenAddress = await getAssociatedTokenAddress(
-        mint,
-        owner,
-      );
+      const associatedTokenAddress = await getAssociatedTokenAddress(mint, owner);
 
       // const transaction = new Transaction().add(
       //   createAssociatedTokenAccountInstruction(

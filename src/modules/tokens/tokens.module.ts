@@ -19,14 +19,7 @@ import { PromptBuilderService } from './services/prompt-builder.service';
 import { GeminiModule } from '../../infra/gemini/gemini.module';
 
 @Module({
-  imports: [
-    TypeOrmModule.forFeature([Token]),
-    SolanaModule,
-    ConfigModule,
-    WebsocketModule,
-    RedisModule,
-    GeminiModule,
-  ],
+  imports: [TypeOrmModule.forFeature([Token]), SolanaModule, ConfigModule, WebsocketModule, RedisModule, GeminiModule],
   providers: [
     TokensService,
     TokenSocketService,

@@ -1,9 +1,7 @@
 import { ConfigService } from '@nestjs/config';
 import { RedisModuleOptions } from '@liaoliaots/nestjs-redis';
 
-export const getRedisConfig = (
-  configService: ConfigService,
-): RedisModuleOptions => {
+export const getRedisConfig = (configService: ConfigService): RedisModuleOptions => {
   const url = configService.get<string>('redis.url');
 
   if (!url) {

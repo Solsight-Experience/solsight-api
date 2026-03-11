@@ -75,9 +75,7 @@ export class JupiterService {
   constructor(private readonly configService: ConfigService) {
     const apiUrl = this.configService.get<string>('jupiter.apiUrl');
     const priceApiUrl = this.configService.get<string>('jupiter.priceApiUrl');
-    const triggerApiUrl = this.configService.get<string>(
-      'jupiter.triggerApiUrl',
-    );
+    const triggerApiUrl = this.configService.get<string>('jupiter.triggerApiUrl');
     const apiKey = this.configService.get<string>('jupiter.apiKey');
 
     this.apiClient = axios.create({
@@ -160,10 +158,7 @@ export class JupiterService {
   async getTokenList(): Promise<JupiterToken[]> {
     // Return cached data if still valid
     const now = Date.now();
-    if (
-      this.tokenListCache.length > 0 &&
-      now - this.tokenListCacheTime < this.CACHE_DURATION
-    ) {
+    if (this.tokenListCache.length > 0 && now - this.tokenListCacheTime < this.CACHE_DURATION) {
       this.logger.debug('Returning cached token list');
       return this.tokenListCache;
     }
@@ -173,9 +168,7 @@ export class JupiterService {
       this.tokenListCache = response.data;
       this.tokenListCacheTime = now;
 
-      this.logger.log(
-        `Fetched ${this.tokenListCache.length} tokens from Jupiter`,
-      );
+      this.logger.log(`Fetched ${this.tokenListCache.length} tokens from Jupiter`);
       return this.tokenListCache;
     } catch (error) {
       this.logger.error('Failed to fetch token list from Jupiter', error);
@@ -199,9 +192,7 @@ export class JupiterService {
     const lowerQuery = query.toLowerCase();
 
     return tokens.filter(
-      (t) =>
-        t.symbol.toLowerCase().includes(lowerQuery) ||
-        t.name.toLowerCase().includes(lowerQuery),
+      (t) => t.symbol.toLowerCase().includes(lowerQuery) || t.name.toLowerCase().includes(lowerQuery),
     );
   }
 
@@ -210,14 +201,9 @@ export class JupiterService {
    */
   async createOrder(params: CreateOrderParams): Promise<CreateOrderResponse> {
     try {
-      this.logger.log(
-        `Creating limit order: ${params.inputMint} -> ${params.outputMint}`,
-      );
+      this.logger.log(`Creating limit order: ${params.inputMint} -> ${params.outputMint}`);
 
-      const response = await this.triggerApiClient.post<CreateOrderResponse>(
-        '/createOrder',
-        params,
-      );
+      const response = await this.triggerApiClient.post<CreateOrderResponse>('/createOrder', params);
 
       this.logger.log(`Order created successfully: ${response.data.order}`);
       return response.data;
@@ -230,22 +216,15 @@ export class JupiterService {
   /**
    * Cancel a single limit order
    */
-  async cancelOrder(
-    maker: string,
-    order: string,
-    computeUnitPrice = 'auto',
-  ): Promise<CancelOrderResponse> {
+  async cancelOrder(maker: string, order: string, computeUnitPrice = 'auto'): Promise<CancelOrderResponse> {
     try {
       this.logger.log(`Canceling order: ${order}`);
 
-      const response = await this.triggerApiClient.post<CancelOrderResponse>(
-        '/cancelOrder',
-        {
-          maker,
-          order,
-          computeUnitPrice,
-        },
-      );
+      const response = await this.triggerApiClient.post<CancelOrderResponse>('/cancelOrder', {
+        maker,
+        order,
+        computeUnitPrice,
+      });
 
       this.logger.log(`Order cancelled successfully: ${order}`);
       return response.data;
@@ -258,15 +237,9 @@ export class JupiterService {
   /**
    * Cancel multiple limit orders (batched in groups of 5)
    */
-  async cancelOrders(
-    maker: string,
-    orders?: string[],
-    computeUnitPrice = 'auto',
-  ): Promise<CancelOrdersResponse> {
+  async cancelOrders(maker: string, orders?: string[], computeUnitPrice = 'auto'): Promise<CancelOrdersResponse> {
     try {
-      this.logger.log(
-        `Canceling ${orders?.length || 'all'} orders for maker: ${maker}`,
-      );
+      this.logger.log(`Canceling ${orders?.length || 'all'} orders for maker: ${maker}`);
 
       const payload: any = {
         maker,
@@ -277,10 +250,7 @@ export class JupiterService {
         payload.orders = orders;
       }
 
-      const response = await this.triggerApiClient.post<CancelOrdersResponse>(
-        '/cancelOrders',
-        payload,
-      );
+      const response = await this.triggerApiClient.post<CancelOrdersResponse>('/cancelOrders', payload);
 
       this.logger.log(`Orders cancelled successfully`);
       return response.data;
@@ -330,24 +300,16 @@ export class JupiterService {
   /**
    * Execute a limit order transaction
    */
-  async executeOrder(
-    requestId: string,
-    signedTransaction: string,
-  ): Promise<ExecuteResponse> {
+  async executeOrder(requestId: string, signedTransaction: string): Promise<ExecuteResponse> {
     try {
       this.logger.log(`Executing order with requestId: ${requestId}`);
 
-      const response = await this.triggerApiClient.post<ExecuteResponse>(
-        '/execute',
-        {
-          requestId,
-          signedTransaction,
-        },
-      );
+      const response = await this.triggerApiClient.post<ExecuteResponse>('/execute', {
+        requestId,
+        signedTransaction,
+      });
 
-      this.logger.log(
-        `Order executed successfully: ${response.data.signature}`,
-      );
+      this.logger.log(`Order executed successfully: ${response.data.signature}`);
       return response.data;
     } catch (error) {
       this.logger.error('Failed to execute order', error);

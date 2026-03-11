@@ -22,10 +22,7 @@ export class PubSubService implements OnModuleDestroy {
         this.logger.error('Redis subscriber error:', err);
       });
     } catch (error) {
-      this.logger.warn(
-        'PubSub unavailable, running without Redis Pub/Sub',
-        error,
-      );
+      this.logger.warn('PubSub unavailable, running without Redis Pub/Sub', error);
       this.publisher = null;
       this.subscriber = null;
     }
@@ -34,8 +31,7 @@ export class PubSubService implements OnModuleDestroy {
   async publish(channel: string, message: any): Promise<number> {
     if (!this.publisher) return 0;
     try {
-      const payload =
-        typeof message === 'string' ? message : JSON.stringify(message);
+      const payload = typeof message === 'string' ? message : JSON.stringify(message);
       return await this.publisher.publish(channel, payload);
     } catch (error) {
       this.logger.error(`Redis publish error on channel "${channel}":`, error);
@@ -43,10 +39,7 @@ export class PubSubService implements OnModuleDestroy {
     }
   }
 
-  async subscribe(
-    channel: string,
-    handler: (message: any, channel: string) => void,
-  ): Promise<void> {
+  async subscribe(channel: string, handler: (message: any, channel: string) => void): Promise<void> {
     if (!this.subscriber) {
       this.logger.warn(`Cannot subscribe to "${channel}": Redis unavailable`);
       return;
@@ -67,10 +60,7 @@ export class PubSubService implements OnModuleDestroy {
 
       this.logger.log(`Subscribed to channel: ${channel}`);
     } catch (error) {
-      this.logger.error(
-        `Redis subscribe error for channel "${channel}":`,
-        error,
-      );
+      this.logger.error(`Redis subscribe error for channel "${channel}":`, error);
     }
   }
 
@@ -80,17 +70,11 @@ export class PubSubService implements OnModuleDestroy {
       await this.subscriber.unsubscribe(channel);
       this.logger.log(`Unsubscribed from channel: ${channel}`);
     } catch (error) {
-      this.logger.error(
-        `Redis unsubscribe error for channel "${channel}":`,
-        error,
-      );
+      this.logger.error(`Redis unsubscribe error for channel "${channel}":`, error);
     }
   }
 
-  async psubscribe(
-    pattern: string,
-    handler: (message: any, channel: string) => void,
-  ): Promise<void> {
+  async psubscribe(pattern: string, handler: (message: any, channel: string) => void): Promise<void> {
     if (!this.subscriber) {
       this.logger.warn(`Cannot psubscribe to "${pattern}": Redis unavailable`);
       return;
@@ -111,10 +95,7 @@ export class PubSubService implements OnModuleDestroy {
 
       this.logger.log(`Pattern subscribed: ${pattern}`);
     } catch (error) {
-      this.logger.error(
-        `Redis psubscribe error for pattern "${pattern}":`,
-        error,
-      );
+      this.logger.error(`Redis psubscribe error for pattern "${pattern}":`, error);
     }
   }
 

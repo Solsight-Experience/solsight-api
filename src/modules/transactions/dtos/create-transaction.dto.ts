@@ -1,14 +1,5 @@
-import {
-  IsEnum,
-  IsNotEmpty,
-  IsNumber,
-  IsOptional,
-  IsString,
-} from 'class-validator';
-import {
-  TransactionType,
-  TransactionStatus,
-} from '../entities/transaction.entity';
+import { IsEnum, IsNotEmpty, IsNumber, IsOptional, IsString } from 'class-validator';
+import { TransactionType, TransactionStatus } from '../entities/transaction.entity';
 
 export class CreateTransactionDto {
   @IsString()

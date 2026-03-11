@@ -1,10 +1,4 @@
-import {
-  Injectable,
-  Logger,
-  NotFoundException,
-  HttpException,
-  HttpStatus,
-} from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, HttpException, HttpStatus } from '@nestjs/common';
 import { TokensService } from './tokens.service';
 import { PromptBuilderService, SummaryOptions } from './prompt-builder.service';
 import { GeminiService } from '../../../infra/gemini/gemini.service';
@@ -54,10 +48,7 @@ export class TokenSummaryService {
    * @param options - Summarization options
    * @returns Token summary result
    */
-  async generateSummary(
-    address: string,
-    options: GenerateSummaryOptions = {},
-  ): Promise<TokenSummaryResult> {
+  async generateSummary(address: string, options: GenerateSummaryOptions = {}): Promise<TokenSummaryResult> {
     const { forceRefresh = false, ...summaryOptions } = options;
 
     // Check if Gemini is configured
@@ -90,9 +81,7 @@ export class TokenSummaryService {
     });
 
     if (!token) {
-      throw new NotFoundException(
-        `Token entity not found for address ${address}`,
-      );
+      throw new NotFoundException(`Token entity not found for address ${address}`);
     }
 
     // Fetch category tokens for comparison if requested
@@ -106,20 +95,14 @@ export class TokenSummaryService {
     }
 
     // Build prompt
-    const prompt = this.promptBuilderService.buildSummaryPrompt(
-      token,
-      categoryTokens,
-      summaryOptions,
-    );
+    const prompt = this.promptBuilderService.buildSummaryPrompt(token, categoryTokens, summaryOptions);
 
     // Generate summary using Gemini
     let summary: string;
     let model: string;
 
     try {
-      this.logger.log(
-        `Generating AI summary for token: ${token.symbol} (${address})`,
-      );
+      this.logger.log(`Generating AI summary for token: ${token.symbol} (${address})`);
       const startTime = Date.now();
 
       const geminiResponse = await this.geminiService.generateText({
@@ -132,9 +115,7 @@ export class TokenSummaryService {
       model = geminiResponse.model;
 
       const duration = Date.now() - startTime;
-      this.logger.log(
-        `AI summary generated in ${duration}ms. Tokens: ${geminiResponse.totalTokenCount || 'N/A'}`,
-      );
+      this.logger.log(`AI summary generated in ${duration}ms. Tokens: ${geminiResponse.totalTokenCount || 'N/A'}`);
     } catch (error) {
       this.logger.error('Error generating AI summary', error);
       throw new HttpException(
@@ -167,9 +148,7 @@ export class TokenSummaryService {
   /**
    * Get cached summary if available
    */
-  private async getCachedSummary(
-    address: string,
-  ): Promise<TokenSummaryResult | null> {
+  private async getCachedSummary(address: string): Promise<TokenSummaryResult | null> {
     try {
       const cacheKey = this.getCacheKey(address);
       const cached = await this.redisService.get<TokenSummaryResult>(cacheKey);
@@ -192,18 +171,13 @@ export class TokenSummaryService {
   /**
    * Cache summary with dynamic TTL based on token activity
    */
-  private async cacheSummary(
-    token: Token,
-    result: TokenSummaryResult,
-  ): Promise<void> {
+  private async cacheSummary(token: Token, result: TokenSummaryResult): Promise<void> {
     try {
       const cacheKey = this.getCacheKey(token.address);
       const ttl = this.calculateCacheTTL(token);
 
       await this.redisService.set(cacheKey, result, ttl);
-      this.logger.debug(
-        `Cached summary for ${token.symbol} with TTL: ${ttl} seconds`,
-      );
+      this.logger.debug(`Cached summary for ${token.symbol} with TTL: ${ttl} seconds`);
     } catch (error) {
       this.logger.error('Error caching summary', error);
       // Don't throw - caching failure shouldn't block the response

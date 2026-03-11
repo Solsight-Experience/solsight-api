@@ -1,15 +1,4 @@
-import {
-  Controller,
-  Post,
-  Body,
-  UseGuards,
-  Get,
-  Request,
-  Query,
-  Res,
-  HttpException,
-  HttpStatus,
-} from '@nestjs/common';
+import { Controller, Post, Body, UseGuards, Get, Request, Query, Res, HttpException, HttpStatus } from '@nestjs/common';
 import { VerifySolanaDto } from '../dtos/verify-solana.dto';
 import { AuthService, LoginDto, OauthLoginDto } from '../services/auth.service';
 import { JwtAuthGuard } from '../guards/jwt-auth.guard';
@@ -19,10 +8,7 @@ export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   @Post('login')
-  async login(
-    @Body() dto: LoginDto,
-    @Res({ passthrough: true }) res: Response,
-  ) {
+  async login(@Body() dto: LoginDto, @Res({ passthrough: true }) res: Response) {
     const { user, accessToken } = await this.authService.login(dto);
 
     res.cookie('auth_token', accessToken, {
@@ -56,13 +42,9 @@ export class AuthController {
     return { message: 'Logged out successfully' };
   }
   @Post('oauth-login')
-  async oauthLogin(
-    @Body() dto: OauthLoginDto,
-    @Res({ passthrough: true }) res: Response,
-  ) {
+  async oauthLogin(@Body() dto: OauthLoginDto, @Res({ passthrough: true }) res: Response) {
     try {
-      const { user, accessToken } =
-        await this.authService.handleOauthLogin(dto);
+      const { user, accessToken } = await this.authService.handleOauthLogin(dto);
 
       res.cookie('auth_token', accessToken, {
         httpOnly: true,
@@ -74,17 +56,11 @@ export class AuthController {
 
       return { user, message: 'Login successful' };
     } catch (err) {
-      throw new HttpException(
-        err.message || 'OAuth login failed',
-        HttpStatus.BAD_REQUEST,
-      );
+      throw new HttpException(err.message || 'OAuth login failed', HttpStatus.BAD_REQUEST);
     }
   }
   @Post('register')
-  async register(
-    @Body() registerDto: LoginDto,
-    @Res({ passthrough: true }) res: Response,
-  ) {
+  async register(@Body() registerDto: LoginDto, @Res({ passthrough: true }) res: Response) {
     const { user, accessToken } = await this.authService.register(registerDto);
 
     res.cookie('auth_token', accessToken, {
@@ -105,10 +81,7 @@ export class AuthController {
 
   @UseGuards(JwtAuthGuard)
   @Post('solana/verify')
-  async verifySolanaWallet(
-    @Body() verifySolanaDto: VerifySolanaDto,
-    @Request() req,
-  ) {
+  async verifySolanaWallet(@Body() verifySolanaDto: VerifySolanaDto, @Request() req) {
     return await this.authService.verifySolanaWallet(
       verifySolanaDto.walletAddress,
       verifySolanaDto.signature,

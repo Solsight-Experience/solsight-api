@@ -15,9 +15,7 @@ export class TokenSeederService implements OnModuleInit {
     @InjectRepository(Token)
     private readonly tokenRepository: Repository<Token>,
   ) {
-    const coingeckoListUrl = this.configService.get<string>(
-      'solana.coingeckoApi.searchTokenId',
-    );
+    const coingeckoListUrl = this.configService.get<string>('solana.coingeckoApi.searchTokenId');
     if (!coingeckoListUrl) {
       throw new Error('Coingecko search token URL is required');
     }
@@ -143,11 +141,7 @@ export class TokenSeederService implements OnModuleInit {
       });
 
       const toUpdate = allTokens
-        .filter(
-          (t) =>
-            decimalsMap.has(t.address) &&
-            decimalsMap.get(t.address) !== t.decimals,
-        )
+        .filter((t) => decimalsMap.has(t.address) && decimalsMap.get(t.address) !== t.decimals)
         .map((t) => ({ ...t, decimals: decimalsMap.get(t.address)! }));
 
       if (!toUpdate.length) {
@@ -180,9 +174,7 @@ export class TokenSeederService implements OnModuleInit {
 
     // --- Giai đoạn 2: batch 60 token mỗi 70 giây ---
     const allTokens = await this.tokenRepository.find();
-    const remainingTokens = allTokens
-      .map((t) => t.address)
-      .filter((addr) => !importantAddresses.includes(addr));
+    const remainingTokens = allTokens.map((t) => t.address).filter((addr) => !importantAddresses.includes(addr));
 
     const BATCH_SIZE = 60;
     const DELAY_MS = 70 * 1000;
@@ -203,9 +195,7 @@ export class TokenSeederService implements OnModuleInit {
     if (!addresses.length) return;
 
     try {
-      const jupUrl =
-        this.configService.get<string>('solana.jupiterApi.searchToken') +
-        addresses.join(',');
+      const jupUrl = this.configService.get<string>('solana.jupiterApi.searchToken') + addresses.join(',');
 
       const tokensInfo: any[] = await fetch(jupUrl).then((res) => res.json());
       if (!tokensInfo?.length) return;
@@ -247,22 +237,17 @@ export class TokenSeederService implements OnModuleInit {
 
             // // liquidity
             liquidity: info.liquidity ?? exist.liquidity,
-            liquidityChange24h:
-              info.stats24h?.liquidityChange ?? exist.liquidityChange24h,
+            liquidityChange24h: info.stats24h?.liquidityChange ?? exist.liquidityChange24h,
 
             // volume
             volume24h: info.stats24h?.volumeChange ?? exist.volume24h,
 
-            volumeChange24h:
-              info.stats24h?.volumeChange ?? exist.volumeChange24h,
+            volumeChange24h: info.stats24h?.volumeChange ?? exist.volumeChange24h,
 
             // audits
-            mintAuthorityDisabled:
-              info.audit?.mintAuthorityDisabled ?? exist.mintAuthorityDisabled,
+            mintAuthorityDisabled: info.audit?.mintAuthorityDisabled ?? exist.mintAuthorityDisabled,
 
-            freezeAuthorityDisabled:
-              info.audit?.freezeAuthorityDisabled ??
-              exist.freezeAuthorityDisabled,
+            freezeAuthorityDisabled: info.audit?.freezeAuthorityDisabled ?? exist.freezeAuthorityDisabled,
 
             updatedAt: new Date(),
           };

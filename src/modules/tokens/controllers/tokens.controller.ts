@@ -1,18 +1,7 @@
-import {
-  Controller,
-  Get,
-  Param,
-  NotFoundException,
-  Query,
-  Body,
-  Post,
-} from '@nestjs/common';
+import { Controller, Get, Param, NotFoundException, Query, Body, Post } from '@nestjs/common';
 import { TokensService } from '../services/tokens.service';
 import { TokenSummaryService } from '../services/token-summary.service';
-import {
-  SummarizeTokenRequestDto,
-  TokenSummaryResponseDto,
-} from '../dtos/token-summary.dto';
+import { SummarizeTokenRequestDto, TokenSummaryResponseDto } from '../dtos/token-summary.dto';
 
 @Controller('tokens')
 export class TokensController {
@@ -34,13 +23,7 @@ export class TokensController {
     @Query('offset') offset: number = 0,
     @Body() filterDto: any,
   ) {
-    return this.tokensService.filter(
-      filterDto,
-      limit,
-      sort_by,
-      sort_order,
-      offset,
-    );
+    return this.tokensService.filter(filterDto, limit, sort_by, sort_order, offset);
   }
 
   @Get(':address')
@@ -51,9 +34,7 @@ export class TokensController {
   }
 
   @Post('summarize')
-  async summarize(
-    @Body() dto: SummarizeTokenRequestDto,
-  ): Promise<TokenSummaryResponseDto> {
+  async summarize(@Body() dto: SummarizeTokenRequestDto): Promise<TokenSummaryResponseDto> {
     const result = await this.tokenSummaryService.generateSummary(dto.address, {
       includePriceAnalysis: dto.includePriceAnalysis,
       includeRiskAssessment: dto.includeRiskAssessment,

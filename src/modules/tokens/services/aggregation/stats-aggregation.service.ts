@@ -3,11 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { RedisService } from '../../../../redis/services/redis.service';
 import { Token } from '../../entities/token.entity';
-import {
-  SwapEvent,
-  TokenStats,
-  SwapPriceResult,
-} from '../../types/swap-event.type';
+import { SwapEvent, TokenStats, SwapPriceResult } from '../../types/swap-event.type';
 
 @Injectable()
 export class StatsAggregationService {
@@ -34,18 +30,11 @@ export class StatsAggregationService {
     // Store volume and txns for both tokens
     // token_out = user is BUYING this token
     // token_in = user is SELLING this token
-    await this.storeVolumeAndTxns(
-      tokenOutMint,
-      prices.volumeUsdTokenOut,
-      'buy',
-    );
+    await this.storeVolumeAndTxns(tokenOutMint, prices.volumeUsdTokenOut, 'buy');
     await this.storeVolumeAndTxns(tokenInMint, prices.volumeUsdTokenIn, 'sell');
   }
 
-  private async storePriceData(
-    tokenMint: string,
-    priceUsd: number,
-  ): Promise<void> {
+  private async storePriceData(tokenMint: string, priceUsd: number): Promise<void> {
     const redis = this.redisService.getClient();
     if (!redis) return;
 
@@ -69,18 +58,11 @@ export class StatsAggregationService {
       // Set TTL on history key (25 hours to be safe)
       await redis.expire(historyKey, 25 * 60 * 60);
     } catch (error) {
-      this.logger.error(
-        `Redis error in storePriceData for "${tokenMint}":`,
-        error,
-      );
+      this.logger.error(`Redis error in storePriceData for "${tokenMint}":`, error);
     }
   }
 
-  private async storeVolumeAndTxns(
-    tokenMint: string,
-    volumeUsd: number,
-    txType: 'buy' | 'sell',
-  ): Promise<void> {
+  private async storeVolumeAndTxns(tokenMint: string, volumeUsd: number, txType: 'buy' | 'sell'): Promise<void> {
     const redis = this.redisService.getClient();
     if (!redis) return;
 
@@ -100,10 +82,7 @@ export class StatsAggregationService {
       await redis.zremrangebyscore(txnsKey, '-inf', cutoff);
       await redis.expire(txnsKey, 25 * 60 * 60);
     } catch (error) {
-      this.logger.error(
-        `Redis error in storeVolumeAndTxns for "${tokenMint}":`,
-        error,
-      );
+      this.logger.error(`Redis error in storeVolumeAndTxns for "${tokenMint}":`, error);
     }
   }
 
@@ -119,10 +98,7 @@ export class StatsAggregationService {
 
     // Calculate 24h price change (use USD price)
     const priceUsd = latestPriceData?.usd ?? null;
-    const priceChange24h = await this.calculatePriceChange24h(
-      tokenMint,
-      priceUsd,
-    );
+    const priceChange24h = await this.calculatePriceChange24h(tokenMint, priceUsd);
 
     // Get volume and txns from Redis (real-time from swap events)
     const volume24h = await this.getVolume24h(tokenMint);
@@ -130,9 +106,7 @@ export class StatsAggregationService {
 
     const price = priceUsd ?? token?.price ?? 0;
     const totalSupply = await this.getTotalSupply(tokenMint);
-    this.logger.log(
-      `[GET] token="${tokenMint}" price=${price} (${latestPriceData ? 'Redis' : 'DB'})`,
-    );
+    this.logger.log(`[GET] token="${tokenMint}" price=${price} (${latestPriceData ? 'Redis' : 'DB'})`);
 
     return {
       timestamp: Date.now() / 1000,
@@ -174,12 +148,8 @@ export class StatsAggregationService {
     return totalSupply;
   }
 
-  async getLatestPrice(
-    tokenMint: string,
-  ): Promise<{ native: number; usd: number } | null> {
-    return this.redisService.get<{ native: number; usd: number }>(
-      `price:${tokenMint}:latest`,
-    );
+  async getLatestPrice(tokenMint: string): Promise<{ native: number; usd: number } | null> {
+    return this.redisService.get<{ native: number; usd: number }>(`price:${tokenMint}:latest`);
   }
 
   private async getVolume24h(tokenMint: string): Promise<number> {
@@ -198,17 +168,12 @@ export class StatsAggregationService {
       }
       return totalVolume;
     } catch (error) {
-      this.logger.error(
-        `Redis error in getVolume24h for "${tokenMint}":`,
-        error,
-      );
+      this.logger.error(`Redis error in getVolume24h for "${tokenMint}":`, error);
       return 0;
     }
   }
 
-  private async getTxns24h(
-    tokenMint: string,
-  ): Promise<{ total: number; buys: number; sells: number }> {
+  private async getTxns24h(tokenMint: string): Promise<{ total: number; buys: number; sells: number }> {
     const redis = this.redisService.getClient();
     if (!redis) return { total: 0, buys: 0, sells: 0 };
 
@@ -233,10 +198,7 @@ export class StatsAggregationService {
     }
   }
 
-  private async calculatePriceChange24h(
-    tokenMint: string,
-    currentPrice: number | null,
-  ): Promise<number | null> {
+  private async calculatePriceChange24h(tokenMint: string, currentPrice: number | null): Promise<number | null> {
     if (!currentPrice) return null;
 
     const redis = this.redisService.getClient();
@@ -253,10 +215,7 @@ export class StatsAggregationService {
       if (oldPrice === 0) return null;
       return ((currentPrice - oldPrice) / oldPrice) * 100;
     } catch (error) {
-      this.logger.error(
-        `Redis error in calculatePriceChange24h for "${tokenMint}":`,
-        error,
-      );
+      this.logger.error(`Redis error in calculatePriceChange24h for "${tokenMint}":`, error);
       return null;
     }
   }

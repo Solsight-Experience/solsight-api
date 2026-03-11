@@ -7,14 +7,8 @@ export class NotificationGateway {
   private readonly logger = new Logger(NotificationGateway.name);
 
   constructor(private readonly gateway: WebsocketGateway) {
-    this.gateway.register(
-      'notification:subscribe',
-      this.handleSubscribe.bind(this),
-    );
-    this.gateway.register(
-      'notification:unsubscribe',
-      this.handleUnsubscribe.bind(this),
-    );
+    this.gateway.register('notification:subscribe', this.handleSubscribe.bind(this));
+    this.gateway.register('notification:unsubscribe', this.handleUnsubscribe.bind(this));
   }
 
   handleSubscribe(client: Socket, payload: { userId: string }): void {

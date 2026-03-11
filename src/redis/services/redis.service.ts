@@ -11,10 +11,7 @@ export class RedisService implements OnModuleDestroy {
     try {
       this.redis = this.nestRedisService.getOrThrow();
     } catch (error) {
-      this.logger.warn(
-        'Redis client unavailable, running without Redis cache',
-        error,
-      );
+      this.logger.warn('Redis client unavailable, running without Redis cache', error);
       this.redis = null;
     }
   }
@@ -42,8 +39,7 @@ export class RedisService implements OnModuleDestroy {
   async set(key: string, value: any, ttl?: number): Promise<void> {
     if (!this.redis) return;
     try {
-      const stringValue =
-        typeof value === 'string' ? value : JSON.stringify(value);
+      const stringValue = typeof value === 'string' ? value : JSON.stringify(value);
       if (ttl) {
         await this.redis.setex(key, ttl, stringValue);
       } else {

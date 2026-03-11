@@ -1,14 +1,4 @@
-import {
-  Controller,
-  Get,
-  Post,
-  Patch,
-  Delete,
-  Body,
-  Param,
-  UseGuards,
-  Request,
-} from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Param, UseGuards, Request } from '@nestjs/common';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { WalletsService } from '../services/wallets.service';
 import { CreateWalletDto } from '../dtos/create-wallet.dto';
@@ -42,15 +32,9 @@ export class UsersWalletsController {
 
   @UseGuards(JwtAuthGuard)
   @Post()
-  async create(
-    @Request() req: AuthenticatedRequest,
-    @Body() body: Partial<CreateWalletDto>,
-  ) {
+  async create(@Request() req: AuthenticatedRequest, @Body() body: Partial<CreateWalletDto>) {
     const userId = req.user.id;
-    const wallet = await this.walletsService.create(
-      userId,
-      body as CreateWalletDto,
-    );
+    const wallet = await this.walletsService.create(userId, body as CreateWalletDto);
 
     return {
       success: true,
@@ -72,20 +56,13 @@ export class UsersWalletsController {
     @Body() body: { name?: string; icon?: string },
   ) {
     const userId = req.user.id;
-    const updated = await this.walletsService.updateByAddress(
-      userId,
-      walletAddress,
-      body as any,
-    );
+    const updated = await this.walletsService.updateByAddress(userId, walletAddress, body as any);
     return updated;
   }
 
   @UseGuards(JwtAuthGuard)
   @Delete(':walletAddress')
-  async remove(
-    @Request() req: AuthenticatedRequest,
-    @Param('walletAddress') walletAddress: string,
-  ) {
+  async remove(@Request() req: AuthenticatedRequest, @Param('walletAddress') walletAddress: string) {
     const userId = req.user.id;
     await this.walletsService.deleteByAddress(userId, walletAddress);
     return { message: 'Wallet deleted successfully' };
@@ -93,15 +70,9 @@ export class UsersWalletsController {
 
   @UseGuards(JwtAuthGuard)
   @Patch(':walletAddress/set-default')
-  async setDefault(
-    @Request() req: AuthenticatedRequest,
-    @Param('walletAddress') walletAddress: string,
-  ) {
+  async setDefault(@Request() req: AuthenticatedRequest, @Param('walletAddress') walletAddress: string) {
     const userId = req.user.id;
-    const wallet = await this.walletsService.setDefaultForAddress(
-      userId,
-      walletAddress,
-    );
+    const wallet = await this.walletsService.setDefaultForAddress(userId, walletAddress);
     return wallet;
   }
 }

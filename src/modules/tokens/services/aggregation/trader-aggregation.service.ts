@@ -22,9 +22,7 @@ export class TraderAggregationService {
       const traderAddress = swap.maker;
       const isBuy = swap.direction === 'BUY';
 
-      const tokenAmount = isBuy
-        ? swap.token_out.amount_ui
-        : swap.token_in.amount_ui;
+      const tokenAmount = isBuy ? swap.token_out.amount_ui : swap.token_in.amount_ui;
       const price = swap.price_usd ?? swap.price_native;
       const volumeUsd = tokenAmount * price;
 
@@ -42,12 +40,8 @@ export class TraderAggregationService {
       await redis.expire(traderKey, TRADER_TTL);
 
       // Update ranking by total volume
-      const bought = parseFloat(
-        (await redis.hget(traderKey, 'total_bought')) || '0',
-      );
-      const sold = parseFloat(
-        (await redis.hget(traderKey, 'total_sold')) || '0',
-      );
+      const bought = parseFloat((await redis.hget(traderKey, 'total_bought')) || '0');
+      const sold = parseFloat((await redis.hget(traderKey, 'total_sold')) || '0');
       const totalVolume = bought + sold;
 
       await redis.zadd(rankingKey, totalVolume, traderAddress);
@@ -89,18 +83,12 @@ export class TraderAggregationService {
 
       return traders;
     } catch (error) {
-      this.logger.error(
-        `Redis error in getTopTraders for "${tokenMint}":`,
-        error,
-      );
+      this.logger.error(`Redis error in getTopTraders for "${tokenMint}":`, error);
       return [];
     }
   }
 
-  async getTrader(
-    tokenMint: string,
-    address: string,
-  ): Promise<TopTrader | null> {
+  async getTrader(tokenMint: string, address: string): Promise<TopTrader | null> {
     const redis = this.redisService.getClient();
     if (!redis) return null;
 
@@ -123,10 +111,7 @@ export class TraderAggregationService {
         trades_count: parseInt(data.trades_count || '0', 10),
       };
     } catch (error) {
-      this.logger.error(
-        `Redis error in getTrader for "${tokenMint}" address "${address}":`,
-        error,
-      );
+      this.logger.error(`Redis error in getTrader for "${tokenMint}" address "${address}":`, error);
       return null;
     }
   }

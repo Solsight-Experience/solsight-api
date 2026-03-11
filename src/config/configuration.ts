@@ -26,22 +26,17 @@ export default () => ({
     network: process.env.SOLANA_NETWORK || 'mainnet-beta',
     commitment: 'confirmed',
     jupiterApi: {
-      searchToken:
-        process.env.JUPITER_TOKEN_SEARCH_API ||
-        'https://lite-api.jup.ag/tokens/v2/search?query=',
+      searchToken: process.env.JUPITER_TOKEN_SEARCH_API || 'https://lite-api.jup.ag/tokens/v2/search?query=',
     },
     coingeckoApi: {
-      searchTokenId:
-        process.env.COINGECKO_LIST_API ||
-        'https://api.coingecko.com/api/v3/coins/list',
+      searchTokenId: process.env.COINGECKO_LIST_API || 'https://api.coingecko.com/api/v3/coins/list',
     },
   },
 
   jupiter: {
     apiUrl: process.env.JUPITER_API_URL || 'https://quote-api.jup.ag/v6',
     priceApiUrl: process.env.JUPITER_PRICE_API_URL || 'https://price.jup.ag/v4',
-    triggerApiUrl:
-      process.env.JUPITER_TRIGGER_API_URL || 'https://api.jup.ag/trigger/v1',
+    triggerApiUrl: process.env.JUPITER_TRIGGER_API_URL || 'https://api.jup.ag/trigger/v1',
     apiKey: process.env.JUPITER_API_KEY || '',
   },
 

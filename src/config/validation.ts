@@ -1,9 +1,7 @@
 import * as Joi from 'joi';
 
 export const validationSchema = Joi.object({
-  NODE_ENV: Joi.string()
-    .valid('development', 'production', 'test')
-    .default('development'),
+  NODE_ENV: Joi.string().valid('development', 'production', 'test').default('development'),
   PORT: Joi.number().default(3000),
 
   // Database
@@ -28,9 +26,7 @@ export const validationSchema = Joi.object({
 
   // Solana
   SOLANA_RPC_URL: Joi.string().uri().default('https://api.devnet.solana.com'),
-  SOLANA_NETWORK: Joi.string()
-    .valid('mainnet-beta', 'devnet', 'testnet')
-    .default('devnet'),
+  SOLANA_NETWORK: Joi.string().valid('mainnet-beta', 'devnet', 'testnet').default('devnet'),
 
   // JWT
   JWT_SECRET: Joi.string().required(),
@@ -41,9 +37,7 @@ export const validationSchema = Joi.object({
   API_VERSION: Joi.string().default('v1'),
 
   // Logging
-  LOG_LEVEL: Joi.string()
-    .valid('error', 'warn', 'info', 'debug')
-    .default('info'),
+  LOG_LEVEL: Joi.string().valid('error', 'warn', 'info', 'debug').default('info'),
   LOG_FORMAT: Joi.string().valid('json', 'simple').default('json'),
 
   // CORS

@@ -1,15 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThan, FindOptionsWhere } from 'typeorm';
-import {
-  Notification,
-  NotificationChannel,
-} from '../entities/notification.entity';
+import { Notification, NotificationChannel } from '../entities/notification.entity';
 import { NotificationDeliveryService } from './notification-delivery.service';
-import {
-  NotificationPayloadDto,
-  NotificationOptionsDto,
-} from '../dtos/notification-payload.dto';
+import { NotificationPayloadDto, NotificationOptionsDto } from '../dtos/notification-payload.dto';
 import { QueryNotificationsDto } from '../dtos/query-notifications.dto';
 
 const DEFAULT_CHANNELS = [NotificationChannel.WEBSOCKET];
@@ -69,10 +63,7 @@ export class NotificationsService {
     return notification;
   }
 
-  broadcast(
-    payload: NotificationPayloadDto,
-    options?: NotificationOptionsDto,
-  ): void {
+  broadcast(payload: NotificationPayloadDto, options?: NotificationOptionsDto): void {
     const channels = options?.channels ?? DEFAULT_CHANNELS;
 
     if (channels.includes(NotificationChannel.WEBSOCKET)) {
@@ -92,10 +83,7 @@ export class NotificationsService {
     userId: string,
     query?: QueryNotificationsDto,
   ): Promise<{ notifications: Notification[]; hasMore: boolean }> {
-    const limit = Math.min(
-      query?.limit ?? DEFAULT_QUERY_LIMIT,
-      MAX_QUERY_LIMIT,
-    );
+    const limit = Math.min(query?.limit ?? DEFAULT_QUERY_LIMIT, MAX_QUERY_LIMIT);
 
     const where: FindOptionsWhere<Notification> = { userId };
 
@@ -126,17 +114,11 @@ export class NotificationsService {
   }
 
   async markAsRead(notificationId: string, userId: string): Promise<void> {
-    await this.notificationRepository.update(
-      { id: notificationId, userId },
-      { isRead: true },
-    );
+    await this.notificationRepository.update({ id: notificationId, userId }, { isRead: true });
   }
 
   async markAllAsRead(userId: string): Promise<void> {
-    await this.notificationRepository.update(
-      { userId, isRead: false },
-      { isRead: true },
-    );
+    await this.notificationRepository.update({ userId, isRead: false }, { isRead: true });
   }
 
   async countUnread(userId: string): Promise<number> {

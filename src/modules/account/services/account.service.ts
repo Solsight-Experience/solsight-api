@@ -96,9 +96,7 @@ export class AccountService {
 
   addFavorite(tokenAddress: string) {
     // Check if already exists
-    const exists = this.favorites.find(
-      (fav) => fav.token_address === tokenAddress,
-    );
+    const exists = this.favorites.find((fav) => fav.token_address === tokenAddress);
     if (exists) {
       return { success: true, message: 'Token already in favorites' };
     }
@@ -119,9 +117,7 @@ export class AccountService {
 
   removeFavorite(tokenAddress: string) {
     const initialLength = this.favorites.length;
-    this.favorites = this.favorites.filter(
-      (fav) => fav.token_address !== tokenAddress,
-    );
+    this.favorites = this.favorites.filter((fav) => fav.token_address !== tokenAddress);
 
     if (this.favorites.length < initialLength) {
       return { success: true, message: 'Token removed from favorites' };
@@ -134,14 +130,8 @@ export class AccountService {
     return {
       wallets: this.wallets,
       total_wallets: this.wallets.length,
-      total_balance_sol: this.wallets.reduce(
-        (total, w) => total + w.balance_sol,
-        0,
-      ),
-      total_balance_usd: this.wallets.reduce(
-        (total, w) => total + w.balance_usd,
-        0,
-      ),
+      total_balance_sol: this.wallets.reduce((total, w) => total + w.balance_sol, 0),
+      total_balance_usd: this.wallets.reduce((total, w) => total + w.balance_usd, 0),
     };
   }
 }

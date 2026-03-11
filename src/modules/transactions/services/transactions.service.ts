@@ -17,9 +17,7 @@ export class TransactionsService {
       relations: ['fromWallet', 'toWallet'],
     });
   }
-  async createTransaction(
-    createTransactionDto: CreateTransactionDto,
-  ): Promise<Transaction> {
+  async createTransaction(createTransactionDto: CreateTransactionDto): Promise<Transaction> {
     const transaction = this.transactionRepository.create(createTransactionDto);
     return this.transactionRepository.save(transaction);
   }

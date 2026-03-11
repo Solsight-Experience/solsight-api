@@ -1,16 +1,5 @@
-import {
-  IsEnum,
-  IsNotEmpty,
-  IsOptional,
-  IsString,
-  IsObject,
-  IsArray,
-  IsBoolean,
-} from 'class-validator';
-import {
-  NotificationEventType,
-  NotificationChannel,
-} from '../entities/notification.entity';
+import { IsEnum, IsNotEmpty, IsOptional, IsString, IsObject, IsArray, IsBoolean } from 'class-validator';
+import { NotificationEventType, NotificationChannel } from '../entities/notification.entity';
 
 export class NotificationPayloadDto {
   @IsEnum(NotificationEventType)

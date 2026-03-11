@@ -1,6 +1,5 @@
 export type TokenResponseDto = TokenResponseMetadata & TokenResponseOnchainData;
-export type TokenDetailsResponseDto = TokenResponseMetadata &
-  TokenResponseOnchainData;
+export type TokenDetailsResponseDto = TokenResponseMetadata & TokenResponseOnchainData;
 
 export type TokenResponseMetadata = {
   address: string;

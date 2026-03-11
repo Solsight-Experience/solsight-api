@@ -1,35 +1,18 @@
 import { HttpException, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
-import type {
-  ChatCompletionMessageParam,
-  ChatCompletionTool,
-} from 'openai/resources/chat/completions';
+import type { ChatCompletionMessageParam, ChatCompletionTool } from 'openai/resources/chat/completions';
 import { AppLoggerService } from '../../../common/logger/logger.service';
-import {
-  SortByTrending,
-  TimeFrame,
-} from '../../discovery/dtos/get-trending.dto';
+import { SortByTrending, TimeFrame } from '../../discovery/dtos/get-trending.dto';
 import { DiscoveryService } from '../../discovery/services/discovery.service';
 import { PortfolioService } from '../../portfolio/services/portfolio.service';
 import { TokensService } from '../../tokens/services/tokens.service';
-import {
-  ChatResponsePayload,
-  ChatSession,
-  SendMessagePayload,
-} from '../types/chat.types';
+import { ChatResponsePayload, ChatSession, SendMessagePayload } from '../types/chat.types';
 
 const SYSTEM_PROMPT =
   'You are Solsight AI, a DeFi assistant for the Solana ecosystem. Help users with token information, portfolio overview, and trade preparation. Always use tools to get real data before answering.';
 
-const STATIC_ROUTES = [
-  '/',
-  '/portfolio',
-  '/dashboard',
-  '/dashboard/transfer',
-  '/profile',
-  '/authentication',
-];
+const STATIC_ROUTES = ['/', '/portfolio', '/dashboard', '/dashboard/transfer', '/profile', '/authentication'];
 
 const TOKEN_ROUTE_REGEX = /^\/token\/[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 const LLM_TIMEOUT_MS = 300000;
@@ -112,8 +95,7 @@ export const TOOL_DEFINITIONS: ChatCompletionTool[] = [
     type: 'function',
     function: {
       name: 'fetch_discovery',
-      description:
-        'Fetch discovery list (trending/new tokens) with optional filters',
+      description: 'Fetch discovery list (trending/new tokens) with optional filters',
       parameters: {
         type: 'object',
         properties: {
@@ -157,8 +139,7 @@ export const TOOL_DEFINITIONS: ChatCompletionTool[] = [
     type: 'function',
     function: {
       name: 'prepare_swap',
-      description:
-        'Prepare swap intent object from user input without execution',
+      description: 'Prepare swap intent object from user input without execution',
       parameters: {
         type: 'object',
         properties: {
@@ -226,10 +207,7 @@ export class ChatService {
       baseURL,
     });
 
-    this.logger.log(
-      `ChatService initialized: model=${this.model} baseURL=${baseURL ?? 'default'}`,
-      ChatService.name,
-    );
+    this.logger.log(`ChatService initialized: model=${this.model} baseURL=${baseURL ?? 'default'}`, ChatService.name);
   }
 
   async sendMessage(
@@ -239,10 +217,7 @@ export class ChatService {
     const session = this.getOrCreateSession(payload.sessionId);
 
     if (session.processing) {
-      this.logger.warn(
-        `Session ${payload.sessionId} is already processing a message, rejecting`,
-        ChatService.name,
-      );
+      this.logger.warn(`Session ${payload.sessionId} is already processing a message, rejecting`, ChatService.name);
       throw new HttpException('Already processing a message', 429);
     }
 
@@ -260,23 +235,14 @@ export class ChatService {
     session.processing = true;
 
     try {
-      const response = await this.runLlmLoop(
-        session,
-        payload.walletAddress,
-        payload.userId,
-        onToolProgress,
-      );
-      this.logger.log(
-        `Session ${payload.sessionId} completed: responseType=${response.type}`,
-        ChatService.name,
-      );
+      const response = await this.runLlmLoop(session, payload.walletAddress, payload.userId, onToolProgress);
+      this.logger.log(`Session ${payload.sessionId} completed: responseType=${response.type}`, ChatService.name);
       return {
         ...response,
         sessionId: payload.sessionId,
       };
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : 'Unknown LLM error';
+      const message = error instanceof Error ? error.message : 'Unknown LLM error';
       this.logger.error(
         `Failed to process chat message: ${message}`,
         error instanceof Error ? error.stack : undefined,
@@ -286,24 +252,18 @@ export class ChatService {
       return {
         sessionId: payload.sessionId,
         type: 'text',
-        content:
-          'I encountered an issue while processing your request. Please try again in a moment.',
+        content: 'I encountered an issue while processing your request. Please try again in a moment.',
       };
     } finally {
       session.processing = false;
     }
   }
 
-  async *sendMessageStream(
-    payload: SendMessagePayload,
-  ): AsyncGenerator<string, void, unknown> {
+  async *sendMessageStream(payload: SendMessagePayload): AsyncGenerator<string, void, unknown> {
     const session = this.getOrCreateSession(payload.sessionId);
 
     if (session.processing) {
-      this.logger.warn(
-        `Session ${payload.sessionId} is already processing a message, rejecting`,
-        ChatService.name,
-      );
+      this.logger.warn(`Session ${payload.sessionId} is already processing a message, rejecting`, ChatService.name);
       throw new HttpException('Already processing a message', 429);
     }
 
@@ -320,18 +280,10 @@ export class ChatService {
     session.processing = true;
 
     try {
-      yield* this.runLlmLoopStream(
-        session,
-        payload.walletAddress,
-        payload.userId,
-      );
-      this.logger.log(
-        `Session ${payload.sessionId} stream completed`,
-        ChatService.name,
-      );
+      yield* this.runLlmLoopStream(session, payload.walletAddress, payload.userId);
+      this.logger.log(`Session ${payload.sessionId} stream completed`, ChatService.name);
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : 'Unknown LLM error';
+      const message = error instanceof Error ? error.message : 'Unknown LLM error';
       this.logger.error(
         `Failed to process stream message: ${message}`,
         error instanceof Error ? error.stack : undefined,
@@ -371,17 +323,11 @@ export class ChatService {
       }),
     ];
 
-    this.logger.debug(
-      `LLM request: model=${this.model} messages=${messages.length}`,
-      ChatService.name,
-    );
+    this.logger.debug(`LLM request: model=${this.model} messages=${messages.length}`, ChatService.name);
 
     const controller = new AbortController();
     const timeout = setTimeout(() => {
-      this.logger.warn(
-        `LLM request timed out after ${LLM_TIMEOUT_MS}ms`,
-        ChatService.name,
-      );
+      this.logger.warn(`LLM request timed out after ${LLM_TIMEOUT_MS}ms`, ChatService.name);
       controller.abort();
     }, LLM_TIMEOUT_MS);
 
@@ -410,10 +356,7 @@ export class ChatService {
         };
       }
 
-      this.logger.debug(
-        `LLM response: finish_reason=${choice.finish_reason}`,
-        ChatService.name,
-      );
+      this.logger.debug(`LLM response: finish_reason=${choice.finish_reason}`, ChatService.name);
 
       if (choice.finish_reason === 'tool_calls') {
         const assistantMessage = choice.message;
@@ -432,10 +375,7 @@ export class ChatService {
           let args: Record<string, unknown> = {};
 
           try {
-            args = JSON.parse(toolCall.function.arguments || '{}') as Record<
-              string,
-              unknown
-            >;
+            args = JSON.parse(toolCall.function.arguments || '{}') as Record<string, unknown>;
           } catch (error) {
             this.logger.warn(
               `Invalid tool arguments for ${toolName}: ${toolCall.function.arguments}`,
@@ -443,24 +383,13 @@ export class ChatService {
             );
           }
 
-          this.logger.log(
-            `Executing tool: ${toolName} args=${JSON.stringify(args)}`,
-            ChatService.name,
-          );
+          this.logger.log(`Executing tool: ${toolName} args=${JSON.stringify(args)}`, ChatService.name);
 
           onToolProgress(toolLabel(toolName, args));
 
-          const result = await this.executeTool(
-            toolName,
-            args,
-            walletAddress,
-            userId,
-          );
+          const result = await this.executeTool(toolName, args, walletAddress, userId);
 
-          this.logger.debug(
-            `Tool ${toolName} result length=${result.length}`,
-            ChatService.name,
-          );
+          this.logger.debug(`Tool ${toolName} result length=${result.length}`, ChatService.name);
 
           session.messages.push({
             role: 'tool',
@@ -479,21 +408,14 @@ export class ChatService {
         content: assistantContent,
       });
 
-      this.logger.debug(
-        `LLM assistant raw content preview=${assistantContent.slice(0, 200)}`,
-        ChatService.name,
-      );
+      this.logger.debug(`LLM assistant raw content preview=${assistantContent.slice(0, 200)}`, ChatService.name);
 
       const parsedResponse = this.parseResponse(assistantContent, session);
-      this.logger.log(
-        `LLM response parsed as type=${parsedResponse.type}`,
-        ChatService.name,
-      );
+      this.logger.log(`LLM response parsed as type=${parsedResponse.type}`, ChatService.name);
 
       return parsedResponse;
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : 'Unknown LLM error';
+      const message = error instanceof Error ? error.message : 'Unknown LLM error';
       this.logger.error(
         `OpenAI chat completion failed: ${message}`,
         error instanceof Error ? error.stack : undefined,
@@ -532,25 +454,16 @@ export class ChatService {
       }),
     ];
 
-    this.logger.debug(
-      `LLM stream request: model=${this.model} messages=${messages.length}`,
-      ChatService.name,
-    );
+    this.logger.debug(`LLM stream request: model=${this.model} messages=${messages.length}`, ChatService.name);
 
     const controller = new AbortController();
     const timeout = setTimeout(() => {
-      this.logger.warn(
-        `LLM stream request timed out after ${LLM_TIMEOUT_MS}ms`,
-        ChatService.name,
-      );
+      this.logger.warn(`LLM stream request timed out after ${LLM_TIMEOUT_MS}ms`, ChatService.name);
       controller.abort();
     }, LLM_TIMEOUT_MS);
 
     let fullContent = '';
-    const toolCallMap: Record<
-      string,
-      { function: { name: string; arguments: string } }
-    > = {};
+    const toolCallMap: Record<string, { function: { name: string; arguments: string } }> = {};
 
     try {
       const stream = await this.openai.chat.completions.create(
@@ -622,10 +535,7 @@ export class ChatService {
             let args: Record<string, unknown> = {};
 
             try {
-              args = JSON.parse(toolCall.function.arguments || '{}') as Record<
-                string,
-                unknown
-              >;
+              args = JSON.parse(toolCall.function.arguments || '{}') as Record<string, unknown>;
             } catch (error) {
               this.logger.warn(
                 `Invalid tool arguments for ${toolName}: ${toolCall.function.arguments}`,
@@ -633,22 +543,11 @@ export class ChatService {
               );
             }
 
-            this.logger.log(
-              `Executing tool (stream): ${toolName} args=${JSON.stringify(args)}`,
-              ChatService.name,
-            );
+            this.logger.log(`Executing tool (stream): ${toolName} args=${JSON.stringify(args)}`, ChatService.name);
 
-            const result = await this.executeTool(
-              toolName,
-              args,
-              walletAddress,
-              userId,
-            );
+            const result = await this.executeTool(toolName, args, walletAddress, userId);
 
-            this.logger.debug(
-              `Tool ${toolName} result length=${result.length}`,
-              ChatService.name,
-            );
+            this.logger.debug(`Tool ${toolName} result length=${result.length}`, ChatService.name);
 
             session.messages.push({
               role: 'tool',
@@ -663,10 +562,7 @@ export class ChatService {
         }
 
         if (choice.finish_reason === 'stop') {
-          this.logger.debug(
-            `Stream finish reason: stop, total content length=${fullContent.length}`,
-            ChatService.name,
-          );
+          this.logger.debug(`Stream finish reason: stop, total content length=${fullContent.length}`, ChatService.name);
 
           session.messages.push({
             role: 'assistant',
@@ -677,8 +573,7 @@ export class ChatService {
         }
       }
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : 'Unknown LLM error';
+      const message = error instanceof Error ? error.message : 'Unknown LLM error';
       this.logger.error(
         `OpenAI chat stream failed: ${message}`,
         error instanceof Error ? error.stack : undefined,
@@ -706,10 +601,7 @@ export class ChatService {
 
         case 'search_tokens': {
           const query = String(args.query || '');
-          const limit =
-            typeof args.limit === 'number' && Number.isFinite(args.limit)
-              ? args.limit
-              : 5;
+          const limit = typeof args.limit === 'number' && Number.isFinite(args.limit) ? args.limit : 5;
 
           try {
             const filterResult = await this.tokensService.search(query, limit);
@@ -722,17 +614,12 @@ export class ChatService {
         }
 
         case 'fetch_discovery': {
-          const category =
-            typeof args.category === 'string' ? args.category : undefined;
-          const sortBy =
-            typeof args.sortBy === 'string' ? args.sortBy : undefined;
+          const category = typeof args.category === 'string' ? args.category : undefined;
+          const sortBy = typeof args.sortBy === 'string' ? args.sortBy : undefined;
 
           const getTokens = (
             this.discoveryService as unknown as {
-              getTokens?: (payload: {
-                category?: string;
-                sortBy?: string;
-              }) => Promise<unknown>;
+              getTokens?: (payload: { category?: string; sortBy?: string }) => Promise<unknown>;
             }
           ).getTokens;
 
@@ -742,17 +629,14 @@ export class ChatService {
           }
 
           const fallback = await this.discoveryService.getTrending({
-            sort_by:
-              (sortBy as SortByTrending | undefined) ||
-              SortByTrending.VOLUME_24H,
+            sort_by: (sortBy as SortByTrending | undefined) || SortByTrending.VOLUME_24H,
             time_frame: TimeFrame.TWENTY_FOUR_HOURS,
             limit: 5,
             offset: 0,
           });
 
           return JSON.stringify({
-            warning:
-              'getTokens not available on DiscoveryService, returned trending fallback',
+            warning: 'getTokens not available on DiscoveryService, returned trending fallback',
             category,
             data: fallback,
           });
@@ -762,25 +646,17 @@ export class ChatService {
           const resolvedUserId = userId || String(args.userId || '');
 
           if (!resolvedUserId) {
-            this.logger.warn(
-              'fetch_portfolio called without userId',
-              ChatService.name,
-            );
+            this.logger.warn('fetch_portfolio called without userId', ChatService.name);
             return JSON.stringify({
               error: 'User ID required — please log in',
             });
           }
 
           const walletAddresses = Array.isArray(args.walletAddresses)
-            ? args.walletAddresses.filter(
-                (value): value is string => typeof value === 'string',
-              )
+            ? args.walletAddresses.filter((value): value is string => typeof value === 'string')
             : undefined;
 
-          const data = await this.portfolioService.getOverview(
-            resolvedUserId,
-            walletAddresses,
-          );
+          const data = await this.portfolioService.getOverview(resolvedUserId, walletAddresses);
           return JSON.stringify(data);
         }
 
@@ -789,8 +665,7 @@ export class ChatService {
           if (!walletAddress) {
             return JSON.stringify({
               error: 'no_wallet',
-              message:
-                'No wallet connected. Please connect a wallet to swap tokens.',
+              message: 'No wallet connected. Please connect a wallet to swap tokens.',
             });
           }
           const inputMint = String(args.inputMint || '');
@@ -808,14 +683,10 @@ export class ChatService {
 
         case 'navigate_to': {
           const route = String(args.route || '');
-          const isAllowed =
-            STATIC_ROUTES.includes(route) || TOKEN_ROUTE_REGEX.test(route);
+          const isAllowed = STATIC_ROUTES.includes(route) || TOKEN_ROUTE_REGEX.test(route);
 
           if (!isAllowed) {
-            this.logger.warn(
-              `navigate_to: rejected disallowed route="${route}"`,
-              ChatService.name,
-            );
+            this.logger.warn(`navigate_to: rejected disallowed route="${route}"`, ChatService.name);
             return '{"error": "Route not allowed"}';
           }
 
@@ -826,15 +697,11 @@ export class ChatService {
         }
 
         default:
-          this.logger.warn(
-            `Unknown tool requested: ${toolName}`,
-            ChatService.name,
-          );
+          this.logger.warn(`Unknown tool requested: ${toolName}`, ChatService.name);
           return JSON.stringify({ error: `Unknown tool: ${toolName}` });
       }
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : 'Unknown tool error';
+      const message = error instanceof Error ? error.message : 'Unknown tool error';
       this.logger.error(
         `Tool execution failed for ${toolName}: ${message}`,
         error instanceof Error ? error.stack : undefined,
@@ -844,9 +711,7 @@ export class ChatService {
     }
   }
 
-  private inferTypedResponseFromTools(
-    session: ChatSession,
-  ): ChatResponsePayload | null {
+  private inferTypedResponseFromTools(session: ChatSession): ChatResponsePayload | null {
     const recentToolMessages = [...session.messages]
       .reverse()
       .filter((message) => message.role === 'tool')
@@ -856,10 +721,7 @@ export class ChatService {
       let parsedToolOutput: Record<string, unknown>;
 
       try {
-        parsedToolOutput = JSON.parse(toolMessage.content) as Record<
-          string,
-          unknown
-        >;
+        parsedToolOutput = JSON.parse(toolMessage.content) as Record<string, unknown>;
       } catch {
         this.logger.debug(
           `parseResponse fallback: tool output is not JSON tool=${toolMessage.toolName ?? 'unknown'}`,
@@ -869,26 +731,13 @@ export class ChatService {
       }
 
       if (toolMessage.toolName === 'prepare_swap') {
-        const inputMint =
-          typeof parsedToolOutput.inputMint === 'string'
-            ? parsedToolOutput.inputMint
-            : '';
-        const outputMint =
-          typeof parsedToolOutput.outputMint === 'string'
-            ? parsedToolOutput.outputMint
-            : '';
+        const inputMint = typeof parsedToolOutput.inputMint === 'string' ? parsedToolOutput.inputMint : '';
+        const outputMint = typeof parsedToolOutput.outputMint === 'string' ? parsedToolOutput.outputMint : '';
         const amountRaw = parsedToolOutput.amount;
         const amount =
-          typeof amountRaw === 'number'
-            ? amountRaw
-            : typeof amountRaw === 'string'
-              ? Number(amountRaw)
-              : 0;
+          typeof amountRaw === 'number' ? amountRaw : typeof amountRaw === 'string' ? Number(amountRaw) : 0;
 
-        this.logger.log(
-          'parseResponse fallback: inferred trade_intent from prepare_swap',
-          ChatService.name,
-        );
+        this.logger.log('parseResponse fallback: inferred trade_intent from prepare_swap', ChatService.name);
 
         return {
           sessionId: '',
@@ -902,15 +751,9 @@ export class ChatService {
       }
 
       if (toolMessage.toolName === 'navigate_to') {
-        const route =
-          typeof parsedToolOutput.route === 'string'
-            ? parsedToolOutput.route
-            : '';
+        const route = typeof parsedToolOutput.route === 'string' ? parsedToolOutput.route : '';
 
-        this.logger.log(
-          'parseResponse fallback: inferred navigation from navigate_to',
-          ChatService.name,
-        );
+        this.logger.log('parseResponse fallback: inferred navigation from navigate_to', ChatService.name);
 
         return {
           sessionId: '',
@@ -939,23 +782,14 @@ export class ChatService {
               ? Number(totalBalanceSolRaw)
               : 0;
 
-        const topTokensRaw = Array.isArray(parsedToolOutput.top_tokens)
-          ? parsedToolOutput.top_tokens
-          : [];
+        const topTokensRaw = Array.isArray(parsedToolOutput.top_tokens) ? parsedToolOutput.top_tokens : [];
 
         const topTokens = topTokensRaw
-          .filter(
-            (token): token is Record<string, unknown> =>
-              typeof token === 'object' && token !== null,
-          )
+          .filter((token): token is Record<string, unknown> => typeof token === 'object' && token !== null)
           .map((token) => {
             const valueUsdRaw = token.value_usd;
             const valueUsd =
-              typeof valueUsdRaw === 'number'
-                ? valueUsdRaw
-                : typeof valueUsdRaw === 'string'
-                  ? Number(valueUsdRaw)
-                  : 0;
+              typeof valueUsdRaw === 'number' ? valueUsdRaw : typeof valueUsdRaw === 'string' ? Number(valueUsdRaw) : 0;
 
             return {
               name: typeof token.name === 'string' ? token.name : 'Unknown',
@@ -964,21 +798,14 @@ export class ChatService {
             };
           });
 
-        this.logger.log(
-          'parseResponse fallback: inferred portfolio_summary from fetch_portfolio',
-          ChatService.name,
-        );
+        this.logger.log('parseResponse fallback: inferred portfolio_summary from fetch_portfolio', ChatService.name);
 
         return {
           sessionId: '',
           type: 'portfolio_summary',
           data: {
-            total_balance_usd: Number.isFinite(totalBalanceUsd)
-              ? totalBalanceUsd
-              : 0,
-            total_balance_sol: Number.isFinite(totalBalanceSol)
-              ? totalBalanceSol
-              : 0,
+            total_balance_usd: Number.isFinite(totalBalanceUsd) ? totalBalanceUsd : 0,
+            total_balance_sol: Number.isFinite(totalBalanceSol) ? totalBalanceSol : 0,
             top_tokens: topTokens,
           },
         };
@@ -988,41 +815,19 @@ export class ChatService {
         const priceChange24hRaw = parsedToolOutput.price_change_24h;
         const marketCapRaw = parsedToolOutput.market_cap;
 
-        this.logger.log(
-          'parseResponse fallback: inferred token_brief from fetch_token_data',
-          ChatService.name,
-        );
+        this.logger.log('parseResponse fallback: inferred token_brief from fetch_token_data', ChatService.name);
 
         return {
           sessionId: '',
           type: 'token_brief',
           data: {
-            address:
-              typeof parsedToolOutput.address === 'string'
-                ? parsedToolOutput.address
-                : '',
-            symbol:
-              typeof parsedToolOutput.symbol === 'string'
-                ? parsedToolOutput.symbol
-                : '',
-            name:
-              typeof parsedToolOutput.name === 'string'
-                ? parsedToolOutput.name
-                : '',
-            price:
-              typeof parsedToolOutput.price === 'number'
-                ? parsedToolOutput.price
-                : undefined,
-            priceChange24h:
-              typeof priceChange24hRaw === 'number'
-                ? priceChange24hRaw
-                : undefined,
-            marketCap:
-              typeof marketCapRaw === 'number' ? marketCapRaw : undefined,
-            logoUri:
-              typeof parsedToolOutput.logo_uri === 'string'
-                ? parsedToolOutput.logo_uri
-                : undefined,
+            address: typeof parsedToolOutput.address === 'string' ? parsedToolOutput.address : '',
+            symbol: typeof parsedToolOutput.symbol === 'string' ? parsedToolOutput.symbol : '',
+            name: typeof parsedToolOutput.name === 'string' ? parsedToolOutput.name : '',
+            price: typeof parsedToolOutput.price === 'number' ? parsedToolOutput.price : undefined,
+            priceChange24h: typeof priceChange24hRaw === 'number' ? priceChange24hRaw : undefined,
+            marketCap: typeof marketCapRaw === 'number' ? marketCapRaw : undefined,
+            logoUri: typeof parsedToolOutput.logo_uri === 'string' ? parsedToolOutput.logo_uri : undefined,
           },
         };
       }
@@ -1033,29 +838,22 @@ export class ChatService {
 
   parseResponse(content: string, session?: ChatSession): ChatResponsePayload {
     try {
-      const parsed = JSON.parse(content) as Partial<ChatResponsePayload> &
-        Record<string, unknown>;
+      const parsed = JSON.parse(content) as Partial<ChatResponsePayload> & Record<string, unknown>;
 
       if (parsed.type && RESPONSE_TYPES.includes(parsed.type)) {
         const data =
           parsed.data && typeof parsed.data === 'object'
             ? parsed.data
             : Object.fromEntries(
-                Object.entries(parsed).filter(
-                  ([key]) => !['sessionId', 'type', 'content'].includes(key),
-                ),
+                Object.entries(parsed).filter(([key]) => !['sessionId', 'type', 'content'].includes(key)),
               );
 
-        this.logger.log(
-          `parseResponse: structured payload detected type=${parsed.type}`,
-          ChatService.name,
-        );
+        this.logger.log(`parseResponse: structured payload detected type=${parsed.type}`, ChatService.name);
 
         return {
           sessionId: '',
           type: parsed.type,
-          content:
-            typeof parsed.content === 'string' ? parsed.content : undefined,
+          content: typeof parsed.content === 'string' ? parsed.content : undefined,
           data,
         };
       }
@@ -1065,19 +863,13 @@ export class ChatService {
         ChatService.name,
       );
     } catch {
-      this.logger.debug(
-        'parseResponse: content is not JSON, returning plain text',
-        ChatService.name,
-      );
+      this.logger.debug('parseResponse: content is not JSON, returning plain text', ChatService.name);
     }
 
     if (session) {
       const inferredResponse = this.inferTypedResponseFromTools(session);
       if (inferredResponse) {
-        this.logger.log(
-          `parseResponse: using inferred typed fallback type=${inferredResponse.type}`,
-          ChatService.name,
-        );
+        this.logger.log(`parseResponse: using inferred typed fallback type=${inferredResponse.type}`, ChatService.name);
 
         return {
           ...inferredResponse,
@@ -1086,10 +878,7 @@ export class ChatService {
       }
     }
 
-    this.logger.log(
-      'parseResponse: fallback response type=text',
-      ChatService.name,
-    );
+    this.logger.log('parseResponse: fallback response type=text', ChatService.name);
 
     return {
       sessionId: '',
@@ -1101,10 +890,7 @@ export class ChatService {
   getOrCreateSession(sessionId: string): ChatSession {
     const existing = this.sessions.get(sessionId);
     if (existing) {
-      this.logger.debug(
-        `Resumed session=${sessionId} messages=${existing.messages.length}`,
-        ChatService.name,
-      );
+      this.logger.debug(`Resumed session=${sessionId} messages=${existing.messages.length}`, ChatService.name);
       return existing;
     }
 
