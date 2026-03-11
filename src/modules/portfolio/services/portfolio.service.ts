@@ -56,8 +56,6 @@ export class PortfolioService {
   private async getSolPriceUsd(): Promise<number> {
     const cachedPrice =
       await this.cacheManager.get<number>(SOL_PRICE_CACHE_KEY);
-    const cachedPrice =
-      await this.cacheManager.get<number>(SOL_PRICE_CACHE_KEY);
     if (cachedPrice) {
       return cachedPrice;
     }
@@ -72,22 +70,8 @@ export class PortfolioService {
           },
         },
       );
-      const response = await axios.get(
-        'https://api.coingecko.com/api/v3/simple/price',
-        {
-          params: {
-            ids: SOL_COINGECKO_ID,
-            vs_currencies: 'usd',
-          },
-        },
-      );
       const price = response.data[SOL_COINGECKO_ID]?.usd;
       if (price) {
-        await this.cacheManager.set(
-          SOL_PRICE_CACHE_KEY,
-          price,
-          CACHE_TTL_SECONDS * 1000,
-        );
         await this.cacheManager.set(
           SOL_PRICE_CACHE_KEY,
           price,
@@ -199,9 +183,6 @@ export class PortfolioService {
       const response = await axios.get(
         'https://raw.githubusercontent.com/solana-labs/token-list/main/src/tokens/solana.tokenlist.json',
       );
-      const response = await axios.get(
-        'https://raw.githubusercontent.com/solana-labs/token-list/main/src/tokens/solana.tokenlist.json',
-      );
       const tokenList = response.data.tokens as TokenInfo[];
       const tokenMap = new Map(
         tokenList.map((token) => [token.address, token]),
@@ -286,15 +267,9 @@ export class PortfolioService {
     walletAddresses?: string[],
     timeFrame?: string,
   ) {
-  async getOverview(
-    userId: string,
-    walletAddresses?: string[],
-    timeFrame?: string,
-  ) {
     let wallets = await this.walletsService.findByUserId(userId);
 
     if (walletAddresses && walletAddresses.length > 0) {
-      wallets = wallets.filter((w) => walletAddresses.includes(w.address));
       wallets = wallets.filter((w) => walletAddresses.includes(w.address));
     }
 
@@ -303,10 +278,6 @@ export class PortfolioService {
       this.getTokenList(),
     ]);
 
-    const total_balance_sol = wallets.reduce(
-      (acc, w) => acc + Number(w.balance || 0),
-      0,
-    );
     const total_balance_sol = wallets.reduce(
       (acc, w) => acc + Number(w.balance || 0),
       0,
@@ -323,21 +294,7 @@ export class PortfolioService {
         ),
       )
     ).flat();
-    const allTokenAccounts = (
-      await Promise.all(
-        wallets.map((w) =>
-          this.solanaService.getParsedTokenAccountsByOwner(
-            new PublicKey(w.address),
-            true,
-          ),
-        ),
-      )
-    ).flat();
 
-    const aggregatedTokens = new Map<
-      string,
-      { amount: number; info?: TokenInfo }
-    >();
     const aggregatedTokens = new Map<
       string,
       { amount: number; info?: TokenInfo }
@@ -373,26 +330,11 @@ export class PortfolioService {
         };
       },
     );
-    const positions = Array.from(aggregatedTokens.entries()).map(
-      ([mint, data]) => {
-        const price = tokenPrices.get(mint) || 0;
-        const valueUsd = data.amount * price;
-        return {
-          mint,
-          ...data.info,
-          amount: data.amount,
-          price,
-          valueUsd,
-        };
-      },
-    );
 
-    positions.forEach((p) => (total_balance_usd += p.valueUsd));
     positions.forEach((p) => (total_balance_usd += p.valueUsd));
 
     positions.sort((a, b) => b.valueUsd - a.valueUsd);
 
-    const top_tokens = positions.slice(0, 5).map((p) => ({
     const top_tokens = positions.slice(0, 5).map((p) => ({
       name: p.name || 'Unknown',
       symbol: p.symbol || '???',
@@ -403,12 +345,9 @@ export class PortfolioService {
     }));
 
     const allocation = positions.map((p) => ({
-    const allocation = positions.map((p) => ({
       name: p.name || 'Unknown',
       symbol: p.symbol || '???',
       value_usd: p.valueUsd,
-      percentage:
-        total_balance_usd > 0 ? (p.valueUsd / total_balance_usd) * 100 : 0,
       percentage:
         total_balance_usd > 0 ? (p.valueUsd / total_balance_usd) * 100 : 0,
     }));
@@ -420,8 +359,6 @@ export class PortfolioService {
         name: 'Solana',
         symbol: 'SOL',
         value_usd: solValueUsd,
-        percentage:
-          total_balance_usd > 0 ? (solValueUsd / total_balance_usd) * 100 : 0,
         percentage:
           total_balance_usd > 0 ? (solValueUsd / total_balance_usd) * 100 : 0,
       });
@@ -436,20 +373,6 @@ export class PortfolioService {
         total_balance_usd,
         total_balance_sol,
         balance_change_24h: 0,
-        pnl: {
-          total: 0,
-          realized: 0,
-          unrealized: 0,
-          change_24h: 0,
-          roi_percent: 0,
-        },
-        transactions: {
-          total: 0,
-          buys: 0,
-          sells: 0,
-          transfers: 0,
-          last_24h: 0,
-        },
         pnl: {
           total: 0,
           realized: 0,
@@ -522,12 +445,6 @@ export class PortfolioService {
     };
   }
 
-  async getPnlChart(
-    userId: string,
-    walletAddresses: string[],
-    timeFrame: string,
-    interval: string,
-  ) {
   async getPnlChart(
     userId: string,
     walletAddresses: string[],
@@ -706,25 +623,12 @@ export class PortfolioService {
     sortBy: string = 'value_usd',
     showZeroBalance: boolean = false,
   ) {
-  async getPositions(
-    userId: string,
-    walletAddress?: string,
-    sortBy: string = 'value_usd',
-    showZeroBalance: boolean = false,
-  ) {
     const wallets = await this.walletsService.findByUserId(userId);
-    const targetWallets = walletAddress
-      ? wallets.filter((w) => w.address === walletAddress)
-      : wallets;
     const targetWallets = walletAddress
       ? wallets.filter((w) => w.address === walletAddress)
       : wallets;
 
     if (targetWallets.length === 0) {
-      return {
-        positions: [],
-        summary: { total_value_usd: 0, total_tokens: 0, total_pnl: 0 },
-      };
       return {
         positions: [],
         summary: { total_value_usd: 0, total_tokens: 0, total_pnl: 0 },
@@ -745,20 +649,7 @@ export class PortfolioService {
         ),
       )
     ).flat();
-    const allTokenAccounts = (
-      await Promise.all(
-        targetWallets.map((w) =>
-          this.solanaService.getParsedTokenAccountsByOwner(
-            new PublicKey(w.address),
-          ),
-        ),
-      )
-    ).flat();
 
-    const aggregatedTokens = new Map<
-      string,
-      { amount: number; info?: TokenInfo }
-    >();
     const aggregatedTokens = new Map<
       string,
       { amount: number; info?: TokenInfo }
@@ -803,10 +694,6 @@ export class PortfolioService {
       (acc, w) => acc + Number(w.balance || 0),
       0,
     );
-    const totalSolBalance = targetWallets.reduce(
-      (acc, w) => acc + Number(w.balance || 0),
-      0,
-    );
     const solValueUsd = totalSolBalance * solPrice;
 
     // Add SOL as a position
@@ -815,9 +702,6 @@ export class PortfolioService {
         mint: 'So11111111111111111111111111111111111111112', // Native SOL mint address
         name: 'Solana',
         symbol: 'SOL',
-        logo:
-          tokenMetaMap.get('So11111111111111111111111111111111111111112')
-            ?.logoURI || '',
         logo:
           tokenMetaMap.get('So11111111111111111111111111111111111111112')
             ?.logoURI || '',
@@ -916,14 +800,12 @@ export class PortfolioService {
 
       if (type === 'buy') {
         transactions = transactions.filter((tx) => {
-        transactions = transactions.filter((tx) => {
           if (tx.type !== 'SWAP') return false;
           return !tx.tokenTransfers.find(
             (t) => t.fromUserAccount === walletAddress,
           );
         });
       } else if (type === 'sell') {
-        transactions = transactions.filter((tx) => {
         transactions = transactions.filter((tx) => {
           if (tx.type !== 'SWAP') return false;
           return !!tx.tokenTransfers.find(
@@ -1441,8 +1323,6 @@ export class PortfolioService {
 
       const tokenOut = trade.tokenTransfers.find((t) => t.fromUserAccount);
       const tokenIn = trade.tokenTransfers.find((t) => t.toUserAccount);
-      const tokenOut = trade.tokenTransfers.find((t) => t.fromUserAccount);
-      const tokenIn = trade.tokenTransfers.find((t) => t.toUserAccount);
       const description = trade.description;
 
       if (!tokenOut || !tokenIn || !description) continue;
@@ -1451,8 +1331,6 @@ export class PortfolioService {
       const symbolMatch = description.match(/for [\d,.]+ (\w+)/);
       const tradeSymbol = symbolMatch ? symbolMatch[1] : '?';
 
-      const isBuy =
-        tokenIn.mint !== 'So11111111111111111111111111111111111111112';
       const isBuy =
         tokenIn.mint !== 'So11111111111111111111111111111111111111112';
       const tokenMint = isBuy ? tokenIn.mint : tokenOut.mint;
@@ -1483,11 +1361,7 @@ export class PortfolioService {
         record.investment += solAmount; // Track total lifetime investment
       } else {
         // Sell
-      } else {
-        // Sell
         if (record.totalTokensBought > 0) {
-          const avgCostPerToken =
-            record.totalSolSpent / record.totalTokensBought;
           const avgCostPerToken =
             record.totalSolSpent / record.totalTokensBought;
           const costOfGoodsSold = tokenAmount * avgCostPerToken;
@@ -1519,7 +1393,6 @@ export class PortfolioService {
 
     const HELIUS_CACHE_TTL = 2 * 60 * 1000; // 2 minutes
     const now = Math.floor(Date.now() / 1000);
-    const twentyFourHoursAgo = now - 24 * 60 * 60;
     const twentyFourHoursAgo = now - 24 * 60 * 60;
 
     for (const wallet of wallets) {

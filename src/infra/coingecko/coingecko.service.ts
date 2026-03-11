@@ -256,10 +256,6 @@ export class CoinGeckoService {
         'Failed to fetch recently added coins from CoinGecko',
         error,
       );
-      this.logger.error(
-        'Failed to fetch recently added coins from CoinGecko',
-        error,
-      );
       return [];
     }
   }
