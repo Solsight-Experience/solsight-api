@@ -8,6 +8,7 @@ import { TokensModule } from '../tokens/tokens.module';
 import { ChatService } from './services/chat.service';
 import { WebsocketModule } from 'src/websocket/websocket.module';
 import { ChatGateway } from './gateways/chat.gateway';
+import { ChatController } from './controllers/chat.controller';
 
 @Module({
   imports: [
@@ -26,7 +27,7 @@ import { ChatGateway } from './gateways/chat.gateway';
     WebsocketModule,
   ],
   providers: [ChatService, ChatGateway],
-  controllers: [require('./controllers/chat.controller').ChatController],
+  controllers: [ChatController],
   exports: [ChatService],
 })
 export class ChatModule {}
