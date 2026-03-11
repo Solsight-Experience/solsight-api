@@ -19,6 +19,7 @@ import { AccountModule } from './modules/account/account.module';
 import { LimitOrderModule } from './modules/limit-order/limit-order.module';
 import { RedisModule } from './redis/redis.module';
 import { ChatModule } from './modules/chat/chat.module';
+import { NotificationsModule } from './modules/notifications/notifications.module';
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -48,6 +49,7 @@ import { ChatModule } from './modules/chat/chat.module';
     PortfolioModule,
     LimitOrderModule,
     ChatModule,
+    NotificationsModule,
   ],
   controllers: [],
   providers: [],
