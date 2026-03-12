@@ -1,13 +1,13 @@
 import { Injectable, Logger, NotFoundException, HttpException, HttpStatus } from '@nestjs/common';
 import { TokensService } from './tokens.service';
-import { PromptBuilderService, SummaryOptions } from './prompt-builder.service';
+import { PromptBuilderService } from './prompt-builder.service';
 import { GeminiService } from '../../../infra/gemini/gemini.service';
 import { RedisService } from '../../../redis/services/redis.service';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Token } from '../entities/token.entity';
 
-export interface GenerateSummaryOptions extends SummaryOptions {
+export interface GenerateSummaryOptions {
   forceRefresh?: boolean;
 }
 
@@ -84,18 +84,8 @@ export class TokenSummaryService {
       throw new NotFoundException(`Token entity not found for address ${address}`);
     }
 
-    // Fetch category tokens for comparison if requested
-    let categoryTokens: Token[] | undefined;
-    if (summaryOptions.includeMarketComparison !== false && token.categoryId) {
-      categoryTokens = await this.tokenRepository.find({
-        where: { categoryId: token.categoryId },
-        take: 20, // Limit to top 20 tokens in category
-        order: { marketCap: 'DESC' },
-      });
-    }
-
     // Build prompt
-    const prompt = this.promptBuilderService.buildSummaryPrompt(token, categoryTokens, summaryOptions);
+    const prompt = this.promptBuilderService.buildSummaryPrompt(token);
 
     // Generate summary using Gemini
     let summary: string;
@@ -107,8 +97,8 @@ export class TokenSummaryService {
 
       const geminiResponse = await this.geminiService.generateText({
         prompt,
-        temperature: 0.5,
-        maxOutputTokens: 800,
+        temperature: 0.7,
+        maxOutputTokens: 200,
       });
 
       summary = geminiResponse.text;

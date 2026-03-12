@@ -6,26 +6,6 @@ export class SummarizeTokenRequestDto {
 
   @IsOptional()
   @IsBoolean()
-  includePriceAnalysis?: boolean;
-
-  @IsOptional()
-  @IsBoolean()
-  includeRiskAssessment?: boolean;
-
-  @IsOptional()
-  @IsBoolean()
-  includeTradingMetrics?: boolean;
-
-  @IsOptional()
-  @IsBoolean()
-  includeMarketComparison?: boolean;
-
-  @IsOptional()
-  @IsBoolean()
-  includeSocialSentiment?: boolean;
-
-  @IsOptional()
-  @IsBoolean()
   forceRefresh?: boolean;
 }
 
