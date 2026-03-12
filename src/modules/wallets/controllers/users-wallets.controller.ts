@@ -1,14 +1,4 @@
-import {
-  Controller,
-  Get,
-  Post,
-  Patch,
-  Delete,
-  Body,
-  Param,
-  UseGuards,
-  Request,
-} from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Param, UseGuards, Request } from '@nestjs/common';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { WalletsService } from '../services/wallets.service';
 import { CreateWalletDto } from '../dtos/create-wallet.dto';

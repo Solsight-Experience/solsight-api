@@ -19,7 +19,9 @@ export class StatsAggregationService {
     const tokenOutMint = swap.token_out.mint;
     const tokenInMint = swap.token_in.mint;
 
-    this.logger.log(`[SET] out="${tokenOutMint}" price=${prices.priceUsdTokenOut} | in="${tokenInMint}" price=${prices.priceUsdTokenIn}`);
+    this.logger.log(
+      `[SET] out="${tokenOutMint}" price=${prices.priceUsdTokenOut} | in="${tokenInMint}" price=${prices.priceUsdTokenIn}`,
+    );
 
     // Store price for both tokens
     await this.storePriceData(tokenOutMint, prices.priceUsdTokenOut);
@@ -38,7 +40,9 @@ export class StatsAggregationService {
 
     try {
       // Store latest price
-      await this.redisService.set(`price:${tokenMint}:latest`, { usd: priceUsd });
+      await this.redisService.set(`price:${tokenMint}:latest`, {
+        usd: priceUsd,
+      });
 
       // Store price in history for 24h change calculation
       const now = Date.now();
@@ -58,11 +62,7 @@ export class StatsAggregationService {
     }
   }
 
-  private async storeVolumeAndTxns(
-    tokenMint: string,
-    volumeUsd: number,
-    txType: 'buy' | 'sell',
-  ): Promise<void> {
+  private async storeVolumeAndTxns(tokenMint: string, volumeUsd: number, txType: 'buy' | 'sell'): Promise<void> {
     const redis = this.redisService.getClient();
     if (!redis) return;
 
@@ -88,7 +88,10 @@ export class StatsAggregationService {
 
   async getStats(tokenMint: string): Promise<TokenStats> {
     // Get latest price from Redis (object with native and usd)
-    const latestPriceData = await this.redisService.get<{ native: number; usd: number }>(`price:${tokenMint}:latest`);
+    const latestPriceData = await this.redisService.get<{
+      native: number;
+      usd: number;
+    }>(`price:${tokenMint}:latest`);
 
     // Get token from database for other stats
     const token = await this.tokenRepository.findOneBy({ address: tokenMint });
@@ -195,10 +198,7 @@ export class StatsAggregationService {
     }
   }
 
-  private async calculatePriceChange24h(
-    tokenMint: string,
-    currentPrice: number | null,
-  ): Promise<number | null> {
+  private async calculatePriceChange24h(tokenMint: string, currentPrice: number | null): Promise<number | null> {
     if (!currentPrice) return null;
 
     const redis = this.redisService.getClient();

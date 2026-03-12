@@ -9,12 +9,7 @@ import { JupiterModule } from '../../infra/jupiter/jupiter.module';
 import { CoinGeckoModule } from '../../infra/coingecko/coingecko.module';
 
 @Module({
-  imports: [
-    TypeOrmModule.forFeature([Wallet]),
-    SolanaModule,
-    JupiterModule,
-    CoinGeckoModule,
-  ],
+  imports: [TypeOrmModule.forFeature([Wallet]), SolanaModule, JupiterModule, CoinGeckoModule],
   controllers: [WalletsController, UsersWalletsController],
   providers: [WalletsService],
   exports: [WalletsService],

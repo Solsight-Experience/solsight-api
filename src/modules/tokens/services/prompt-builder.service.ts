@@ -20,11 +20,7 @@ export class PromptBuilderService {
    * @param options - What to include in the summary
    * @returns Structured prompt for AI
    */
-  buildSummaryPrompt(
-    token: Token,
-    categoryTokens?: Token[],
-    options: SummaryOptions = {},
-  ): string {
+  buildSummaryPrompt(token: Token, categoryTokens?: Token[], options: SummaryOptions = {}): string {
     const {
       includePriceAnalysis = true,
       includeRiskAssessment = true,
@@ -65,9 +61,7 @@ export class PromptBuilderService {
       sections.push(
         `**Transactions 24h:** ${this.formatNumber(token.txns24hTotal)} (Buys: ${token.txns24hBuys}, Sells: ${token.txns24hSells})`,
       );
-      sections.push(
-        `**Unique Wallets:** ${this.formatNumber(token.uniqueWallets24h)}`,
-      );
+      sections.push(`**Unique Wallets:** ${this.formatNumber(token.uniqueWallets24h)}`);
     }
 
     // Holder & risk data
@@ -85,40 +79,22 @@ export class PromptBuilderService {
     // Social presence
     if (includeSocialSentiment && token.website) {
       sections.push(`\n**Website:** ${token.website}`);
-      sections.push(
-        `**Social:** ${token.hasSocialLinks ? 'Active' : 'Limited'}`,
-      );
+      sections.push(`**Social:** ${token.hasSocialLinks ? 'Active' : 'Limited'}`);
     }
 
     // Market comparison
-    if (
-      includeMarketComparison &&
-      categoryTokens &&
-      categoryTokens.length > 0
-    ) {
-      const avgPrice = this.calculateAverage(
-        categoryTokens.map((t) => Number(t.priceChange24h)),
-      );
-      sections.push(
-        `\n**Category Avg 24h:** ${this.formatPercentage(avgPrice)}`,
-      );
+    if (includeMarketComparison && categoryTokens && categoryTokens.length > 0) {
+      const avgPrice = this.calculateAverage(categoryTokens.map((t) => Number(t.priceChange24h)));
+      sections.push(`\n**Category Avg 24h:** ${this.formatPercentage(avgPrice)}`);
     }
 
     // Analysis instructions
     sections.push(`\n---`);
-    sections.push(
-      `\nProvide an English summary (max 250 words, 2-3 paragraphs):`,
-    );
-    sections.push(
-      `1. Brief overview with key highlights (price trend, volume, activity)`,
-    );
-    sections.push(
-      `2. Risk assessment (security, holders concentration, red flags if any)`,
-    );
+    sections.push(`\nProvide an English summary (max 250 words, 2-3 paragraphs):`);
+    sections.push(`1. Brief overview with key highlights (price trend, volume, activity)`);
+    sections.push(`2. Risk assessment (security, holders concentration, red flags if any)`);
     sections.push(`3. Quick conclusion (bullish/bearish/neutral outlook)`);
-    sections.push(
-      `\nBe direct, factual, and concise. No elaborate explanations. Focus on actionable insights.`,
-    );
+    sections.push(`\nBe direct, factual, and concise. No elaborate explanations. Focus on actionable insights.`);
 
     const prompt = sections.join('\n');
     this.logger.debug(`Built prompt with ${prompt.length} characters`);

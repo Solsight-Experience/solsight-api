@@ -1,13 +1,4 @@
-import {
-  Controller,
-  Get,
-  Post,
-  Put,
-  Delete,
-  Body,
-  Param,
-  Query,
-} from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Param, Query } from '@nestjs/common';
 import { WalletsService } from '../services/wallets.service';
 import { CreateWalletDto } from '../dtos/create-wallet.dto';
 import { Wallet } from '../entities/wallet.entity';
@@ -17,10 +8,7 @@ export class WalletsController {
   constructor(private readonly walletsService: WalletsService) {}
 
   @Post('user/:userId')
-  async create(
-    @Param('userId') userId: string,
-    @Body() createWalletDto: CreateWalletDto,
-  ): Promise<Wallet> {
+  async create(@Param('userId') userId: string, @Body() createWalletDto: CreateWalletDto): Promise<Wallet> {
     return await this.walletsService.create(userId, createWalletDto);
   }
 
@@ -40,10 +28,7 @@ export class WalletsController {
   }
 
   @Put(':id')
-  async update(
-    @Param('id') id: string,
-    @Body() updateData: Partial<Wallet>,
-  ): Promise<Wallet> {
+  async update(@Param('id') id: string, @Body() updateData: Partial<Wallet>): Promise<Wallet> {
     return await this.walletsService.update(id, updateData);
   }
 
@@ -68,10 +53,7 @@ export class WalletsController {
   }
 
   @Get(':id/transactions')
-  async getTransactionHistory(
-    @Param('id') id: string,
-    @Query('limit') limit = 10,
-  ) {
+  async getTransactionHistory(@Param('id') id: string, @Query('limit') limit = 10) {
     return await this.walletsService.getTransactionHistory(id, Number(limit));
   }
 

@@ -1,21 +1,11 @@
-import {
-  Injectable,
-  NotFoundException,
-  ConflictException,
-  BadRequestException,
-} from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Wallet } from '../entities/wallet.entity';
 import { CreateWalletDto } from '../dtos/create-wallet.dto';
 import { SolanaService } from '../../../infra/solana/solana.service';
 import { PublicKey } from '@solana/web3.js';
-import {
-  WalletsResponse,
-  Position,
-  WalletSummary,
-  Wallet as WalletDto,
-} from '../dtos/wallet.response.dto';
+import { WalletsResponse, Position, WalletSummary, Wallet as WalletDto } from '../dtos/wallet.response.dto';
 import { JupiterService } from '../../../infra/jupiter/jupiter.service';
 import { CoinGeckoService } from '../../../infra/coingecko/coingecko.service';
 
@@ -28,8 +18,6 @@ export class WalletsService {
     private readonly jupiterService: JupiterService,
     private readonly coinGeckoService: CoinGeckoService,
   ) {}
-
-
 
   async createWithNonce(address: string, nonce: string): Promise<Wallet> {
     const wallet = this.walletRepository.create({
@@ -44,14 +32,11 @@ export class WalletsService {
     await this.walletRepository.update(walletId, { nonce });
   }
 
-  async updateUser(walletId: string, userId: string, icon?: string ): Promise<void> {
+  async updateUser(walletId: string, userId: string, icon?: string): Promise<void> {
     await this.walletRepository.update(walletId, { userId, icon: icon as any });
   }
 
-  async create(
-    userId: string,
-    createWalletDto: CreateWalletDto,
-  ): Promise<Wallet> {
+  async create(userId: string, createWalletDto: CreateWalletDto): Promise<Wallet> {
     // Validate Solana address
     if (!this.solanaService.validatePublicKey(createWalletDto.address)) {
       throw new BadRequestException('Invalid Solana wallet address');
@@ -105,19 +90,11 @@ export class WalletsService {
     const solPrice = await this.getSolPriceUsd();
 
     // Get detailed wallet info with positions
-    const walletsWithDetails = await Promise.all(
-      updatedWallets.map((w) => this.getWalletDetail(w, solPrice)),
-    );
+    const walletsWithDetails = await Promise.all(updatedWallets.map((w) => this.getWalletDetail(w, solPrice)));
 
     const total_wallets = walletsWithDetails.length;
-    const total_balance_sol = walletsWithDetails.reduce(
-      (acc, w) => acc + w.balance_sol,
-      0,
-    );
-    const total_balance_usd = walletsWithDetails.reduce(
-      (acc, w) => acc + w.balance_usd,
-      0,
-    );
+    const total_balance_sol = walletsWithDetails.reduce((acc, w) => acc + w.balance_sol, 0);
+    const total_balance_usd = walletsWithDetails.reduce((acc, w) => acc + w.balance_usd, 0);
 
     return {
       wallets: walletsWithDetails,
@@ -127,10 +104,7 @@ export class WalletsService {
     };
   }
 
-  private async getWalletDetail(
-    wallet: Wallet,
-    solPrice: number,
-  ): Promise<WalletDto> {
+  private async getWalletDetail(wallet: Wallet, solPrice: number): Promise<WalletDto> {
     const positions = await this.getWalletPositions(wallet.address);
     const summary = this.calculateWalletSummary(positions);
 
@@ -151,8 +125,7 @@ export class WalletsService {
   private async getWalletPositions(walletAddress: string): Promise<Position[]> {
     try {
       const publicKey = new PublicKey(walletAddress);
-      const tokenAccounts =
-        await this.solanaService.getParsedTokenAccountsByOwner(publicKey);
+      const tokenAccounts = await this.solanaService.getParsedTokenAccountsByOwner(publicKey);
 
       const positions: Position[] = [];
 
@@ -178,7 +151,7 @@ export class WalletsService {
 
         // Get price from Jupiter
         let priceUsd = 0;
-        let priceChange24h = 0; // TODO: Get price change from CoinGecko if needed
+        const priceChange24h = 0; // TODO: Get price change from CoinGecko if needed
         try {
           const price = await this.jupiterService.getTokenPrice(mintAddress);
           priceUsd = price || 0;
@@ -211,12 +184,8 @@ export class WalletsService {
   private calculateWalletSummary(positions: Position[]): WalletSummary {
     const total_tokens = positions.length;
     const total_value_usd = positions.reduce((acc, p) => acc + p.value_usd, 0);
-    const total_pnl_24h = positions.reduce(
-      (acc, p) => acc + (p.value_usd * p.price_change_24h) / 100,
-      0,
-    );
-    const total_pnl_24h_percent =
-      total_value_usd > 0 ? (total_pnl_24h / total_value_usd) * 100 : 0;
+    const total_pnl_24h = positions.reduce((acc, p) => acc + (p.value_usd * p.price_change_24h) / 100, 0);
+    const total_pnl_24h_percent = total_value_usd > 0 ? (total_pnl_24h / total_value_usd) * 100 : 0;
 
     return {
       total_tokens,
@@ -258,10 +227,7 @@ export class WalletsService {
       relations: ['user'],
     });
   }
-  async getWalletByAddress(
-    userId: string,
-    address: string,
-  ): Promise<WalletDto> {
+  async getWalletByAddress(userId: string, address: string): Promise<WalletDto> {
     const wallet = await this.walletRepository.findOne({
       where: { address, userId },
     });
@@ -299,20 +265,14 @@ export class WalletsService {
     }
   }
 
-  async getTokenBalance(
-    walletId: string,
-    mintAddress: string,
-  ): Promise<number> {
+  async getTokenBalance(walletId: string, mintAddress: string): Promise<number> {
     const wallet = await this.findById(walletId);
 
     try {
       const walletPublicKey = new PublicKey(wallet.address);
       const mintPublicKey = new PublicKey(mintAddress);
 
-      return await this.solanaService.getTokenBalance(
-        walletPublicKey,
-        mintPublicKey,
-      );
+      return await this.solanaService.getTokenBalance(walletPublicKey, mintPublicKey);
     } catch {
       throw new BadRequestException('Failed to get token balance');
     }
@@ -342,9 +302,7 @@ export class WalletsService {
       });
 
       if (existingWallet && existingWallet.id !== id) {
-        throw new ConflictException(
-          'Wallet address already exists for this user',
-        );
+        throw new ConflictException('Wallet address already exists for this user');
       }
     }
 
@@ -353,7 +311,9 @@ export class WalletsService {
   }
 
   async updateByAddress(userId: string, address: string, updateData: Partial<Wallet>) {
-    const wallet = await this.walletRepository.findOne({ where: { address, userId } });
+    const wallet = await this.walletRepository.findOne({
+      where: { address, userId },
+    });
     if (!wallet) throw new NotFoundException('Wallet not found');
 
     await this.walletRepository.update({ id: wallet.id }, updateData);
@@ -361,13 +321,17 @@ export class WalletsService {
   }
 
   async deleteByAddress(userId: string, address: string): Promise<void> {
-    const wallet = await this.walletRepository.findOne({ where: { address, userId } });
+    const wallet = await this.walletRepository.findOne({
+      where: { address, userId },
+    });
     if (!wallet) throw new NotFoundException('Wallet not found');
     await this.walletRepository.remove(wallet);
   }
 
   async setDefaultForAddress(userId: string, address: string): Promise<Wallet> {
-    const wallet = await this.walletRepository.findOne({ where: { address, userId } });
+    const wallet = await this.walletRepository.findOne({
+      where: { address, userId },
+    });
     if (!wallet) throw new NotFoundException('Wallet not found');
 
     // unset other wallets

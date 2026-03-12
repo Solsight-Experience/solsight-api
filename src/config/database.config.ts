@@ -2,9 +2,7 @@ import { TypeOrmModuleOptions } from '@nestjs/typeorm';
 import { ConfigService } from '@nestjs/config';
 import { DataSource, DataSourceOptions } from 'typeorm';
 
-export const getDatabaseConfig = (
-  configService: ConfigService,
-): TypeOrmModuleOptions => {
+export const getDatabaseConfig = (configService: ConfigService): TypeOrmModuleOptions => {
   const url = configService.get<string>('database.url');
 
   if (url) {
@@ -15,13 +13,10 @@ export const getDatabaseConfig = (
       migrations: [__dirname + '/../database/migrations/*{.ts,.js}'],
       synchronize: configService.get('database.synchronize'),
       logging: configService.get('database.logging'),
-      ssl:
-        configService.get('environment') === 'production'
-          ? { rejectUnauthorized: false }
-          : false,
+      ssl: configService.get('environment') === 'production' ? { rejectUnauthorized: false } : false,
     };
   }
-  
+
   return {
     type: 'postgres',
     host: configService.get('database.host'),
@@ -33,10 +28,7 @@ export const getDatabaseConfig = (
     migrations: [__dirname + '/../database/migrations/*{.ts,.js}'],
     synchronize: configService.get('database.synchronize'),
     logging: configService.get('database.logging'),
-    ssl:
-      configService.get('environment') === 'production'
-        ? { rejectUnauthorized: false }
-        : false,
+    ssl: configService.get('environment') === 'production' ? { rejectUnauthorized: false } : false,
   };
 };
 

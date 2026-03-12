@@ -25,10 +25,7 @@ export class DiscoveryController {
   }
 
   @Get('categories/:slug')
-  async getCategoryDetail(
-    @Param('slug') slug: string,
-    @Query() dto: GetCategoryDto,
-  ) {
+  async getCategoryDetail(@Param('slug') slug: string, @Query() dto: GetCategoryDto) {
     return this.discoveryService.getCategoryDetail(slug, dto);
   }
 

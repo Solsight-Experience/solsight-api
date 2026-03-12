@@ -16,10 +16,7 @@ export default () => ({
   },
 
   redis: {
-    url: process.env.REDIS_URL,
-    host: process.env.REDIS_HOST || 'localhost',
-    port: parseInt(process.env.REDIS_PORT || '', 10) || 6379,
-    password: process.env.REDIS_PASSWORD || '',
+    url: process.env.REDIS_URL || 'redis://localhost:6379',
   },
 
   solana: {
@@ -28,16 +25,11 @@ export default () => ({
     heliusApiKey: process.env.HELIUS_API_KEY,
     network: process.env.SOLANA_NETWORK || 'mainnet-beta',
     commitment: 'confirmed',
-    programId: process.env.SOLANA_PROGRAM_ID || '',
     jupiterApi: {
-      searchToken:
-        process.env.JUPITER_TOKEN_SEARCH_API ||
-        'https://lite-api.jup.ag/tokens/v2/search?query=',
+      searchToken: process.env.JUPITER_TOKEN_SEARCH_API || 'https://lite-api.jup.ag/tokens/v2/search?query=',
     },
     coingeckoApi: {
-      searchTokenId:
-        process.env.COINGECKO_LIST_API ||
-        'https://api.coingecko.com/api/v3/coins/list',
+      searchTokenId: process.env.COINGECKO_LIST_API || 'https://api.coingecko.com/api/v3/coins/list',
     },
   },
 
@@ -51,6 +43,13 @@ export default () => ({
   coingecko: {
     apiUrl: process.env.COINGECKO_API_URL || 'https://api.coingecko.com/api/v3',
     apiKey: process.env.COINGECKO_API_KEY || '',
+  },
+
+  llm: {
+    apiKey: process.env.LLM_API_KEY || '',
+    apiUrl: process.env.LLM_API_URL || 'https://api.openai.com/v1',
+    model: process.env.LLM_MODEL || 'gpt-4o',
+    timeoutMs: parseInt(process.env.LLM_TIMEOUT_MS || '', 10) || 30000,
   },
 
   openai: {

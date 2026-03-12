@@ -1,12 +1,6 @@
 import { Controller, Post, Get, Body, Query, UseGuards } from '@nestjs/common';
 import { LimitOrderService } from '../services/limit-order.service';
-import {
-  CreateOrderDto,
-  CancelOrderDto,
-  CancelOrdersDto,
-  GetOrdersDto,
-  ExecuteOrderDto,
-} from '../dtos';
+import { CreateOrderDto, CancelOrderDto, CancelOrdersDto, GetOrdersDto, ExecuteOrderDto } from '../dtos';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 
 @Controller('limit-orders')

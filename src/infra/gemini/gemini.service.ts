@@ -1,11 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
-import {
-  GeminiGenerateRequest,
-  GeminiGenerateResponse,
-  GeminiError,
-} from './types/gemini.types';
+import { GeminiGenerateRequest, GeminiGenerateResponse, GeminiError } from './types/gemini.types';
 
 @Injectable()
 export class GeminiService {
@@ -16,8 +12,7 @@ export class GeminiService {
   constructor(private readonly configService: ConfigService) {
     const apiKey = this.configService.get<string>('openai.apiKey') || '';
     const baseURL = this.configService.get<string>('openai.baseURL');
-    this.modelName =
-      this.configService.get<string>('openai.model') || 'gemini-2.0-flash-exp';
+    this.modelName = this.configService.get<string>('openai.model') || 'gemini-2.0-flash-exp';
 
     if (!apiKey) {
       this.logger.warn('OpenAI API key not configured');
@@ -34,9 +29,7 @@ export class GeminiService {
    * @param request - Generation request parameters
    * @returns Generated text response
    */
-  async generateText(
-    request: GeminiGenerateRequest,
-  ): Promise<GeminiGenerateResponse> {
+  async generateText(request: GeminiGenerateRequest): Promise<GeminiGenerateResponse> {
     try {
       this.logger.log(`Generating text with model: ${this.modelName}`);
       const startTime = Date.now();
@@ -71,8 +64,7 @@ export class GeminiService {
       this.logger.error('Error generating text with OpenAI', error);
 
       const geminiError: GeminiError = {
-        message:
-          error instanceof Error ? error.message : 'Failed to generate text',
+        message: error instanceof Error ? error.message : 'Failed to generate text',
         code: (error as any)?.code,
         status: (error as any)?.status,
       };
@@ -85,13 +77,9 @@ export class GeminiService {
    * Generate streaming text (for future implementation)
    * @param request - Generation request parameters
    */
-  async generateStreaming(
-    request: GeminiGenerateRequest,
-  ): Promise<AsyncGenerator<string>> {
+  async generateStreaming(request: GeminiGenerateRequest): Promise<AsyncGenerator<string>> {
     try {
-      this.logger.log(
-        `Generating streaming text with model: ${this.modelName}`,
-      );
+      this.logger.log(`Generating streaming text with model: ${this.modelName}`);
 
       const stream = await this.openai.chat.completions.create({
         model: this.modelName,

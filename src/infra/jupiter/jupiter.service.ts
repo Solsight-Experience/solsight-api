@@ -117,9 +117,7 @@ export class JupiterService {
    * @param tokenAddresses Array of token mint addresses
    * @returns Map of token address to price in USD
    */
-  async getTokenPrices(
-    tokenAddresses: string[],
-  ): Promise<Map<string, number>> {
+  async getTokenPrices(tokenAddresses: string[]): Promise<Map<string, number>> {
     try {
       const ids = tokenAddresses.join(',');
       const response = await this.priceApiClient.get<{
@@ -133,9 +131,7 @@ export class JupiterService {
 
       const priceMap = new Map<string, number>();
       if (response.data && response.data.data) {
-        for (const [address, priceData] of Object.entries(
-          response.data.data,
-        )) {
+        for (const [address, priceData] of Object.entries(response.data.data)) {
           priceMap.set(address, priceData.price);
         }
       }
@@ -162,10 +158,7 @@ export class JupiterService {
   async getTokenList(): Promise<JupiterToken[]> {
     // Return cached data if still valid
     const now = Date.now();
-    if (
-      this.tokenListCache.length > 0 &&
-      now - this.tokenListCacheTime < this.CACHE_DURATION
-    ) {
+    if (this.tokenListCache.length > 0 && now - this.tokenListCacheTime < this.CACHE_DURATION) {
       this.logger.debug('Returning cached token list');
       return this.tokenListCache;
     }
@@ -199,9 +192,7 @@ export class JupiterService {
     const lowerQuery = query.toLowerCase();
 
     return tokens.filter(
-      (t) =>
-        t.symbol.toLowerCase().includes(lowerQuery) ||
-        t.name.toLowerCase().includes(lowerQuery),
+      (t) => t.symbol.toLowerCase().includes(lowerQuery) || t.name.toLowerCase().includes(lowerQuery),
     );
   }
 
@@ -211,9 +202,9 @@ export class JupiterService {
   async createOrder(params: CreateOrderParams): Promise<CreateOrderResponse> {
     try {
       this.logger.log(`Creating limit order: ${params.inputMint} -> ${params.outputMint}`);
-      
+
       const response = await this.triggerApiClient.post<CreateOrderResponse>('/createOrder', params);
-      
+
       this.logger.log(`Order created successfully: ${response.data.order}`);
       return response.data;
     } catch (error) {
@@ -228,13 +219,13 @@ export class JupiterService {
   async cancelOrder(maker: string, order: string, computeUnitPrice = 'auto'): Promise<CancelOrderResponse> {
     try {
       this.logger.log(`Canceling order: ${order}`);
-      
+
       const response = await this.triggerApiClient.post<CancelOrderResponse>('/cancelOrder', {
         maker,
         order,
         computeUnitPrice,
       });
-      
+
       this.logger.log(`Order cancelled successfully: ${order}`);
       return response.data;
     } catch (error) {
@@ -249,7 +240,7 @@ export class JupiterService {
   async cancelOrders(maker: string, orders?: string[], computeUnitPrice = 'auto'): Promise<CancelOrdersResponse> {
     try {
       this.logger.log(`Canceling ${orders?.length || 'all'} orders for maker: ${maker}`);
-      
+
       const payload: any = {
         maker,
         computeUnitPrice,
@@ -258,9 +249,9 @@ export class JupiterService {
       if (orders && orders.length > 0) {
         payload.orders = orders;
       }
-      
+
       const response = await this.triggerApiClient.post<CancelOrdersResponse>('/cancelOrders', payload);
-      
+
       this.logger.log(`Orders cancelled successfully`);
       return response.data;
     } catch (error) {
@@ -294,9 +285,11 @@ export class JupiterService {
       }
 
       this.logger.log(`Getting ${orderStatus} orders for user: ${user}`);
-      
-      const response = await this.triggerApiClient.get('/getTriggerOrders', { params });
-      
+
+      const response = await this.triggerApiClient.get('/getTriggerOrders', {
+        params,
+      });
+
       return response.data;
     } catch (error) {
       this.logger.error('Failed to get trigger orders', error);
@@ -310,12 +303,12 @@ export class JupiterService {
   async executeOrder(requestId: string, signedTransaction: string): Promise<ExecuteResponse> {
     try {
       this.logger.log(`Executing order with requestId: ${requestId}`);
-      
+
       const response = await this.triggerApiClient.post<ExecuteResponse>('/execute', {
         requestId,
         signedTransaction,
       });
-      
+
       this.logger.log(`Order executed successfully: ${response.data.signature}`);
       return response.data;
     } catch (error) {

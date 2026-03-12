@@ -1,17 +1,14 @@
 import { Controller, Post, Body, UseGuards, Get, Request, Query, Res, HttpException, HttpStatus } from '@nestjs/common';
 import { VerifySolanaDto } from '../dtos/verify-solana.dto';
-import { AuthService, LoginDto, OauthLoginDto, } from '../services/auth.service';
+import { AuthService, LoginDto, OauthLoginDto } from '../services/auth.service';
 import { JwtAuthGuard } from '../guards/jwt-auth.guard';
 import { Response } from 'express';
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) { }
+  constructor(private readonly authService: AuthService) {}
 
   @Post('login')
-  async login(
-    @Body() dto: LoginDto,
-    @Res({ passthrough: true }) res: Response
-  ) {
+  async login(@Body() dto: LoginDto, @Res({ passthrough: true }) res: Response) {
     const { user, accessToken } = await this.authService.login(dto);
 
     res.cookie('auth_token', accessToken, {
@@ -63,10 +60,7 @@ export class AuthController {
     }
   }
   @Post('register')
-  async register(
-    @Body() registerDto: LoginDto,
-    @Res({ passthrough: true }) res: Response,
-  ) {
+  async register(@Body() registerDto: LoginDto, @Res({ passthrough: true }) res: Response) {
     const { user, accessToken } = await this.authService.register(registerDto);
 
     res.cookie('auth_token', accessToken, {
@@ -80,7 +74,6 @@ export class AuthController {
     return { user };
   }
 
-
   @Get('solana/nonce')
   async getSolanaNonce(@Query('walletAddress') walletAddress: string) {
     return await this.authService.getSolanaNonce(walletAddress);
@@ -93,7 +86,7 @@ export class AuthController {
       verifySolanaDto.walletAddress,
       verifySolanaDto.signature,
       verifySolanaDto.walletIcon,
-      req.user.id
+      req.user.id,
     );
   }
 }

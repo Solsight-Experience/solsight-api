@@ -3,7 +3,8 @@ export const SEED_TOKENS = [
     mintAddress: 'So11111111111111111111111111111111111111112',
     symbol: 'SOL',
     name: 'Wrapped SOL',
-    logoUrl: 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/So11111111111111111111111111111111111111112/logo.png',
+    logoUrl:
+      'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/So11111111111111111111111111111111111111112/logo.png',
     decimals: 9,
     tags: ['native'],
     coingeckoId: 'solana',
@@ -12,7 +13,8 @@ export const SEED_TOKENS = [
     mintAddress: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
     symbol: 'USDC',
     name: 'USD Coin',
-    logoUrl: 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v/logo.png',
+    logoUrl:
+      'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v/logo.png',
     decimals: 6,
     tags: ['stablecoin'],
     coingeckoId: 'usd-coin',
@@ -21,7 +23,8 @@ export const SEED_TOKENS = [
     mintAddress: 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB',
     symbol: 'USDT',
     name: 'Tether',
-    logoUrl: 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB/logo.png',
+    logoUrl:
+      'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB/logo.png',
     decimals: 6,
     tags: ['stablecoin'],
     coingeckoId: 'tether',
