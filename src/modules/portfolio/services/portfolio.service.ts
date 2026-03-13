@@ -1011,6 +1011,8 @@ export class PortfolioService {
     type: string = 'all',
     limit: number = 20,
     before?: string,
+    from?: number,
+    to?: number,
   ) {
     const heliusApiKey = this.solanaService.getHeliusApiKey();
     if (!heliusApiKey) {
@@ -1062,8 +1064,13 @@ export class PortfolioService {
     );
 
     // Sort by timestamp desc and slice
-    const flat = results.flat();
+    let flat = results.flat();
     flat.sort((a, b) => (b.tx.timestamp ?? 0) - (a.tx.timestamp ?? 0));
+
+    // Filter by time range if provided (Unix timestamps in seconds)
+    if (from) flat = flat.filter(({ tx }) => (tx.timestamp ?? 0) >= Number(from));
+    if (to)   flat = flat.filter(({ tx }) => (tx.timestamp ?? 0) <= Number(to));
+
     const sliced = flat.slice(0, limit);
 
     const activities = sliced.map(({ tx, addr }) =>
