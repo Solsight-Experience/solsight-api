@@ -1,23 +1,12 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { TokenSocketGateway } from './token.socket.gateway';
-import {
-  ROOM_RULES,
-  RoomDomain,
-  RoomInterval,
-  OhlcInterval,
-  parseRoomIntervalMs,
-} from './room/room.constants';
+import { ROOM_RULES, RoomDomain, RoomInterval, OhlcInterval, parseRoomIntervalMs } from './room/room.constants';
 import { PubSubService } from '../../../../redis/services/pubsub.service';
 import { StatsAggregationService } from '../aggregation/stats-aggregation.service';
 import { OhlcAggregationService } from '../aggregation/ohlc-aggregation.service';
 import { TraderAggregationService } from '../aggregation/trader-aggregation.service';
 import { HolderAggregationService } from '../aggregation/holder-aggregation.service';
-import {
-  SwapEvent,
-  TradeData,
-  transformSwapToTradeForToken,
-  calculateSwapPrices,
-} from '../../types/swap-event.type';
+import { SwapEvent, TradeData, transformSwapToTradeForToken, calculateSwapPrices } from '../../types/swap-event.type';
 
 const REDIS_TRADES_CHANNEL = 'trades';
 
@@ -89,10 +78,20 @@ export class TokenSocketService implements OnModuleInit {
       this.statsAggregation.getTotalSupply(swap.token_in.mint),
     ]);
 
-    const tradeDataTokenOut = transformSwapToTradeForToken(swap, swap.token_out.mint, prices.priceUsdTokenOut, prices.priceUsdTokenOut * supplyOut);
+    const tradeDataTokenOut = transformSwapToTradeForToken(
+      swap,
+      swap.token_out.mint,
+      prices.priceUsdTokenOut,
+      prices.priceUsdTokenOut * supplyOut,
+    );
     this.bufferTrade(swap.token_out.mint, tradeDataTokenOut);
 
-    const tradeDataTokenIn = transformSwapToTradeForToken(swap, swap.token_in.mint, prices.priceUsdTokenIn, prices.priceUsdTokenIn * supplyIn);
+    const tradeDataTokenIn = transformSwapToTradeForToken(
+      swap,
+      swap.token_in.mint,
+      prices.priceUsdTokenIn,
+      prices.priceUsdTokenIn * supplyIn,
+    );
     this.bufferTrade(swap.token_in.mint, tradeDataTokenIn);
   }
 
@@ -117,11 +116,7 @@ export class TokenSocketService implements OnModuleInit {
     }, intervalMs);
   }
 
-  private async buildData(
-    domain: RoomDomain,
-    room: string,
-    interval: RoomInterval,
-  ): Promise<any> {
+  private async buildData(domain: RoomDomain, room: string, interval: RoomInterval): Promise<any> {
     const [, token] = room.split(':');
 
     switch (domain) {
@@ -195,7 +190,12 @@ export class TokenSocketService implements OnModuleInit {
       if (lastClose == null) return;
       this.gateway.emit(room, 'priceOHLC', {
         token,
-        priceOHLC: { open: lastClose, close: lastClose, high: lastClose, low: lastClose },
+        priceOHLC: {
+          open: lastClose,
+          close: lastClose,
+          high: lastClose,
+          low: lastClose,
+        },
         time: bucketTime,
       });
       return;

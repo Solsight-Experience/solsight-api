@@ -1,8 +1,4 @@
-import {
-  WebSocketGateway,
-  WebSocketServer,
-  OnGatewayInit,
-} from '@nestjs/websockets';
+import { WebSocketGateway, WebSocketServer, OnGatewayInit } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 
 @WebSocketGateway({ cors: { origin: '*' } })
@@ -33,9 +29,7 @@ export class WebsocketGateway implements OnGatewayInit {
 
   getActiveRooms(prefix?: string): string[] {
     return Array.from(this.server.sockets.adapter.rooms.keys()).filter(
-      (room) =>
-        !this.server.sockets.sockets.has(room) &&
-        (!prefix || room.startsWith(prefix)),
+      (room) => !this.server.sockets.sockets.has(room) && (!prefix || room.startsWith(prefix)),
     );
   }
 }

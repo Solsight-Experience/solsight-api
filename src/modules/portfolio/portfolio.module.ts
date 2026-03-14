@@ -11,5 +11,6 @@ import { SwapTrade } from './entities/swap-trade.entity';
   imports: [WalletsModule, SolanaModule, CacheModule.register(), TypeOrmModule.forFeature([SwapTrade])],
   controllers: [PortfolioController],
   providers: [PortfolioService],
+  exports: [PortfolioService],
 })
 export class PortfolioModule {}

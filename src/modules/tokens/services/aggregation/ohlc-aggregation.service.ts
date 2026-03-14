@@ -56,12 +56,7 @@ export class OhlcAggregationService {
     }
   }
 
-  private async updateOhlc(
-    tokenMint: string,
-    interval: OhlcInterval,
-    price: number,
-    volume: number,
-  ): Promise<void> {
+  private async updateOhlc(tokenMint: string, interval: OhlcInterval, price: number, volume: number): Promise<void> {
     const redis = this.redisService.getClient();
     if (!redis) return;
 

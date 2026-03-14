@@ -7,7 +7,7 @@ interface AuthenticatedRequest extends Request {
   user: User;
 }
 
-@Controller({ path: 'portfolio'})
+@Controller({ path: 'portfolio' })
 export class PortfolioController {
   constructor(private readonly portfolioService: PortfolioService) {}
 

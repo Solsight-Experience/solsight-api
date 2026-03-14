@@ -1,12 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { JupiterService } from '../../../infra/jupiter/jupiter.service';
-import {
-  CreateOrderDto,
-  CancelOrderDto,
-  CancelOrdersDto,
-  GetOrdersDto,
-  ExecuteOrderDto,
-} from '../dtos';
+import { CreateOrderDto, CancelOrderDto, CancelOrdersDto, GetOrdersDto, ExecuteOrderDto } from '../dtos';
 
 @Injectable()
 export class LimitOrderService {
@@ -36,9 +30,7 @@ export class LimitOrderService {
         wrapAndUnwrapSol: createOrderDto.wrapAndUnwrapSol ?? true,
       };
 
-      this.logger.log(
-        `Creating limit order: ${createOrderDto.inputMint} -> ${createOrderDto.outputMint}`,
-      );
+      this.logger.log(`Creating limit order: ${createOrderDto.inputMint} -> ${createOrderDto.outputMint}`);
 
       const result = await this.jupiterService.createOrder(params);
 
@@ -80,9 +72,7 @@ export class LimitOrderService {
    */
   async cancelOrders(cancelOrdersDto: CancelOrdersDto) {
     try {
-      this.logger.log(
-        `Canceling ${cancelOrdersDto.orders?.length || 'all'} orders`,
-      );
+      this.logger.log(`Canceling ${cancelOrdersDto.orders?.length || 'all'} orders`);
 
       const result = await this.jupiterService.cancelOrders(
         cancelOrdersDto.maker,
@@ -105,9 +95,7 @@ export class LimitOrderService {
    */
   async getOrders(getOrdersDto: GetOrdersDto) {
     try {
-      this.logger.log(
-        `Getting ${getOrdersDto.orderStatus} orders for user: ${getOrdersDto.user}`,
-      );
+      this.logger.log(`Getting ${getOrdersDto.orderStatus} orders for user: ${getOrdersDto.user}`);
 
       const result = await this.jupiterService.getTriggerOrders(
         getOrdersDto.user,
@@ -132,9 +120,7 @@ export class LimitOrderService {
    */
   async executeOrder(executeOrderDto: ExecuteOrderDto) {
     try {
-      this.logger.log(
-        `Executing order with requestId: ${executeOrderDto.requestId}`,
-      );
+      this.logger.log(`Executing order with requestId: ${executeOrderDto.requestId}`);
 
       const result = await this.jupiterService.executeOrder(
         executeOrderDto.requestId,

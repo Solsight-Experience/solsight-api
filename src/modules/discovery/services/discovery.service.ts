@@ -4,17 +4,9 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { Repository } from 'typeorm';
 import { Token } from '../../tokens/entities/token.entity';
 import { Category } from '../../tokens/entities/category.entity';
-import {
-  GetTrendingDto,
-  SortByTrending,
-  TimeFrame,
-} from '../dtos/get-trending.dto';
+import { GetTrendingDto, SortByTrending, TimeFrame } from '../dtos/get-trending.dto';
 import { GetNewListingsDto } from '../dtos/get-new-listings.dto';
-import {
-  GetGainersLosersDto,
-  GainersLosersType,
-  GainersLosersTimeFrame,
-} from '../dtos/get-gainers-losers.dto';
+import { GetGainersLosersDto, GainersLosersType, GainersLosersTimeFrame } from '../dtos/get-gainers-losers.dto';
 import { GetCategoryDto } from '../dtos/get-category.dto';
 import { JupiterService } from '../../../infra/jupiter/jupiter.service';
 import { CoinGeckoService } from '../../../infra/coingecko/coingecko.service';
@@ -139,7 +131,7 @@ export class DiscoveryService {
       relations: ['category'],
     });
 
-    const transformedTokens = tokens.map(token => this.transformToTokenOverview(token));
+    const transformedTokens = tokens.map((token) => this.transformToTokenOverview(token));
 
     return {
       tokens: transformedTokens,
@@ -167,9 +159,7 @@ export class DiscoveryService {
       try {
         const jupiterTokens = await this.jupiterService.getTokenList();
         if (jupiterTokens.length > 0) {
-          solanaTokenMap = new Map(
-            jupiterTokens.map((t) => [t.symbol.toLowerCase(), t]),
-          );
+          solanaTokenMap = new Map(jupiterTokens.map((t) => [t.symbol.toLowerCase(), t]));
           this.logger.log(`Loaded ${jupiterTokens.length} tokens from Jupiter`);
         }
       } catch (error) {
@@ -190,11 +180,11 @@ export class DiscoveryService {
       for (const item of trendingData.coins.slice(0, 20)) {
         const symbol = item.item.symbol.toUpperCase();
         const market = marketDataMap.get(item.item.id);
-        
+
         if (!market) continue;
 
         const jupiterToken = solanaTokenMap.get(item.item.symbol.toLowerCase());
-        
+
         // Skip if not a Solana token
         if (!jupiterToken) {
           this.logger.debug(`Skipping ${symbol} - not found on Solana`);
@@ -265,7 +255,7 @@ export class DiscoveryService {
 
     const [tokens, total] = await query.getManyAndCount();
 
-    const transformedTokens = tokens.map(token => this.transformToTokenOverview(token));
+    const transformedTokens = tokens.map((token) => this.transformToTokenOverview(token));
 
     return {
       tokens: transformedTokens,
@@ -293,9 +283,7 @@ export class DiscoveryService {
       try {
         const jupiterTokens = await this.jupiterService.getTokenList();
         if (jupiterTokens.length > 0) {
-          solanaTokenMap = new Map(
-            jupiterTokens.map((t) => [t.symbol.toLowerCase(), t]),
-          );
+          solanaTokenMap = new Map(jupiterTokens.map((t) => [t.symbol.toLowerCase(), t]));
         }
       } catch (error) {
         this.logger.warn('Jupiter API unavailable for new listings sync');
@@ -306,7 +294,7 @@ export class DiscoveryService {
       let syncedCount = 0;
       for (const coin of recentCoins) {
         const jupiterToken = solanaTokenMap.get(coin.symbol.toLowerCase());
-        
+
         // Skip if not a Solana token
         if (!jupiterToken) {
           continue;
@@ -340,12 +328,10 @@ export class DiscoveryService {
         syncedCount++;
       }
 
-      this.logger.log(
-        `Synced ${syncedCount} Solana new listings from CoinGecko`,
-      );
+      this.logger.log(`Synced ${syncedCount} Solana new listings from CoinGecko`);
     } catch (error) {
       this.logger.error('Failed to sync new listings', error);
-    };
+    }
   }
 
   async getCategories() {
@@ -353,7 +339,7 @@ export class DiscoveryService {
       order: { marketCap: 'DESC' },
     });
 
-    const transformedCategories = categories.map(category => this.transformToCategory(category));
+    const transformedCategories = categories.map((category) => this.transformToCategory(category));
 
     return {
       categories: transformedCategories,
@@ -395,9 +381,7 @@ export class DiscoveryService {
         });
       }
 
-      this.logger.log(
-        `Synced ${categories.length} categories from CoinGecko`,
-      );
+      this.logger.log(`Synced ${categories.length} categories from CoinGecko`);
     } catch (error) {
       this.logger.error('Failed to sync categories', error);
     }
@@ -441,7 +425,7 @@ export class DiscoveryService {
     });
 
     const transformedCategory = this.transformToCategory(category);
-    const transformedTokens = tokens.map(token => this.transformToTokenOverview(token));
+    const transformedTokens = tokens.map((token) => this.transformToTokenOverview(token));
 
     return {
       category: transformedCategory,
@@ -453,10 +437,7 @@ export class DiscoveryService {
   /**
    * Sync tokens for a specific category from CoinGecko
    */
-  private async syncCategoryTokens(
-    categorySlug: string,
-    categoryId: string,
-  ): Promise<void> {
+  private async syncCategoryTokens(categorySlug: string, categoryId: string): Promise<void> {
     try {
       this.logger.log(`Starting token sync for category: ${categorySlug}...`);
 
@@ -473,9 +454,7 @@ export class DiscoveryService {
       try {
         const jupiterTokens = await this.jupiterService.getTokenList();
         if (jupiterTokens.length > 0) {
-          solanaTokenMap = new Map(
-            jupiterTokens.map((t) => [t.symbol.toLowerCase(), t]),
-          );
+          solanaTokenMap = new Map(jupiterTokens.map((t) => [t.symbol.toLowerCase(), t]));
         }
       } catch (error) {
         this.logger.warn('Jupiter API unavailable for category sync');
@@ -485,7 +464,7 @@ export class DiscoveryService {
       let syncedCount = 0;
       for (const coin of coins) {
         const jupiterToken = solanaTokenMap.get(coin.symbol.toLowerCase());
-        
+
         // Skip if not a Solana token
         if (!jupiterToken) {
           continue;
@@ -517,14 +496,9 @@ export class DiscoveryService {
         syncedCount++;
       }
 
-      this.logger.log(
-        `Synced ${syncedCount} Solana tokens for category ${categorySlug}`,
-      );
+      this.logger.log(`Synced ${syncedCount} Solana tokens for category ${categorySlug}`);
     } catch (error) {
-      this.logger.error(
-        `Failed to sync tokens for category ${categorySlug}`,
-        error,
-      );
+      this.logger.error(`Failed to sync tokens for category ${categorySlug}`, error);
     }
   }
 
@@ -563,8 +537,8 @@ export class DiscoveryService {
       });
     }
 
-    const transformedGainers = gainers.map(token => this.transformToTokenOverview(token));
-    const transformedLosers = losers.map(token => this.transformToTokenOverview(token));
+    const transformedGainers = gainers.map((token) => this.transformToTokenOverview(token));
+    const transformedLosers = losers.map((token) => this.transformToTokenOverview(token));
 
     return {
       gainers: transformedGainers,

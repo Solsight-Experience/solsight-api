@@ -11,12 +11,7 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
 
-function calcVolatility(
-  elapsedMs: number,
-  minPercent: number,
-  maxPercent: number,
-  scaleMs = 60 * 1000,
-) {
+function calcVolatility(elapsedMs: number, minPercent: number, maxPercent: number, scaleMs = 60 * 1000) {
   const factor = clamp(elapsedMs / scaleMs, 0, 1);
   return minPercent + (maxPercent - minPercent) * factor;
 }
@@ -59,8 +54,7 @@ export function getRandomTokenStats() {
   const baseVolume = 100_000_000;
 
   const timestamp = Date.now() / 1000;
-  const elapsedMs =
-    lastStatsTimestamp > 0 ? timestamp - lastStatsTimestamp : 60 * 1000;
+  const elapsedMs = lastStatsTimestamp > 0 ? timestamp - lastStatsTimestamp : 60 * 1000;
 
   if (!lastStats) {
     lastStats = {
@@ -74,60 +68,18 @@ export function getRandomTokenStats() {
   }
 
   const price = nextValue(lastStats.price, basePrice, elapsedMs, 0.2, 4, 2, 20);
-  const marketCap = nextValue(
-    lastStats.market_cap,
-    baseMarketCap,
-    elapsedMs,
-    0.15,
-    3.5,
-    2,
-    25,
-  );
-  const liquidity = nextValue(
-    lastStats.liquidity,
-    baseLiquidity,
-    elapsedMs,
-    0.2,
-    4,
-    2,
-    30,
-  );
-  const holders = nextValue(
-    lastStats.holders,
-    baseHolders,
-    elapsedMs,
-    0.1,
-    2,
-    1,
-    15,
-  );
-  const txs = Math.round(
-    nextValue(lastStats.txs, baseTxs, elapsedMs, 0.3, 5, 2, 30),
-  );
-  const volume = nextValue(
-    lastStats.volume,
-    baseVolume,
-    elapsedMs,
-    0.3,
-    5,
-    2,
-    35,
-  );
+  const marketCap = nextValue(lastStats.market_cap, baseMarketCap, elapsedMs, 0.15, 3.5, 2, 25);
+  const liquidity = nextValue(lastStats.liquidity, baseLiquidity, elapsedMs, 0.2, 4, 2, 30);
+  const holders = nextValue(lastStats.holders, baseHolders, elapsedMs, 0.1, 2, 1, 15);
+  const txs = Math.round(nextValue(lastStats.txs, baseTxs, elapsedMs, 0.3, 5, 2, 30));
+  const volume = nextValue(lastStats.volume, baseVolume, elapsedMs, 0.3, 5, 2, 35);
 
   const priceChange24h = randomChangePercent(calcVolatility(elapsedMs, 0.2, 6));
-  const marketCapChange24h = randomChangePercent(
-    calcVolatility(elapsedMs, 0.2, 6),
-  );
-  const liquidityChange24h = randomChangePercent(
-    calcVolatility(elapsedMs, 0.2, 6),
-  );
-  const holdersChange24h = randomChangePercent(
-    calcVolatility(elapsedMs, 0.1, 3),
-  );
+  const marketCapChange24h = randomChangePercent(calcVolatility(elapsedMs, 0.2, 6));
+  const liquidityChange24h = randomChangePercent(calcVolatility(elapsedMs, 0.2, 6));
+  const holdersChange24h = randomChangePercent(calcVolatility(elapsedMs, 0.1, 3));
   const txsChange24h = randomChangePercent(calcVolatility(elapsedMs, 0.2, 6));
-  const volumeChange24h = randomChangePercent(
-    calcVolatility(elapsedMs, 0.2, 7),
-  );
+  const volumeChange24h = randomChangePercent(calcVolatility(elapsedMs, 0.2, 7));
 
   lastStats = {
     price,
@@ -210,16 +162,14 @@ export function getRandomTrade() {
     price_usd: tokenStats.price,
     market_cap: tokenStats.market_cap,
     trader_address: 'So' + Math.random().toString(36).substring(2, 15),
-    tx_url:
-      'https://solscan.io/tx/' + Math.random().toString(36).substring(2, 15),
+    tx_url: 'https://solscan.io/tx/' + Math.random().toString(36).substring(2, 15),
   };
 }
 
 export function getRandomTopTrader() {
   return {
     address: 'So' + Math.random().toString(36),
-    name:
-      Math.random() > 0.5 ? `Trader_${Math.floor(Math.random() * 1000)}` : null,
+    name: Math.random() > 0.5 ? `Trader_${Math.floor(Math.random() * 1000)}` : null,
     total_pnl: parseFloat((Math.random() * 500 - 250).toFixed(2)),
     roi_percent: parseFloat((Math.random() * 200 - 50).toFixed(2)),
     total_bought: parseFloat((Math.random() * 1000).toFixed(2)),
@@ -238,10 +188,7 @@ export function getRandomHolder() {
 
   return {
     address: 'So' + Math.random().toString(36).substring(2, 15),
-    name:
-      Math.random() > 0.5
-        ? `Holder_${Math.floor(Math.random() * 10000)}`
-        : null,
+    name: Math.random() > 0.5 ? `Holder_${Math.floor(Math.random() * 10000)}` : null,
     balance,
     balance_percent: parseFloat((Math.random() * 100).toFixed(2)),
     avg_buy_price: parseFloat((Math.random() * 2).toFixed(6)),

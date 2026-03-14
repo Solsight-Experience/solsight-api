@@ -33,14 +33,13 @@ export interface JwtPayload {
   username: string;
 }
 
-
 @Injectable()
 export class AuthService {
   constructor(
     private readonly userRepository: UserRepository,
     private readonly jwtService: JwtService,
     private readonly walletsService: WalletsService,
-  ) { }
+  ) {}
 
   // --- Email/Password login ---
   async login(loginDto: LoginDto) {
@@ -68,9 +67,7 @@ export class AuthService {
 
     try {
       // Verify Google token
-      const googleRes = await fetch(
-        `https://oauth2.googleapis.com/tokeninfo?id_token=${token}`
-      );
+      const googleRes = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${token}`);
 
       if (!googleRes.ok) {
         const errorText = await googleRes.text();
@@ -90,13 +87,8 @@ export class AuthService {
 
       if (!user) {
         console.log('Creating new OAuth user...');
-        const dummyPassword = await bcrypt.hash(
-          randomBytes(32).toString('hex'),
-          10
-        );
-        const username = profile.name
-          ? profile.name.replace(/\s+/g, '_').toLowerCase()
-          : profile.email.split('@')[0];
+        const dummyPassword = await bcrypt.hash(randomBytes(32).toString('hex'), 10);
+        const username = profile.name ? profile.name.replace(/\s+/g, '_').toLowerCase() : profile.email.split('@')[0];
 
         try {
           user = await this.userRepository.create({
@@ -128,7 +120,6 @@ export class AuthService {
       const { password, ...userWithoutPassword } = user;
 
       return { user: userWithoutPassword, accessToken };
-
     } catch (error) {
       console.error('💥 OAuth login error:', error);
 
@@ -136,12 +127,9 @@ export class AuthService {
         throw error;
       }
 
-      throw new BadRequestException(
-        `OAuth login failed: ${error.message}`
-      );
+      throw new BadRequestException(`OAuth login failed: ${error.message}`);
     }
   }
-
 
   // --- Register ---
   async register(registerDto: RegisterDto) {
@@ -181,8 +169,8 @@ export class AuthService {
     return userWithoutPassword;
   }
 
-    async getSolanaNonce(walletAddress: string): Promise<{ nonce: string }> {
-    let wallet = await this.walletsService.findOneByAddress(walletAddress);
+  async getSolanaNonce(walletAddress: string): Promise<{ nonce: string }> {
+    const wallet = await this.walletsService.findOneByAddress(walletAddress);
     const nonce = crypto.randomUUID();
 
     if (wallet) {
@@ -211,11 +199,7 @@ export class AuthService {
       const nonceUint8 = new TextEncoder().encode(wallet.nonce);
       const publicKeyUint8 = bs58.decode(walletAddress);
 
-      const verified = nacl.sign.detached.verify(
-        nonceUint8,
-        signatureUint8,
-        publicKeyUint8,
-      );
+      const verified = nacl.sign.detached.verify(nonceUint8, signatureUint8, publicKeyUint8);
 
       if (!verified) {
         throw new UnauthorizedException('Invalid signature');
@@ -242,12 +226,14 @@ export class AuthService {
         throw new NotFoundException('User not found');
       }
     }
-    
+
     // if (!wallet.userId || wallet.userId !== user.id) {
-         await this.walletsService.updateUser(wallet.id, user.id, walletIcon);
+    await this.walletsService.updateUser(wallet.id, user.id, walletIcon);
     // }
 
-    return { success: true, message: 'Wallet verified and linked successfully' };
+    return {
+      success: true,
+      message: 'Wallet verified and linked successfully',
+    };
   }
-
 }
