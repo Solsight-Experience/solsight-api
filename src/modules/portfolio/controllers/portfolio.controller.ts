@@ -53,8 +53,10 @@ export class PortfolioController {
     @Query('type') type: string = 'all',
     @Query('limit') limit: number = 50,
     @Query('before') before?: string,
+    @Query('from') from?: number,
+    @Query('to') to?: number,
   ) {
-    return this.portfolioService.getActivities(req.user.id, walletAddress, type, limit, before);
+    return this.portfolioService.getActivities(req.user.id, walletAddress, type, limit, before, from, to);
   }
 
   @UseGuards(JwtAuthGuard)
