@@ -7,7 +7,7 @@ import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { Cache } from 'cache-manager';
 import axios from 'axios';
 import { PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
-import { SwapTrade } from '../entities/swap-trade.entity';
+import { Transaction, TransactionType, TransactionStatus } from '../../transactions/entities/transaction.entity';
 
 const SOL_COINGECKO_ID = 'solana';
 const SOL_PRICE_CACHE_KEY = 'sol-price-usd';
@@ -35,7 +35,7 @@ export class PortfolioService {
     private readonly walletsService: WalletsService,
     private readonly solanaService: SolanaService,
     @Inject(CACHE_MANAGER) private cacheManager: Cache,
-    @InjectRepository(SwapTrade) private swapTradeRepo: Repository<SwapTrade>,
+    @InjectRepository(Transaction) private transactionRepo: Repository<Transaction>,
   ) {}
 
   private async heliusGet(url: string): Promise<any> {
@@ -412,8 +412,8 @@ export class PortfolioService {
 
     // Ensure each wallet has data in DB; if empty, trigger a sync via fetchWalletActivities
     for (const wallet of wallets) {
-      const count = await this.swapTradeRepo.count({
-        where: { walletAddress: wallet.address },
+      const count = await this.transactionRepo.count({
+        where: { signerAddress: wallet.address, type: TransactionType.SWAP },
       });
       if (count === 0) {
         await this.fetchWalletActivities(wallet.address, 'all', 100, heliusApiKey);
@@ -421,22 +421,23 @@ export class PortfolioService {
     }
 
     // Read swaps directly from DB, filtered to timeframe
-    const dbTrades = await this.swapTradeRepo
-      .createQueryBuilder('st')
-      .where('st.walletAddress IN (:...addrs)', {
+    const dbTrades = await this.transactionRepo
+      .createQueryBuilder('t')
+      .where('t.signerAddress IN (:...addrs)', {
         addrs: wallets.map((w) => w.address),
       })
-      .andWhere('st.timestamp >= :start', { start: startTimeSec })
-      .andWhere('st.timestamp >= :cutoff', { cutoff: cutoffSec })
-      .orderBy('st.timestamp', 'ASC')
+      .andWhere('t.type = :type', { type: TransactionType.SWAP })
+      .andWhere('t.blockTime >= :start', { start: new Date(startTimeSec * 1000) })
+      .andWhere('t.blockTime >= :cutoff', { cutoff: new Date(cutoffSec * 1000) })
+      .orderBy('t.blockTime', 'ASC')
       .getMany();
 
     const filteredTrades = dbTrades.map((row) => ({
       signature: row.signature,
-      timestamp: Number(row.timestamp),
-      type: row.type,
-      tokenTransfers: row.tokenTransfers,
-      description: row.description,
+      timestamp: row.blockTime ? Math.floor(row.blockTime.getTime() / 1000) : 0,
+      type: 'SWAP',
+      tokenTransfers: (row.metadata as any)?.tokenTransfers ?? [],
+      description: row.memo,
     }));
     const SOL_MINT = 'So11111111111111111111111111111111111111112';
     // Fetch historical SOL prices for the chart range
@@ -620,29 +621,49 @@ export class PortfolioService {
       const response = await this.heliusGet(url);
       let transactions = response.data as any[];
 
-      // Save detected swaps to DB so PnL can use them
+      // Save detected swaps/transfers to DB so PnL can use them
       const swapsToSave = transactions.filter((tx) => this.isSwap(tx, walletAddress));
       if (swapsToSave.length > 0) {
-        const entities = swapsToSave.map((tx) =>
-          this.swapTradeRepo.create({
-            walletAddress,
-            signature: tx.signature,
-            timestamp: tx.timestamp,
-            tokenTransfers: [
-              ...(tx.tokenTransfers ?? []),
-              ...(tx.nativeTransfers ?? []).map((nt: any) => ({
-                fromUserAccount: nt.fromUserAccount,
-                toUserAccount: nt.toUserAccount,
-                mint: 'So11111111111111111111111111111111111111112',
-                tokenAmount: nt.amount / 1e9,
-              })),
-            ],
-            description: tx.description ?? null,
-            type: 'SWAP',
-          }),
-        );
+        const mapTxType = (heliusType: string): TransactionType => {
+          switch (heliusType) {
+            case 'SWAP':      return TransactionType.SWAP;
+            case 'TRANSFER':  return TransactionType.TRANSFER;
+            case 'STAKE_SOL':
+            case 'STAKE':     return TransactionType.STAKE;
+            case 'UNSTAKE_SOL':
+            case 'UNSTAKE':   return TransactionType.UNSTAKE;
+            default:          return TransactionType.SWAP;
+          }
+        };
+
+        const entities = swapsToSave.map((tx) => {
+          const allTransfers = [
+            ...(tx.tokenTransfers ?? []),
+            ...(tx.nativeTransfers ?? []).map((nt: any) => ({
+              fromUserAccount: nt.fromUserAccount,
+              toUserAccount: nt.toUserAccount,
+              mint: 'So11111111111111111111111111111111111111112',
+              tokenAmount: nt.amount / 1e9,
+            })),
+          ];
+          const tokenOut = allTransfers.find((t: any) => t.fromUserAccount === walletAddress);
+          const tokenIn  = allTransfers.find((t: any) => t.toUserAccount   === walletAddress);
+          return this.transactionRepo.create({
+            signature:     tx.signature,
+            type:          mapTxType(tx.type),
+            status:        TransactionStatus.CONFIRMED,
+            amount:        tokenOut?.tokenAmount ?? 0,
+            amountOut:     tokenIn?.tokenAmount,
+            tokenMint:     tokenOut?.mint,
+            tokenMintOut:  tokenIn?.mint,
+            signerAddress: walletAddress,
+            blockTime:     new Date(tx.timestamp * 1000),
+            memo:          tx.description ?? null,
+            metadata:      { tokenTransfers: allTransfers },
+          });
+        });
         try {
-          await this.swapTradeRepo.createQueryBuilder().insert().into(SwapTrade).values(entities).orIgnore().execute();
+          await this.transactionRepo.createQueryBuilder().insert().into(Transaction).values(entities).orIgnore().execute();
         } catch {
           /* ignore */
         }
@@ -1048,9 +1069,9 @@ export class PortfolioService {
       //   continue;
       // }
 
-      // L2: DB — get known signatures for this wallet
-      const knownRows = await this.swapTradeRepo.find({
-        where: { walletAddress: wallet.address },
+      // L2: DB — get known signatures for this wallet (all types for dedup)
+      const knownRows = await this.transactionRepo.find({
+        where: { signerAddress: wallet.address },
         select: ['signature'],
       });
       const knownSigs = new Set(knownRows.map((r) => r.signature));
@@ -1086,20 +1107,21 @@ export class PortfolioService {
         }
       }
 
-      // Load all trades from DB for this wallet within 2 years
-      const dbTrades = await this.swapTradeRepo
-        .createQueryBuilder('st')
-        .where('st.walletAddress = :addr', { addr: wallet.address })
-        .andWhere('st.timestamp >= :cutoff', { cutoff: cutoffSec })
-        .orderBy('st.timestamp', 'DESC')
+      // Load all trades from DB for this wallet within 2 years (SWAP only for PnL)
+      const dbTrades = await this.transactionRepo
+        .createQueryBuilder('t')
+        .where('t.signerAddress = :addr', { addr: wallet.address })
+        .andWhere('t.type = :type', { type: TransactionType.SWAP })
+        .andWhere('t.blockTime >= :cutoff', { cutoff: new Date(cutoffSec * 1000) })
+        .orderBy('t.blockTime', 'DESC')
         .getMany();
 
       const walletSwaps = dbTrades.map((row) => ({
-        signature: row.signature,
-        timestamp: Number(row.timestamp),
-        type: row.type,
-        tokenTransfers: row.tokenTransfers,
-        description: row.description,
+        signature:      row.signature,
+        timestamp:      row.blockTime ? Math.floor(row.blockTime.getTime() / 1000) : 0,
+        type:           'SWAP',
+        tokenTransfers: (row.metadata as any)?.tokenTransfers ?? [],
+        description:    row.memo,
       }));
 
       this.logger.log(`[fetchAllTrades] DB total: ${walletSwaps.length} swaps for ${wallet.address}`);

@@ -5,10 +5,10 @@ import { WalletsModule } from '../wallets/wallets.module';
 import { SolanaModule } from '../../infra/solana/solana.module';
 import { CacheModule } from '@nestjs/cache-manager';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { SwapTrade } from './entities/swap-trade.entity';
+import { Transaction } from '../transactions/entities/transaction.entity';
 
 @Module({
-  imports: [WalletsModule, SolanaModule, CacheModule.register(), TypeOrmModule.forFeature([SwapTrade])],
+  imports: [WalletsModule, SolanaModule, CacheModule.register(), TypeOrmModule.forFeature([Transaction])],
   controllers: [PortfolioController],
   providers: [PortfolioService],
   exports: [PortfolioService],
