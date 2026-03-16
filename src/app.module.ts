@@ -20,6 +20,7 @@ import { LimitOrderModule } from './modules/limit-order/limit-order.module';
 import { RedisModule } from './redis/redis.module';
 import { ChatModule } from './modules/chat/chat.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
+import { IndexerModule } from './modules/indexer/indexer.module';
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -50,6 +51,7 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
     LimitOrderModule,
     ChatModule,
     NotificationsModule,
+    IndexerModule,
   ],
   controllers: [],
   providers: [],
