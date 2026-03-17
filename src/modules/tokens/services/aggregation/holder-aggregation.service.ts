@@ -211,6 +211,11 @@ export class HolderAggregationService implements OnModuleInit {
       const priceData = await redis.hgetall(priceKey);
       const currentPriceUsd = priceData ? parseFloat(priceData.price_usd || '0') : 0;
 
+      // Fetch total supply for balance_percent calculation
+      const supplyKey = `supply:${tokenMint}`;
+      const totalSupplyStr = await redis.get(supplyKey);
+      const totalSupply = totalSupplyStr ? parseFloat(totalSupplyStr) : 0;
+
       const holders: EnrichedHolder[] = [];
 
       for (const address of topAddresses) {
@@ -240,11 +245,14 @@ export class HolderAggregationService implements OnModuleInit {
 
         const walletLabel = getWalletLabel(address);
 
+        // Calculate balance_percent from total supply
+        const balancePercent = totalSupply > 0 ? (balance / totalSupply) * 100 : 0;
+
         holders.push({
           address,
           name: walletLabel?.name ?? null,
           balance,
-          balance_percent: 0,
+          balance_percent: balancePercent,
           avg_buy_price: avgBuyPrice,
           total_bought: totalBought,
           total_sold: totalSold,
@@ -284,11 +292,17 @@ export class HolderAggregationService implements OnModuleInit {
       const costBasis = parseFloat(data.cost_basis || '0');
       const realizedPnl = parseFloat(data.realized_pnl || '0');
 
+      // Fetch total supply for balance_percent calculation
+      const supplyKey = `supply:${tokenMint}`;
+      const totalSupplyStr = await redis.get(supplyKey);
+      const totalSupply = totalSupplyStr ? parseFloat(totalSupplyStr) : 0;
+      const balancePercent = totalSupply > 0 ? (balance / totalSupply) * 100 : 0;
+
       return {
         address,
         name: null,
         balance,
-        balance_percent: 0,
+        balance_percent: balancePercent,
         avg_buy_price: balance > 0 ? costBasis / balance : 0,
         total_bought: parseFloat(data.total_bought || '0'),
         total_sold: parseFloat(data.total_sold || '0'),
