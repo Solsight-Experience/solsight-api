@@ -6,7 +6,7 @@ import { StatsAggregationService } from '../aggregation/stats-aggregation.servic
 import { OhlcAggregationService } from '../aggregation/ohlc-aggregation.service';
 import { TraderAggregationService } from '../aggregation/trader-aggregation.service';
 import { HolderAggregationService } from '../aggregation/holder-aggregation.service';
-import { SwapEvent, TradeData, transformSwapToTradeForToken, calculateSwapPrices } from '../../types/swap-event.type';
+import { SwapEvent, TradeData, HolderData, transformSwapToTradeForToken, calculateSwapPrices } from '../../types/swap-event.type';
 
 const REDIS_TRADES_CHANNEL = 'trades';
 
@@ -15,6 +15,7 @@ export class TokenSocketService implements OnModuleInit {
   private readonly logger = new Logger(TokenSocketService.name);
   private readonly tradesBuffer = new Map<string, (TradeData & { token: string })[]>();
   private readonly lastEmittedClose = new Map<string, number>();
+  private readonly previousHolders = new Map<string, Map<string, HolderData>>();
 
   constructor(
     private readonly gateway: TokenSocketGateway,
@@ -165,11 +166,27 @@ export class TokenSocketService implements OnModuleInit {
       }
 
       case 'holders': {
-        const holders = await this.holderAggregation.getTopHolders(token, 1);
-        if (holders.length === 0) return null;
+        const holders = await this.holderAggregation.getTopHolders(token, 20);
+
+        const prev = this.previousHolders.get(token) ?? new Map();
+        const current = new Map(holders.map((h) => [h.address, h]));
+
+        const changed = holders.filter((h) => {
+          const prevHolder = prev.get(h.address);
+          if (!prevHolder) return true;
+          return prevHolder.balance !== h.balance || prevHolder.tx_count !== h.tx_count;
+        });
+
+        const removed = [...prev.keys()].filter((addr) => !current.has(addr));
+
+        this.previousHolders.set(token, current);
+
+        if (changed.length === 0 && removed.length === 0) return null;
+
         return {
           token,
-          data: holders[0],
+          changed,
+          removed,
         };
       }
 
