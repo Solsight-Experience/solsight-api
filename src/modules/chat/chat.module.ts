@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import { LoggerModule } from 'src/common/logger/logger.module';
+import { LLMModule } from 'src/infra/llm/llm.module';
 import { DiscoveryModule } from '../discovery/discovery.module';
 import { PortfolioModule } from '../portfolio/portfolio.module';
 import { TokensModule } from '../tokens/tokens.module';
@@ -20,6 +21,7 @@ import { ChatController } from './controllers/chat.controller';
       }),
       inject: [ConfigService],
     }),
+    LLMModule,
     TokensModule,
     PortfolioModule,
     DiscoveryModule,

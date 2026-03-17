@@ -1,7 +1,7 @@
 import { Injectable, Logger, NotFoundException, HttpException, HttpStatus } from '@nestjs/common';
 import { TokensService } from './tokens.service';
 import { PromptBuilderService, SummaryOptions } from './prompt-builder.service';
-import { GeminiService } from '../../../infra/gemini/gemini.service';
+import { LLMService } from '../../../infra/llm/llm.service';
 import { RedisService } from '../../../redis/services/redis.service';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -36,7 +36,7 @@ export class TokenSummaryService {
   constructor(
     private readonly tokensService: TokensService,
     private readonly promptBuilderService: PromptBuilderService,
-    private readonly geminiService: GeminiService,
+    private readonly llmService: LLMService,
     private readonly redisService: RedisService,
     @InjectRepository(Token)
     private readonly tokenRepository: Repository<Token>,
@@ -52,9 +52,9 @@ export class TokenSummaryService {
     const { forceRefresh = false, ...summaryOptions } = options;
 
     // Check if Gemini is configured
-    if (!this.geminiService.isConfigured()) {
+    if (!this.llmService.isConfigured()) {
       throw new HttpException(
-        'AI service is not configured. Please set GEMINI_API_KEY in environment variables.',
+        'AI service is not configured. Please set LLM_API_KEY in environment variables.',
         HttpStatus.SERVICE_UNAVAILABLE,
       );
     }
@@ -105,17 +105,17 @@ export class TokenSummaryService {
       this.logger.log(`Generating AI summary for token: ${token.symbol} (${address})`);
       const startTime = Date.now();
 
-      const geminiResponse = await this.geminiService.generateText({
+      const llmResponse = await this.llmService.generateText({
         prompt,
         temperature: 0.5,
-        maxOutputTokens: 800,
+        maxTokens: 800,
       });
 
-      summary = geminiResponse.text;
-      model = geminiResponse.model;
+      summary = llmResponse.text;
+      model = llmResponse.model;
 
       const duration = Date.now() - startTime;
-      this.logger.log(`AI summary generated in ${duration}ms. Tokens: ${geminiResponse.totalTokenCount || 'N/A'}`);
+      this.logger.log(`AI summary generated in ${duration}ms. Tokens: ${llmResponse.usage?.totalTokens || 'N/A'}`);
     } catch (error) {
       this.logger.error('Error generating AI summary', error);
       throw new HttpException(

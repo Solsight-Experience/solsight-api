@@ -16,10 +16,10 @@ import { TraderAggregationService } from './services/aggregation/trader-aggregat
 import { HolderAggregationService } from './services/aggregation/holder-aggregation.service';
 import { TokenSummaryService } from './services/token-summary.service';
 import { PromptBuilderService } from './services/prompt-builder.service';
-import { GeminiModule } from '../../infra/gemini/gemini.module';
+import { LLMModule } from '../../infra/llm/llm.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Token]), SolanaModule, ConfigModule, WebsocketModule, RedisModule, GeminiModule],
+  imports: [TypeOrmModule.forFeature([Token]), SolanaModule, ConfigModule, WebsocketModule, RedisModule, LLMModule],
   providers: [
     TokensService,
     TokenSocketService,

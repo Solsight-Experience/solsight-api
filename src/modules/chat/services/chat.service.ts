@@ -1,8 +1,7 @@
 import { HttpException, Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import OpenAI from 'openai';
 import type { ChatCompletionMessageParam, ChatCompletionTool } from 'openai/resources/chat/completions';
 import { AppLoggerService } from '../../../common/logger/logger.service';
+import { LLMService } from '../../../infra/llm/llm.service';
 import { SortByTrending, TimeFrame } from '../../discovery/dtos/get-trending.dto';
 import { DiscoveryService } from '../../discovery/services/discovery.service';
 import { PortfolioService } from '../../portfolio/services/portfolio.service';
@@ -15,7 +14,6 @@ const SYSTEM_PROMPT =
 const STATIC_ROUTES = ['/', '/portfolio', '/dashboard', '/dashboard/transfer', '/profile', '/authentication'];
 
 const TOKEN_ROUTE_REGEX = /^\/token\/[1-9A-HJ-NP-Za-km-z]{32,44}$/;
-const LLM_TIMEOUT_MS = 300000;
 
 const RESPONSE_TYPES: ChatResponsePayload['type'][] = [
   'text',
@@ -183,31 +181,16 @@ export const TOOL_DEFINITIONS: ChatCompletionTool[] = [
 
 @Injectable()
 export class ChatService {
-  private readonly openai: OpenAI;
   private readonly sessions = new Map<string, ChatSession>();
-  private readonly model: string;
 
   constructor(
-    private readonly configService: ConfigService,
+    private readonly llmService: LLMService,
     private readonly tokensService: TokensService,
     private readonly discoveryService: DiscoveryService,
     private readonly portfolioService: PortfolioService,
     private readonly logger: AppLoggerService,
   ) {
-    const apiKey = this.configService.get<string>('llm.apiKey');
-    const baseURL = this.configService.get<string>('llm.apiUrl');
-
-    if (!apiKey) {
-      throw new Error('LLM API key is required');
-    }
-
-    this.model = this.configService.get<string>('llm.model') || 'gpt-4o';
-    this.openai = new OpenAI({
-      apiKey,
-      baseURL,
-    });
-
-    this.logger.log(`ChatService initialized: model=${this.model} baseURL=${baseURL ?? 'default'}`, ChatService.name);
+    this.logger.log('ChatService initialized', ChatService.name);
   }
 
   async sendMessage(
@@ -323,31 +306,17 @@ export class ChatService {
       }),
     ];
 
-    this.logger.debug(`LLM request: model=${this.model} messages=${messages.length}`, ChatService.name);
-
-    const controller = new AbortController();
-    const timeout = setTimeout(() => {
-      this.logger.warn(`LLM request timed out after ${LLM_TIMEOUT_MS}ms`, ChatService.name);
-      controller.abort();
-    }, LLM_TIMEOUT_MS);
+    this.logger.debug(`LLM request: messages=${messages.length}`, ChatService.name);
 
     try {
-      const completion = await this.openai.chat.completions.create(
-        {
-          model: this.model,
-          messages,
-          tools: TOOL_DEFINITIONS,
-          tool_choice: 'auto',
-          parallel_tool_calls: false,
-          stream: false,
-        },
-        {
-          signal: controller.signal,
-        },
-      );
+      const result = await this.llmService.chatCompletion({
+        messages,
+        tools: TOOL_DEFINITIONS,
+        toolChoice: 'auto',
+        parallelToolCalls: false,
+      });
 
-      const choice = completion.choices[0];
-      if (!choice) {
+      if (!result.finishReason) {
         this.logger.warn('LLM returned no choices', ChatService.name);
         return {
           sessionId: '',
@@ -356,53 +325,46 @@ export class ChatService {
         };
       }
 
-      this.logger.debug(`LLM response: finish_reason=${choice.finish_reason}`, ChatService.name);
+      this.logger.debug(`LLM response: finish_reason=${result.finishReason}`, ChatService.name);
 
-      if (choice.finish_reason === 'tool_calls') {
-        const assistantMessage = choice.message;
+      if (result.finishReason === 'tool_calls' && result.toolCalls?.length) {
         session.messages.push({
           role: 'assistant',
-          content: assistantMessage.content || '',
+          content: result.content || '',
         });
 
-        const toolCalls = assistantMessage.tool_calls || [];
-        for (const toolCall of toolCalls) {
-          if (toolCall.type !== 'function') {
-            continue;
-          }
-
-          const toolName = toolCall.function.name;
+        for (const toolCall of result.toolCalls) {
           let args: Record<string, unknown> = {};
 
           try {
-            args = JSON.parse(toolCall.function.arguments || '{}') as Record<string, unknown>;
+            args = JSON.parse(toolCall.arguments || '{}') as Record<string, unknown>;
           } catch (error) {
             this.logger.warn(
-              `Invalid tool arguments for ${toolName}: ${toolCall.function.arguments}`,
+              `Invalid tool arguments for ${toolCall.name}: ${toolCall.arguments}`,
               ChatService.name,
             );
           }
 
-          this.logger.log(`Executing tool: ${toolName} args=${JSON.stringify(args)}`, ChatService.name);
+          this.logger.log(`Executing tool: ${toolCall.name} args=${JSON.stringify(args)}`, ChatService.name);
 
-          onToolProgress(toolLabel(toolName, args));
+          onToolProgress(toolLabel(toolCall.name, args));
 
-          const result = await this.executeTool(toolName, args, walletAddress, userId);
+          const toolResult = await this.executeTool(toolCall.name, args, walletAddress, userId);
 
-          this.logger.debug(`Tool ${toolName} result length=${result.length}`, ChatService.name);
+          this.logger.debug(`Tool ${toolCall.name} result length=${toolResult.length}`, ChatService.name);
 
           session.messages.push({
             role: 'tool',
-            content: result,
+            content: toolResult,
             toolCallId: toolCall.id,
-            toolName,
+            toolName: toolCall.name,
           });
         }
 
         return this.runLlmLoop(session, walletAddress, userId, onToolProgress);
       }
 
-      const assistantContent = choice.message.content || '';
+      const assistantContent = result.content || '';
       session.messages.push({
         role: 'assistant',
         content: assistantContent,
@@ -417,13 +379,11 @@ export class ChatService {
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown LLM error';
       this.logger.error(
-        `OpenAI chat completion failed: ${message}`,
+        `LLM chat completion failed: ${message}`,
         error instanceof Error ? error.stack : undefined,
         ChatService.name,
       );
       throw error;
-    } finally {
-      clearTimeout(timeout);
     }
   }
 
@@ -454,31 +414,19 @@ export class ChatService {
       }),
     ];
 
-    this.logger.debug(`LLM stream request: model=${this.model} messages=${messages.length}`, ChatService.name);
-
-    const controller = new AbortController();
-    const timeout = setTimeout(() => {
-      this.logger.warn(`LLM stream request timed out after ${LLM_TIMEOUT_MS}ms`, ChatService.name);
-      controller.abort();
-    }, LLM_TIMEOUT_MS);
+    this.logger.debug(`LLM stream request: messages=${messages.length}`, ChatService.name);
 
     let fullContent = '';
     const toolCallMap: Record<string, { function: { name: string; arguments: string } }> = {};
 
     try {
-      const stream = await this.openai.chat.completions.create(
-        {
-          model: this.model,
-          messages,
-          tools: TOOL_DEFINITIONS,
-          tool_choice: 'auto',
-          parallel_tool_calls: false,
-          stream: true,
-        },
-        {
-          signal: controller.signal,
-        },
-      );
+      const stream = await this.llmService.chatCompletionStream({
+        messages,
+        tools: TOOL_DEFINITIONS,
+        toolChoice: 'auto',
+        parallelToolCalls: false,
+        stream: true,
+      });
 
       for await (const chunk of stream) {
         const choice = chunk.choices[0];
@@ -575,13 +523,11 @@ export class ChatService {
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown LLM error';
       this.logger.error(
-        `OpenAI chat stream failed: ${message}`,
+        `LLM chat stream failed: ${message}`,
         error instanceof Error ? error.stack : undefined,
         ChatService.name,
       );
       throw error;
-    } finally {
-      clearTimeout(timeout);
     }
   }
 
