@@ -6,9 +6,10 @@ import { SolanaModule } from '../../infra/solana/solana.module';
 import { CacheModule } from '@nestjs/cache-manager';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Transaction } from '../transactions/entities/transaction.entity';
+import { WalletSnapshot } from './entities/wallet-snapshot.entity';
 
 @Module({
-  imports: [WalletsModule, SolanaModule, CacheModule.register(), TypeOrmModule.forFeature([Transaction])],
+  imports: [WalletsModule, SolanaModule, CacheModule.register(), TypeOrmModule.forFeature([Transaction, WalletSnapshot])],
   controllers: [PortfolioController],
   providers: [PortfolioService],
   exports: [PortfolioService],

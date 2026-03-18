@@ -8,6 +8,7 @@ import { Cache } from 'cache-manager';
 import axios from 'axios';
 import { PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
 import { Transaction, TransactionType, TransactionStatus } from '../../transactions/entities/transaction.entity';
+import { WalletSnapshot } from '../entities/wallet-snapshot.entity';
 
 const SOL_COINGECKO_ID = 'solana';
 const SOL_PRICE_CACHE_KEY = 'sol-price-usd';
@@ -36,7 +37,20 @@ export class PortfolioService {
     private readonly solanaService: SolanaService,
     @Inject(CACHE_MANAGER) private cacheManager: Cache,
     @InjectRepository(Transaction) private transactionRepo: Repository<Transaction>,
+    @InjectRepository(WalletSnapshot) private walletSnapshotRepo: Repository<WalletSnapshot>,
   ) {}
+
+  private mapTxType(heliusType: string): TransactionType {
+    switch (heliusType) {
+      case 'SWAP':      return TransactionType.SWAP;
+      case 'TRANSFER':  return TransactionType.TRANSFER;
+      case 'STAKE_SOL':
+      case 'STAKE':     return TransactionType.STAKE;
+      case 'UNSTAKE_SOL':
+      case 'UNSTAKE':   return TransactionType.UNSTAKE;
+      default:          return TransactionType.SWAP;
+    }
+  }
 
   private async heliusGet(url: string): Promise<any> {
     const windowMs = 1000;
@@ -516,11 +530,31 @@ export class PortfolioService {
 
     const [solPrice, tokenMetaMap] = await Promise.all([this.getSolPriceUsd(), this.getTokenList()]);
 
-    const allTokenAccounts = (
-      await Promise.all(
-        targetWallets.map((w) => this.solanaService.getParsedTokenAccountsByOwner(new PublicKey(w.address))),
-      )
-    ).flat();
+    const walletTokenAccounts = await Promise.all(
+      targetWallets.map(async (w) => ({
+        wallet:   w,
+        accounts: await this.solanaService.getParsedTokenAccountsByOwner(new PublicKey(w.address)),
+      })),
+    );
+
+    // Save per-wallet balance snapshots (fire-and-forget)
+    const snapshotAt = new Date();
+    const allSnapshotEntities = walletTokenAccounts.flatMap(({ wallet, accounts }) =>
+      accounts
+        .filter((acc) => acc.account.data.parsed.info.tokenAmount.uiAmount > 0)
+        .map((acc) => {
+          const mint   = acc.account.data.parsed.info.mint;
+          const amount = acc.account.data.parsed.info.tokenAmount.uiAmount;
+          return this.walletSnapshotRepo.create({ walletAddress: wallet.address, tokenMint: mint, amount, snapshotAt });
+        }),
+    );
+    if (allSnapshotEntities.length > 0) {
+      this.walletSnapshotRepo.save(allSnapshotEntities).catch((err) =>
+        this.logger.error('Failed to save position snapshot:', err),
+      );
+    }
+
+    const allTokenAccounts = walletTokenAccounts.flatMap((w) => w.accounts);
 
     const aggregatedTokens = new Map<string, { amount: number; info?: TokenInfo }>();
 
@@ -624,18 +658,6 @@ export class PortfolioService {
       // Save detected swaps/transfers to DB so PnL can use them
       const swapsToSave = transactions.filter((tx) => this.isSwap(tx, walletAddress));
       if (swapsToSave.length > 0) {
-        const mapTxType = (heliusType: string): TransactionType => {
-          switch (heliusType) {
-            case 'SWAP':      return TransactionType.SWAP;
-            case 'TRANSFER':  return TransactionType.TRANSFER;
-            case 'STAKE_SOL':
-            case 'STAKE':     return TransactionType.STAKE;
-            case 'UNSTAKE_SOL':
-            case 'UNSTAKE':   return TransactionType.UNSTAKE;
-            default:          return TransactionType.SWAP;
-          }
-        };
-
         const entities = swapsToSave.map((tx) => {
           const allTransfers = [
             ...(tx.tokenTransfers ?? []),
@@ -650,7 +672,7 @@ export class PortfolioService {
           const tokenIn  = allTransfers.find((t: any) => t.toUserAccount   === walletAddress);
           return this.transactionRepo.create({
             signature:     tx.signature,
-            type:          mapTxType(tx.type),
+            type:          this.mapTxType(tx.type),
             status:        TransactionStatus.CONFIRMED,
             amount:        tokenOut?.tokenAmount ?? 0,
             amountOut:     tokenIn?.tokenAmount,
@@ -1255,6 +1277,45 @@ export class PortfolioService {
                 return [];
               }
             })();
+
+      // Save fetched transactions to DB (fire-and-forget)
+      const toSave = transactions.filter((tx) => this.isSwap(tx, wallet.address));
+      if (toSave.length > 0) {
+        const entities = toSave.map((tx) => {
+          const allTransfers = [
+            ...(tx.tokenTransfers ?? []),
+            ...(tx.nativeTransfers ?? []).map((nt: any) => ({
+              fromUserAccount: nt.fromUserAccount,
+              toUserAccount:   nt.toUserAccount,
+              mint:            'So11111111111111111111111111111111111111112',
+              tokenAmount:     nt.amount / 1e9,
+            })),
+          ];
+          const tokenOut = allTransfers.find((t: any) => t.fromUserAccount === wallet.address);
+          const tokenIn  = allTransfers.find((t: any) => t.toUserAccount   === wallet.address);
+          return this.transactionRepo.create({
+            signature:     tx.signature,
+            type:          this.mapTxType(tx.type),
+            status:        TransactionStatus.CONFIRMED,
+            amount:        tokenOut?.tokenAmount ?? 0,
+            amountOut:     tokenIn?.tokenAmount,
+            tokenMint:     tokenOut?.mint,
+            tokenMintOut:  tokenIn?.mint,
+            signerAddress: wallet.address,
+            blockTime:     new Date(tx.timestamp * 1000),
+            memo:          tx.description ?? null,
+            metadata:      { tokenTransfers: allTransfers },
+          });
+        });
+        this.transactionRepo
+          .createQueryBuilder()
+          .insert()
+          .into(Transaction)
+          .values(entities)
+          .orIgnore()
+          .execute()
+          .catch((err) => this.logger.error('Failed to save stats transactions:', err));
+      }
 
       for (const tx of transactions) {
         stats.total++;
