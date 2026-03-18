@@ -25,8 +25,8 @@ export class TokenSeederService implements OnModuleInit {
   async onModuleInit() {
     console.log('Initializing TokenSeederService...');
     await this.seedTokens();
-    // await this.updateTokenDecimals();
-    // this.updateTokenOnChainData();
+    await this.updateTokenDecimals();
+    this.updateTokenOnChainData();
   }
 
   async seedTokens() {
@@ -69,6 +69,7 @@ export class TokenSeederService implements OnModuleInit {
             name: token.name,
             decimals: token.decimals,
             logoUri: token.logoURI,
+            coingeckoId: coingeckoId.find((c: any) => c.name.toLowerCase() == token.name.toLowerCase())?.id || null,
             description: token.extensions?.description,
             website: token.extensions?.website,
             socialLinks: {
