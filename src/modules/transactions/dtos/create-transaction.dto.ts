@@ -16,13 +16,13 @@ export class CreateTransactionDto {
   @IsNumber()
   amount: number;
 
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  fromWalletId: string;
+  fromWalletId?: string;
 
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  toWalletId: string;
+  toWalletId?: string;
 
   @IsOptional()
   @IsString()
@@ -33,8 +33,8 @@ export class CreateTransactionDto {
   fee?: number;
 
   @IsOptional()
-  @IsNumber()
-  blockNumber?: number;
+  @IsString()
+  blockNumber?: string;
 
   @IsOptional()
   blockTime?: Date;

@@ -21,7 +21,7 @@ export class Transaction {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column()
+  @Column({ unique: true })
   signature: string;
 
   @Column({
@@ -37,20 +37,29 @@ export class Transaction {
   })
   status: TransactionStatus;
 
-  @Column({ type: 'decimal', precision: 20, scale: 9 })
+  @Column({ type: 'decimal', precision: 30, scale: 9 })
   amount: number;
 
   @Column({ nullable: true })
   tokenMint?: string;
 
-  @Column({ type: 'decimal', precision: 20, scale: 9, nullable: true })
+  @Column({ nullable: true })
+  tokenMintOut?: string;
+
+  @Column({ type: 'decimal', precision: 30, scale: 9, nullable: true })
+  amountOut?: number;
+
+  @Column({ type: 'decimal', precision: 30, scale: 9, nullable: true })
   fee?: number;
 
-  @Column({ nullable: true })
-  blockNumber?: number;
+  @Column({ type: 'bigint', nullable: true })
+  blockNumber?: string;
 
   @Column({ nullable: true })
   blockTime?: Date;
+
+  @Column({ nullable: true })
+  signerAddress?: string;
 
   @Column({ type: 'text', nullable: true })
   memo?: string;
@@ -65,18 +74,20 @@ export class Transaction {
   updatedAt: Date;
 
   @ManyToOne(() => Wallet, (wallet) => wallet.sentTransactions, {
-    onDelete: 'CASCADE',
+    nullable: true,
+    onDelete: 'SET NULL',
   })
-  fromWallet: Wallet;
+  fromWallet?: Wallet;
 
-  @Column()
-  fromWalletId: string;
+  @Column({ nullable: true })
+  fromWalletId?: string;
 
   @ManyToOne(() => Wallet, (wallet) => wallet.receivedTransactions, {
-    onDelete: 'CASCADE',
+    nullable: true,
+    onDelete: 'SET NULL',
   })
-  toWallet: Wallet;
+  toWallet?: Wallet;
 
-  @Column()
-  toWalletId: string;
+  @Column({ nullable: true })
+  toWalletId?: string;
 }

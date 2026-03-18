@@ -59,7 +59,7 @@ export class Token {
   maxSupply?: number;
 
   // Price & Market
-  @Column({ type: 'decimal', precision: 20, scale: 9, default: 0 })
+  @Column({ type: 'decimal', precision: 30, scale: 9, default: 0 })
   price: number;
 
   @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 })
