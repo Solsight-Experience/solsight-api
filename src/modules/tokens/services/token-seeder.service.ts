@@ -25,8 +25,8 @@ export class TokenSeederService implements OnModuleInit {
   async onModuleInit() {
     console.log('Initializing TokenSeederService...');
     await this.seedTokens();
-    // await this.updateTokenDecimals();
-    // this.updateTokenOnChainData();
+    await this.updateTokenDecimals();
+    this.updateTokenOnChainData();
   }
 
   async seedTokens() {

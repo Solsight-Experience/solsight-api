@@ -2,6 +2,7 @@ import { Controller, Get, Param, NotFoundException, Query, Body, Post } from '@n
 import { TokensService } from '../services/tokens.service';
 import { TokenSummaryService } from '../services/token-summary.service';
 import { SummarizeTokenRequestDto, TokenSummaryResponseDto } from '../dtos/token-summary.dto';
+import { ChartQueryDto } from '../dtos/token.chart.dto';
 
 @Controller('tokens')
 export class TokensController {
@@ -24,6 +25,11 @@ export class TokensController {
     @Body() filterDto: any,
   ) {
     return this.tokensService.filter(filterDto, limit, sort_by, sort_order, offset);
+  }
+
+  @Get(':address/chart')
+  getChart(@Param('address') address: string, @Query() query: ChartQueryDto) {
+    return this.tokensService.getChartData(address, query);
   }
 
   @Get(':address')
