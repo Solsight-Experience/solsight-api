@@ -262,9 +262,30 @@ export class TokensService {
     return validDays.find((d) => d >= raw) ?? 365;
   }
 
+  private readonly REALTIME_INTERVALS: OhlcInterval[] = ['10s', '1m', '5m'];
+
   async getChartData(address: string, query: ChartQueryDto): Promise<ChartResponseDto> {
     const { interval, limit = 500 } = query;
     const limitNum = Number(limit);
+
+    // Real-time intervals (10s/1m/5m): serve from Redis
+    if (this.REALTIME_INTERVALS.includes(interval as OhlcInterval)) {
+      const raw = await this.ohlcAggregationService.getHistoricalOhlc(address, interval as OhlcInterval, limitNum);
+      const points = raw.map((p) => ({
+        timestamp: p.timestamp,
+        open: p.open,
+        high: p.high,
+        low: p.low,
+        close: p.close,
+        volume: p.volume ?? 0,
+      }));
+      for (let i = 1; i < points.length; i++) {
+        points[i].open = points[i - 1].close;
+      }
+      return { interval, points };
+    }
+
+    // Historical intervals: CoinGecko + DB
     const days = this.calcDays(interval, limitNum);
     const to = Date.now();
     const from = to - days * 86_400_000;
@@ -327,7 +348,7 @@ export class TokensService {
   }
 
   private mapCandles(candles: OhlcCandle[]) {
-    return candles.map((c) => ({
+    const points = candles.map((c) => ({
       timestamp: Number(c.timestamp),
       open: Number(c.open),
       high: Number(c.high),
@@ -335,6 +356,13 @@ export class TokensService {
       close: Number(c.close),
       volume: Number(c.volume),
     }));
+
+    // Ensure close[i] == open[i+1] (candlestick continuity)
+    for (let i = 1; i < points.length; i++) {
+      points[i].open = points[i - 1].close;
+    }
+
+    return points;
   }
 
   async updateToken(address: string, data: Partial<Token>) {
