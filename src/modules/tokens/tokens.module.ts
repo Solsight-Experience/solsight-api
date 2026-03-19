@@ -30,7 +30,7 @@ import { GeminiModule } from '../../infra/gemini/gemini.module';
     HolderAggregationService,
     TokenSummaryService,
     PromptBuilderService,
-    // TokenSeederService,
+    TokenSeederService,
   ],
   controllers: [TokensController],
   exports: [TokensService],

@@ -29,7 +29,8 @@ export default () => ({
       searchToken: process.env.JUPITER_TOKEN_SEARCH_API || 'https://lite-api.jup.ag/tokens/v2/search?query=',
     },
     coingeckoApi: {
-      searchTokenId: process.env.COINGECKO_LIST_API || 'https://api.coingecko.com/api/v3/coins/list',
+      searchTokenId:
+        process.env.COINGECKO_LIST_API || 'https://api.coingecko.com/api/v3/coins/list?include_platform=true',
     },
   },
 
