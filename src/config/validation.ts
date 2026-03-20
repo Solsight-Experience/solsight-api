@@ -43,6 +43,10 @@ export const validationSchema = Joi.object({
   // CORS
   CORS_ORIGIN: Joi.string().default('http://localhost:3000'),
 
+  // Jupiter
+  JUPITER_API_URL: Joi.string().uri(),
+  JUPITER_API_KEY: Joi.string(),
+
   // LLM
   LLM_API_KEY: Joi.string().required(),
   LLM_API_URL: Joi.string().uri().default('https://api.openai.com/v1'),

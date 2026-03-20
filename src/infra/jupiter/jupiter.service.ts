@@ -1,15 +1,14 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-// eslint-disable-next-line @typescript-eslint/ban-ts-comment
-// @ts-ignore
 import axios, { AxiosInstance } from 'axios';
 
-export interface JupiterTokenPrice {
-  id: string;
-  mintSymbol: string;
-  vsToken: string;
-  vsTokenSymbol: string;
-  price: number;
+export interface JupiterPriceV3Item {
+  createdAt: string;
+  liquidity: number;
+  usdPrice: number;
+  blockId: number | null;
+  decimals: number;
+  priceChange24h: number | null;
 }
 
 export interface JupiterToken {
@@ -19,6 +18,18 @@ export interface JupiterToken {
   name: string;
   symbol: string;
   logoURI?: string;
+  tags?: string[];
+  extensions?: {
+    coingeckoId?: string;
+  };
+}
+
+interface JupiterTokenV2 {
+  id: string;
+  decimals: number;
+  name: string;
+  symbol: string;
+  icon?: string | null;
   tags?: string[];
   extensions?: {
     coingeckoId?: string;
@@ -66,50 +77,37 @@ export interface ExecuteResponse {
 export class JupiterService {
   private readonly logger = new Logger(JupiterService.name);
   private readonly apiClient: AxiosInstance;
-  private readonly priceApiClient: AxiosInstance;
-  private readonly triggerApiClient: AxiosInstance;
   private tokenListCache: JupiterToken[] = [];
   private tokenListCacheTime = 0;
   private readonly CACHE_DURATION = 3600000; // 1 hour
 
   constructor(private readonly configService: ConfigService) {
-    const apiUrl = this.configService.get<string>('jupiter.apiUrl');
-    const priceApiUrl = this.configService.get<string>('jupiter.priceApiUrl');
-    const triggerApiUrl = this.configService.get<string>('jupiter.triggerApiUrl');
+    const baseUrl = this.configService.get<string>('jupiter.apiUrl');
     const apiKey = this.configService.get<string>('jupiter.apiKey');
 
     this.apiClient = axios.create({
-      baseURL: apiUrl,
+      baseURL: baseUrl,
       timeout: 10000,
       headers: {
         'Content-Type': 'application/json',
+        'x-api-key': apiKey,
       },
     });
 
-    this.priceApiClient = axios.create({
-      baseURL: priceApiUrl,
-      timeout: 10000,
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    });
+    this.logger.log(`Jupiter API initialized: ${baseUrl}`);
+  }
 
-    const triggerHeaders: Record<string, string> = {
-      'Content-Type': 'application/json',
+  private normalizeToken(token: JupiterTokenV2): JupiterToken {
+    return {
+      address: token.id,
+      chainId: 101,
+      decimals: token.decimals,
+      name: token.name,
+      symbol: token.symbol,
+      logoURI: token.icon || undefined,
+      tags: token.tags,
+      extensions: token.extensions,
     };
-    if (apiKey) {
-      triggerHeaders['x-api-key'] = apiKey;
-    }
-
-    this.triggerApiClient = axios.create({
-      baseURL: triggerApiUrl,
-      timeout: 15000,
-      headers: triggerHeaders,
-    });
-
-    this.logger.log(`Jupiter API initialized: ${apiUrl}`);
-    this.logger.log(`Jupiter Price API initialized: ${priceApiUrl}`);
-    this.logger.log(`Jupiter Trigger API initialized: ${triggerApiUrl}`);
   }
 
   /**
@@ -118,21 +116,29 @@ export class JupiterService {
    * @returns Map of token address to price in USD
    */
   async getTokenPrices(tokenAddresses: string[]): Promise<Map<string, number>> {
-    try {
-      const ids = tokenAddresses.join(',');
-      const response = await this.priceApiClient.get<{
-        data: Record<string, JupiterTokenPrice>;
-      }>('/price', {
-        params: {
-          ids,
-          vsToken: 'USDC', // Price in USDC
-        },
-      });
+    if (tokenAddresses.length === 0) {
+      return new Map();
+    }
 
+    try {
       const priceMap = new Map<string, number>();
-      if (response.data && response.data.data) {
-        for (const [address, priceData] of Object.entries(response.data.data)) {
-          priceMap.set(address, priceData.price);
+      const chunkSize = 50;
+
+      for (let i = 0; i < tokenAddresses.length; i += chunkSize) {
+        const ids = tokenAddresses.slice(i, i + chunkSize).join(',');
+
+        const response = await this.apiClient.get<Record<string, JupiterPriceV3Item>>('/price/v3', {
+          params: { ids },
+        });
+
+        if (!response.data) {
+          continue;
+        }
+
+        for (const [address, priceData] of Object.entries(response.data)) {
+          if (typeof priceData.usdPrice === 'number') {
+            priceMap.set(address, priceData.usdPrice);
+          }
         }
       }
 
@@ -164,8 +170,12 @@ export class JupiterService {
     }
 
     try {
-      const response = await this.apiClient.get<JupiterToken[]>('/tokens');
-      this.tokenListCache = response.data;
+      const response = await this.apiClient.get<JupiterTokenV2[]>('/tokens/v2/tag', {
+        params: {
+          query: 'verified',
+        },
+      });
+      this.tokenListCache = Array.isArray(response.data) ? response.data.map((token) => this.normalizeToken(token)) : [];
       this.tokenListCacheTime = now;
 
       this.logger.log(`Fetched ${this.tokenListCache.length} tokens from Jupiter`);
@@ -180,20 +190,44 @@ export class JupiterService {
    * Get token info by address
    */
   async getTokenInfo(tokenAddress: string): Promise<JupiterToken | null> {
-    const tokens = await this.getTokenList();
-    return tokens.find((t) => t.address === tokenAddress) || null;
+    try {
+      const response = await this.apiClient.get<JupiterTokenV2[]>('/tokens/v2/search', {
+        params: {
+          query: tokenAddress,
+        },
+      });
+
+      if (!Array.isArray(response.data) || response.data.length === 0) {
+        return null;
+      }
+
+      const matchedToken = response.data.find((token) => token.id === tokenAddress) || response.data[0];
+      return this.normalizeToken(matchedToken);
+    } catch (error) {
+      this.logger.error(`Failed to fetch token info for ${tokenAddress} from Jupiter`, error);
+      return null;
+    }
   }
 
   /**
    * Search tokens by symbol or name
    */
   async searchTokens(query: string): Promise<JupiterToken[]> {
-    const tokens = await this.getTokenList();
-    const lowerQuery = query.toLowerCase();
+    try {
+      const response = await this.apiClient.get<JupiterTokenV2[]>('/tokens/v2/search', {
+        params: {
+          query,
+        },
+      });
 
-    return tokens.filter(
-      (t) => t.symbol.toLowerCase().includes(lowerQuery) || t.name.toLowerCase().includes(lowerQuery),
-    );
+      const tokens = Array.isArray(response.data) ? response.data.map((token) => this.normalizeToken(token)) : [];
+
+      this.logger.log(`Found ${tokens.length} Jupiter tokens for query: ${query}`);
+      return tokens;
+    } catch (error) {
+      this.logger.error(`Failed to search tokens for query: ${query}`, error);
+      return [];
+    }
   }
 
   /**
@@ -203,7 +237,7 @@ export class JupiterService {
     try {
       this.logger.log(`Creating limit order: ${params.inputMint} -> ${params.outputMint}`);
 
-      const response = await this.triggerApiClient.post<CreateOrderResponse>('/createOrder', params);
+      const response = await this.apiClient.post<CreateOrderResponse>('/trigger/v1/createOrder', params);
 
       this.logger.log(`Order created successfully: ${response.data.order}`);
       return response.data;
@@ -220,7 +254,7 @@ export class JupiterService {
     try {
       this.logger.log(`Canceling order: ${order}`);
 
-      const response = await this.triggerApiClient.post<CancelOrderResponse>('/cancelOrder', {
+      const response = await this.apiClient.post<CancelOrderResponse>('/trigger/v1/cancelOrder', {
         maker,
         order,
         computeUnitPrice,
@@ -241,7 +275,11 @@ export class JupiterService {
     try {
       this.logger.log(`Canceling ${orders?.length || 'all'} orders for maker: ${maker}`);
 
-      const payload: any = {
+      const payload: {
+        maker: string;
+        computeUnitPrice: string;
+        orders?: string[];
+      } = {
         maker,
         computeUnitPrice,
       };
@@ -250,7 +288,7 @@ export class JupiterService {
         payload.orders = orders;
       }
 
-      const response = await this.triggerApiClient.post<CancelOrdersResponse>('/cancelOrders', payload);
+      const response = await this.apiClient.post<CancelOrdersResponse>('/trigger/v1/cancelOrders', payload);
 
       this.logger.log(`Orders cancelled successfully`);
       return response.data;
@@ -269,9 +307,17 @@ export class JupiterService {
     inputMint?: string,
     outputMint?: string,
     page = 1,
+    includeFailedTx?: boolean,
   ): Promise<any> {
     try {
-      const params: any = {
+      const params: {
+        user: string;
+        orderStatus: 'active' | 'history';
+        page: number;
+        inputMint?: string;
+        outputMint?: string;
+        includeFailedTx?: 'true' | 'false';
+      } = {
         user,
         orderStatus,
         page,
@@ -283,10 +329,13 @@ export class JupiterService {
       if (outputMint) {
         params.outputMint = outputMint;
       }
+      if (includeFailedTx !== undefined) {
+        params.includeFailedTx = includeFailedTx ? 'true' : 'false';
+      }
 
       this.logger.log(`Getting ${orderStatus} orders for user: ${user}`);
 
-      const response = await this.triggerApiClient.get('/getTriggerOrders', {
+      const response = await this.apiClient.get('/trigger/v1/getTriggerOrders', {
         params,
       });
 
@@ -304,7 +353,7 @@ export class JupiterService {
     try {
       this.logger.log(`Executing order with requestId: ${requestId}`);
 
-      const response = await this.triggerApiClient.post<ExecuteResponse>('/execute', {
+      const response = await this.apiClient.post<ExecuteResponse>('/trigger/v1/execute', {
         requestId,
         signedTransaction,
       });

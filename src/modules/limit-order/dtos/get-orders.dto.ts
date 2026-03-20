@@ -1,4 +1,4 @@
-import { IsString, IsEnum, IsOptional, IsNumber, Min } from 'class-validator';
+import { IsString, IsEnum, IsOptional, IsNumber, Min, IsBoolean } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export enum OrderStatus {
@@ -29,4 +29,9 @@ export class GetOrdersDto {
   @IsOptional()
   @Min(1)
   page?: number;
+
+  @Type(() => Boolean)
+  @IsBoolean()
+  @IsOptional()
+  includeFailedTx?: boolean;
 }

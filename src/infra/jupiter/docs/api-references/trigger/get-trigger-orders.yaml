@@ -1,0 +1,295 @@
+openapi: 3.0.0
+info:
+  title: Jupiter Trigger Order API
+  version: 1.0.0
+  description: Jupiter Trigger Order API Schema
+servers:
+  - url: https://api.jup.ag/trigger/v1
+    description: Jupiter Trigger Order API Endpoint
+security: []
+paths:
+  /getTriggerOrders:
+    get:
+      summary: getTriggerOrders
+      description: >
+        Request for the active or historical orders associated to the provided
+        account
+      parameters:
+        - schema:
+            type: string
+            example: jdocuPgEAjMfihABsPgKEvYtsmMzjUHeq9LX4Hvs7f3
+          required: true
+          name: user
+          in: query
+        - schema:
+            type: string
+            default: '1'
+          required: false
+          name: page
+          in: query
+        - schema:
+            type: string
+            enum:
+              - 'true'
+              - 'false'
+            description: Whether to include failed transactions, expects 'true' or 'false'
+          required: false
+          description: Whether to include failed transactions, expects 'true' or 'false'
+          name: includeFailedTx
+          in: query
+        - schema:
+            type: string
+            enum:
+              - active
+              - history
+            description: The status of the orders to return
+          required: true
+          description: The status of the orders to return
+          name: orderStatus
+          in: query
+        - schema:
+            type: string
+          required: false
+          description: The input mint to filter by
+          name: inputMint
+          in: query
+        - schema:
+            type: string
+          required: false
+          description: The output mint to filter by
+          name: outputMint
+          in: query
+      responses:
+        '200':
+          description: Returns the open orders associated to the provided account hash
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user:
+                    type: string
+                    description: The requested user's wallet public key
+                  orderStatus:
+                    type: string
+                    enum:
+                      - active
+                      - history
+                    description: The status of the requested orders
+                  orders:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        userPubkey:
+                          type: string
+                        orderKey:
+                          type: string
+                        inputMint:
+                          type: string
+                        outputMint:
+                          type: string
+                        makingAmount:
+                          type: string
+                        takingAmount:
+                          type: string
+                        remainingMakingAmount:
+                          type: string
+                        remainingTakingAmount:
+                          type: string
+                        rawMakingAmount:
+                          type: string
+                        rawTakingAmount:
+                          type: string
+                        rawRemainingMakingAmount:
+                          type: string
+                        rawRemainingTakingAmount:
+                          type: string
+                        slippageBps:
+                          type: string
+                        expiredAt:
+                          type: string
+                          nullable: true
+                        createdAt:
+                          type: string
+                        updatedAt:
+                          type: string
+                        status:
+                          type: string
+                          description: |
+                            An open order with trades indicates that it has been
+                            partially filled
+                        openTx:
+                          type: string
+                        closeTx:
+                          type: string
+                        programVersion:
+                          type: string
+                        trades:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              orderKey:
+                                type: string
+                              keeper:
+                                type: string
+                              inputMint:
+                                type: string
+                              outputMint:
+                                type: string
+                              inputAmount:
+                                type: string
+                              outputAmount:
+                                type: string
+                              rawInputAmount:
+                                type: string
+                              rawOutputAmount:
+                                type: string
+                              feeMint:
+                                type: string
+                              feeAmount:
+                                type: string
+                              rawFeeAmount:
+                                type: string
+                              txId:
+                                type: string
+                              confirmedAt:
+                                type: string
+                              action:
+                                type: string
+                              productMeta:
+                                nullable: true
+                            required:
+                              - orderKey
+                              - keeper
+                              - inputMint
+                              - outputMint
+                              - inputAmount
+                              - outputAmount
+                              - rawInputAmount
+                              - rawOutputAmount
+                              - feeMint
+                              - feeAmount
+                              - rawFeeAmount
+                              - txId
+                              - confirmedAt
+                              - action
+                      required:
+                        - userPubkey
+                        - orderKey
+                        - inputMint
+                        - outputMint
+                        - makingAmount
+                        - takingAmount
+                        - remainingMakingAmount
+                        - remainingTakingAmount
+                        - rawMakingAmount
+                        - rawTakingAmount
+                        - rawRemainingMakingAmount
+                        - rawRemainingTakingAmount
+                        - slippageBps
+                        - expiredAt
+                        - createdAt
+                        - updatedAt
+                        - status
+                        - openTx
+                        - closeTx
+                        - programVersion
+                        - trades
+                  totalPages:
+                    type: number
+                    description: Total number of pages
+                  page:
+                    type: number
+                required:
+                  - user
+                  - orderStatus
+                  - orders
+                  - totalPages
+                  - page
+                example:
+                  user: jdocuPgEAjMfihABsPgKEvYtsmMzjUHeq9LX4Hvs7f3
+                  orderStatus: history
+                  orders:
+                    - userPubkey: jdocuPgEAjMfihABsPgKEvYtsmMzjUHeq9LX4Hvs7f3
+                      orderKey: 99uWTWukow8k7dqcpbYoHxTAWGvn1YkT1VMmnEeTjuDr
+                      inputMint: So11111111111111111111111111111111111111112
+                      outputMint: HeLp6NuQkmYB4pYWo2zYs22mESHXPQYzXbB8n4V98jwC
+                      makingAmount: '0.05'
+                      takingAmount: '32.071840924'
+                      remainingMakingAmount: '0'
+                      remainingTakingAmount: '0'
+                      rawMakingAmount: '50000000'
+                      rawTakingAmount: '32071840924'
+                      rawRemainingMakingAmount: '0'
+                      rawRemainingTakingAmount: '0'
+                      slippageBps: '0'
+                      expiredAt: null
+                      createdAt: '2025-03-17T08:07:25Z'
+                      updatedAt: '2025-03-17T08:09:37Z'
+                      status: Completed
+                      openTx: >
+                        466G3XxE4NzxCj136SXe4BSjXzCVBQdvn6RsHMNGN2DGCS9PSceJSACqEWCxx22hsCXcEskvEFdm44wsHCF1auvL
+                      closeTx: >
+                        3PDo3pMJLqvAfNXwYjY7BSP57ZNQ5DgYDeK6xYszUVMneHzAZBQzsBSskym8uveMoLC4G8N8DjPaLBY726ZsBZvT
+                      programVersion: j1o2qRpjcyUwEvwtcfhEQefh773ZgjxcVRry7LDqg5X
+                      trades:
+                        - orderKey: 99uWTWukow8k7dqcpbYoHxTAWGvn1YkT1VMmnEeTjuDr
+                          keeper: j1oAbxxiDUWvoHxEDhWE7THLjEkDQW2cSHYn2vttxTF
+                          inputMint: So11111111111111111111111111111111111111112
+                          outputMint: HeLp6NuQkmYB4pYWo2zYs22mESHXPQYzXbB8n4V98jwC
+                          inputAmount: '0.05'
+                          outputAmount: '32.071840924'
+                          rawInputAmount: '50000000'
+                          rawOutputAmount: '32071840924'
+                          feeMint: DtL4JtjXwsJQndqXyd6ytJSmWDLWLESoXc7MkYNRQF9J
+                          feeAmount: '0'
+                          rawFeeAmount: '0'
+                          txId: >
+                            3PDo3pMJLqvAfNXwYjY7BSP57ZNQ5DgYDeK6xYszUVMneHzAZBQzsBSskym8uveMoLC4G8N8DjPaLBY726ZsBZvT
+                          confirmedAt: '2025-03-17T08:09:37Z'
+                          action: Fill
+                          productMeta: null
+                  totalPages: 1
+                  page: 1
+              example:
+                user: BQ72nSv9f3PRyRKCBnHLVrerrv37CYTHm5h3s9VSGQDV
+                orderStatus: open
+                orders:
+                  - userPubkey: BQ72nSv9f3PRyRKCBnHLVrerrv37CYTHm5h3s9VSGQDV
+                    orderKey: 7nE9GJoYHNmtaQvTQpota3KV2oz4pQ2dA6nvYK8EUJHV
+                    inputMint: So11111111111111111111111111111111111111112
+                    outputMint: EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v
+                    makingAmount: '1.0'
+                    takingAmount: '200.0'
+                    remainingMakingAmount: '1.0'
+                    remainingTakingAmount: '200.0'
+                    rawMakingAmount: '1000000000'
+                    rawTakingAmount: '200000000'
+                    rawRemainingMakingAmount: '1000000000'
+                    rawRemainingTakingAmount: '200000000'
+                    slippageBps: '50'
+                    expiredAt: null
+                    createdAt: '2025-03-15T10:30:00.000Z'
+                    updatedAt: '2025-03-15T10:30:00.000Z'
+                    status: Open
+                    openTx: 4xKpN2...
+                    closeTx: null
+                    programVersion: j1to
+                    trades: []
+                totalPages: 1
+                page: 1
+        '400':
+          description: Bad request body
+        '500':
+          description: Internal error
+      security:
+        - ApiKeyAuth: []
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: x-api-key
+      description: Get API key via https://portal.jup.ag

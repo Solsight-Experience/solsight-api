@@ -103,6 +103,7 @@ export class LimitOrderService {
         getOrdersDto.inputMint,
         getOrdersDto.outputMint,
         getOrdersDto.page || 1,
+        getOrdersDto.includeFailedTx,
       );
 
       return {
