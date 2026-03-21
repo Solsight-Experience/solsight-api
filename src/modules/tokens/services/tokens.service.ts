@@ -2,23 +2,15 @@ import { Injectable } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Between, FindOptionsOrderValue, ILike, Repository } from "typeorm";
 import { Token } from "../entities/token.entity";
-import {
-    TokenResponseDto,
-    TokenDetailsResponseDto,
-    TokenResponseOnchainData,
-    TokenResponseMetadata,
-    TokenOverviewResponseDto
-} from "../dtos/token.response.dto";
+import { TokenResponseDto, TokenDetailsResponseDto } from "../dtos/token.response.dto";
 import { SolanaService } from "src/infra/solana/solana.service";
 import { JupiterService } from "src/infra/jupiter/jupiter.service";
 import { CoinGeckoService } from "src/infra/coingecko/coingecko.service";
-import { Connection, PublicKey } from "@solana/web3.js";
 import { TokenFilterConditionDto, TokenFilterResponseDto } from "../dtos/token.filter.dto";
-import { mapJupiterTokenToEntity, mapTokenEntityToResponseDto } from "../mapper/token.mapper";
+import { mapJupiterTokenToEntity, mapTokenEntityToResponseDto, mapTokenEntityToOverviewDto } from "../mapper/token.mapper";
 
 @Injectable()
 export class TokensService {
-    private connection: Connection;
     private network: string;
 
     constructor(
@@ -28,7 +20,6 @@ export class TokensService {
         private readonly jupiterService: JupiterService,
         private readonly coinGeckoService: CoinGeckoService
     ) {
-        this.connection = this.solanaService.getConnection();
         this.network = this.solanaService.getNetwork();
     }
 
@@ -64,26 +55,8 @@ export class TokensService {
             where: [{ name: ILike(`%${query}%`) }, { symbol: ILike(`%${query}%`) }, { address: ILike(`%${query}%`) }],
             take: limit
         });
-        const onchainDataList: TokenResponseOnchainData[] = await this.getOnchainData(tokens.map((token) => token.address));
-        const result: TokenDetailsResponseDto[] = [];
-        for (const [index, token] of tokens.entries()) {
-            const metadataResponse: TokenResponseMetadata = {
-                address: token.address,
-                symbol: token.symbol,
-                name: token.name,
-                logo_uri: token.logoUri || null,
-                network: this.network,
-                description: token.description || null,
-                website: token.website || null,
-                social_links: {
-                    twitter: token.socialLinks?.twitter || null,
-                    telegram: token.socialLinks?.telegram || null,
-                    discord: token.socialLinks?.discord || null
-                }
-            };
-            result.push({ ...metadataResponse, ...onchainDataList[index] });
-        }
-        return result;
+
+        return tokens.map((token) => mapTokenEntityToResponseDto(token, this.network));
     }
 
     async filter(
@@ -149,6 +122,7 @@ export class TokensService {
         const tokens = await this.tokenRepository.find({
             take: limit,
             skip: offset,
+            relations: ["category"],
             order: column
                 ? {
                       [column]: orderValue
@@ -159,55 +133,8 @@ export class TokensService {
                 [{ name: ILike(`%${filter.search_query}%`) }, { symbol: ILike(`%${filter.search_query}%`) }, { address: ILike(`%${filter.search_query}%`) }]
             ]
         });
-        const responseTokens: TokenOverviewResponseDto[] = tokens.map((token: Token) => {
-            return {
-                address: token.address ?? null,
-                symbol: token.symbol ?? null,
-                name: token.name ?? null,
-                logo_uri: token.logoUri ?? null,
-                network: this.network ?? null,
-                category: null,
-                age_seconds: Math.floor(new Date(token?.createdAt || new Date()).getTime() / 1000),
 
-                price: token?.price ?? null,
-                price_change_1h: token?.priceChange1h ?? null,
-                price_change_24h: token?.priceChange24h ?? null,
-                price_change_7d: token?.priceChange7d ?? null,
-
-                market_cap: token?.marketCap ?? null,
-                market_cap_change_24h: token?.marketCapChange24h ?? null,
-
-                fdv: token.fdv ?? null,
-                liquidity: token.liquidity ?? null,
-                liquidity_change_24h: token.liquidityChange24h ?? null,
-
-                volume_24h: token.volume24h ?? null,
-                volume_change_24h: token.volumeChange24h ?? null,
-
-                txns_24h: {
-                    total: token.txns24hTotal ?? null,
-                    buys: token.txns24hBuys ?? null,
-                    sells: token.txns24hSells ?? null,
-                    change_24h: token.txns24hChange ?? null
-                },
-
-                holders: {
-                    count: token.holdersCount,
-                    change_24h: token.holdersChange24h,
-                    unique_wallets_24h: token.uniqueWallets24h,
-                    top_10_percent: token.top10Percent,
-                    insider_percent: token.insiderPercent
-                },
-
-                audit: {
-                    mint_authority_disabled: token.mintAuthorityDisabled,
-                    freeze_authority_disabled: token.freezeAuthorityDisabled,
-                    lp_burnt: token.lpBurnt,
-                    has_social_links: token.hasSocialLinks
-                },
-                price_sparkline: []
-            };
-        });
+        const responseTokens = tokens.map((token) => mapTokenEntityToOverviewDto(token, this.network));
 
         return {
             tokens: responseTokens,
@@ -219,121 +146,5 @@ export class TokensService {
     async updateToken(address: string, data: Partial<Token>) {
         const token = await this.tokenRepository.upsert({ address, ...data }, ["address"]);
         return token;
-    }
-
-    async getTop20Holders(mintAddresses: string[]): Promise<
-        {
-            mintAddress: string;
-            holders: { address: string; amount: number }[];
-        }[]
-    > {
-        const results = await Promise.all(
-            mintAddresses.map(async (mintAddress) => {
-                try {
-                    const largestAccounts = await this.connection.getTokenLargestAccounts(new PublicKey(mintAddress));
-
-                    const holders =
-                        largestAccounts?.value?.map((acc) => ({
-                            address: acc.address.toBase58(),
-                            amount: acc.uiAmount ?? 0
-                        })) ?? [];
-
-                    return { mintAddress, holders };
-                } catch (error) {
-                    return { mintAddress, holders: [] };
-                }
-            })
-        );
-
-        return results;
-    }
-
-    async getOnchainData(addresses: string[]): Promise<TokenResponseOnchainData[]> {
-        const result: TokenResponseOnchainData[] = [];
-        const [holders, tokenPrices] = await Promise.all([this.getTop20Holders(addresses), this.jupiterService.getTokenPrices(addresses)]);
-        if (!tokenPrices || tokenPrices.size === 0) return result;
-        const holdersTop10AmountList = holders.map((h) => ({
-            mintAddress: h.mintAddress,
-            holderCount: h.holders.slice(0, 10).reduce((sum, holder) => sum + holder.amount, 0)
-        }));
-        const holdersTop20Amount = holders.map((h) => ({
-            mintAddress: h.mintAddress,
-            holderCount: h.holders.slice(0, 20).reduce((sum, holder) => sum + holder.amount, 0)
-        }));
-        for (const address of addresses) {
-            const price = tokenPrices.get(address) || null;
-            result.push({
-                age_seconds: null,
-                total_supply: null,
-                circulating_supply: null,
-                max_supply: null,
-
-                price,
-                price_change: {
-                    "1h": null,
-                    "24h": null,
-                    "7d": null,
-                    "30d": null
-                },
-
-                market_cap: null,
-                market_cap_change_24h: null,
-
-                fdv: null,
-                liquidity: null,
-                liquidity_change_24h: null,
-
-                volume: {
-                    "1h": 0,
-                    "24h": 0,
-                    "7d": 0,
-                    "30d": 0
-                },
-
-                txns: {
-                    "1h": {
-                        total: null,
-                        buys: null
-                    },
-                    "24h": {
-                        total: null,
-                        buys: null
-                    },
-                    "7d": {
-                        total: null,
-                        buys: null
-                    }
-                },
-                txns_change_24h: 0,
-
-                holders: {
-                    count: null,
-                    change_24h: null,
-                    unique_wallets_24h: null,
-                    top_10_percent: null,
-                    top_20_percent: null,
-                    insider_percent: null
-                },
-
-                audit: {
-                    mint_authority: {
-                        disabled: null,
-                        address: "-"
-                    },
-                    freeze_authority: {
-                        disabled: null,
-                        address: "-"
-                    },
-                    lp_burnt_percent: null,
-                    is_verified: null,
-                    risk_factors: null,
-                    risk_score: null
-                },
-
-                chart_data: [],
-                pools: []
-            });
-        }
-        return result;
     }
 }

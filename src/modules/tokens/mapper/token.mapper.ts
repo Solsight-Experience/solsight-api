@@ -1,6 +1,6 @@
 import { JupiterTokenMintInformation } from "src/infra/jupiter/types";
 import { Token } from "../entities/token.entity";
-import { TokenResponseDto, TokenResponseMetadata, TokenResponseOnchainData } from "../dtos/token.response.dto";
+import { TokenResponseDto, TokenResponseMetadata, TokenResponseOnchainData, TokenOverviewResponseDto } from "../dtos/token.response.dto";
 
 export function mapJupiterTokenToEntity(data: JupiterTokenMintInformation): Partial<Token> {
     const stats24h = data.stats24h;
@@ -149,4 +149,55 @@ export function mapTokenEntityToResponseDto(token: Token, network: string): Toke
     };
 
     return { ...metadata, ...onchainData };
+}
+
+export function mapTokenEntityToOverviewDto(token: Token, network: string): TokenOverviewResponseDto {
+    return {
+        address: token.address ?? null,
+        symbol: token.symbol ?? null,
+        name: token.name ?? null,
+        logo_uri: token.logoUri ?? null,
+        network: network ?? null,
+        category: token.category?.name ?? null,
+        age_seconds: token.ageSeconds ?? null,
+
+        price: token.price ?? null,
+        price_change_1h: token.priceChange1h ?? null,
+        price_change_24h: token.priceChange24h ?? null,
+        price_change_7d: token.priceChange7d ?? null,
+
+        market_cap: token.marketCap ?? null,
+        market_cap_change_24h: token.marketCapChange24h ?? null,
+
+        fdv: token.fdv ?? null,
+        liquidity: token.liquidity ?? null,
+        liquidity_change_24h: token.liquidityChange24h ?? null,
+
+        volume_24h: token.volume24h ?? null,
+        volume_change_24h: token.volumeChange24h ?? null,
+
+        txns_24h: {
+            total: token.txns24hTotal ?? null,
+            buys: token.txns24hBuys ?? null,
+            sells: token.txns24hSells ?? null,
+            change_24h: token.txns24hChange ?? null
+        },
+
+        holders: {
+            count: token.holdersCount ?? null,
+            change_24h: token.holdersChange24h ?? null,
+            unique_wallets_24h: token.uniqueWallets24h ?? null,
+            top_10_percent: token.top10Percent ?? null,
+            insider_percent: token.insiderPercent ?? null
+        },
+
+        audit: {
+            mint_authority_disabled: token.mintAuthorityDisabled ?? null,
+            freeze_authority_disabled: token.freezeAuthorityDisabled ?? null,
+            lp_burnt: token.lpBurnt ?? null,
+            has_social_links: token.hasSocialLinks ?? null
+        },
+
+        price_sparkline: token.priceSparkline ?? []
+    };
 }
