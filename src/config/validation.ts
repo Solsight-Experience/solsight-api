@@ -47,6 +47,10 @@ export const validationSchema = Joi.object({
     JUPITER_API_URL: Joi.string().uri(),
     JUPITER_API_KEY: Joi.string(),
 
+    // CoinGecko
+    COINGECKO_API_URL: Joi.string().uri().default("https://api.coingecko.com/api/v3"),
+    COINGECKO_API_KEY: Joi.string().optional(),
+
     // LLM
     LLM_API_KEY: Joi.string().required(),
     LLM_API_URL: Joi.string().uri().default("https://api.openai.com/v1"),
