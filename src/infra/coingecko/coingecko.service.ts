@@ -5,67 +5,9 @@ import { Cache } from "cache-manager";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore
 import axios, { AxiosInstance } from "axios";
+import { CoinGeckoMarketData, CoinGeckoCategory, CoinGeckoTrending, CoinGeckoSearchResult, CoinGeckoSearchCoin } from "./types";
 
 const CG_TTL = 5 * 60 * 1000; // 5 minutes
-
-export interface CoinGeckoMarketData {
-    id: string;
-    symbol: string;
-    name: string;
-    image: string;
-    current_price: number;
-    market_cap: number;
-    market_cap_rank: number;
-    fully_diluted_valuation: number;
-    total_volume: number;
-    high_24h: number;
-    low_24h: number;
-    price_change_24h: number;
-    price_change_percentage_24h: number;
-    price_change_percentage_1h_in_currency?: number;
-    price_change_percentage_7d_in_currency?: number;
-    market_cap_change_24h: number;
-    market_cap_change_percentage_24h: number;
-    circulating_supply: number;
-    total_supply: number;
-    max_supply: number;
-    ath: number;
-    ath_change_percentage: number;
-    ath_date: string;
-    atl: number;
-    atl_change_percentage: number;
-    atl_date: string;
-    last_updated: string;
-}
-
-export interface CoinGeckoCategory {
-    id: string;
-    name: string;
-    market_cap: number;
-    market_cap_change_24h: number;
-    content?: string;
-    top_3_coins?: string[];
-    volume_24h: number;
-    updated_at: string;
-}
-
-export interface CoinGeckoTrending {
-    coins: Array<{
-        item: {
-            id: string;
-            coin_id: number;
-            name: string;
-            symbol: string;
-            market_cap_rank: number;
-            thumb: string;
-            small: string;
-            large: string;
-            slug: string;
-            price_btc: number;
-            score: number;
-        };
-    }>;
-}
 
 @Injectable()
 export class CoinGeckoService {
@@ -282,21 +224,50 @@ export class CoinGeckoService {
 
     /**
      * Search coins by query
+     * @param query - Search query (coin name or symbol)
+     * @returns Search results containing coins, exchanges, categories, and nfts
      */
-    async searchCoins(query: string): Promise<any> {
+    async searchCoins(query: string): Promise<CoinGeckoSearchResult> {
         const cacheKey = `cg-search-${query.toLowerCase().trim()}`;
-        const cached = await this.cacheManager.get<any>(cacheKey);
+        const cached = await this.cacheManager.get<CoinGeckoSearchResult>(cacheKey);
         if (cached) return cached;
         try {
-            const data = await this.cgGet<any>("/search", { query });
+            const data = await this.cgGet<CoinGeckoSearchResult>("/search", { query });
 
             this.logger.log(`Search results for "${query}": ${data.coins?.length || 0} coins`);
             await this.cacheManager.set(cacheKey, data, CG_TTL);
             return data;
         } catch (error) {
             this.logger.error(`Failed to search coins for query: ${query}`, error);
-            return { coins: [] };
+            return { coins: [], exchanges: [], icos: [], categories: [], nfts: [] };
         }
+    }
+
+    /**
+     * Find CoinGecko ID by matching token symbol and name
+     * @param symbol - Token symbol (e.g., "JUP")
+     * @param name - Token name (e.g., "Jupiter")
+     * @returns CoinGecko coin ID if found, null otherwise
+     */
+    async findCoinGeckoId(symbol: string, name: string): Promise<string | null> {
+        const searchResult = await this.searchCoins(symbol);
+        if (!searchResult.coins || searchResult.coins.length === 0) {
+            return null;
+        }
+
+        // Try exact match on symbol and name (case-insensitive)
+        const exactMatch = searchResult.coins.find(
+            (coin) => coin.symbol.toLowerCase() === symbol.toLowerCase() && coin.name.toLowerCase() === name.toLowerCase()
+        );
+
+        if (exactMatch) {
+            return exactMatch.id;
+        }
+
+        // Fallback: match by symbol only and pick the highest ranked one
+        const symbolMatch = searchResult.coins.find((coin) => coin.symbol.toLowerCase() === symbol.toLowerCase());
+
+        return symbolMatch?.id ?? null;
     }
 
     /**

@@ -11,50 +11,52 @@ import {
 } from "../dtos/token.response.dto";
 import { SolanaService } from "src/infra/solana/solana.service";
 import { JupiterService } from "src/infra/jupiter/jupiter.service";
+import { CoinGeckoService } from "src/infra/coingecko/coingecko.service";
 import { Connection, PublicKey } from "@solana/web3.js";
-import { ConfigService } from "@nestjs/config";
 import { TokenFilterConditionDto, TokenFilterResponseDto } from "../dtos/token.filter.dto";
+import { mapJupiterTokenToEntity, mapTokenEntityToResponseDto } from "../mapper/token.mapper";
 
 @Injectable()
 export class TokensService {
     private connection: Connection;
     private network: string;
-    private coingeckoListUrl: string;
+
     constructor(
-        private readonly configService: ConfigService,
         @InjectRepository(Token)
         private readonly tokenRepository: Repository<Token>,
         private readonly solanaService: SolanaService,
-        private readonly jupiterService: JupiterService
+        private readonly jupiterService: JupiterService,
+        private readonly coinGeckoService: CoinGeckoService
     ) {
         this.connection = this.solanaService.getConnection();
         this.network = this.solanaService.getNetwork();
-
-        const coingeckoListUrl = this.configService.get<string>("solana.coingeckoApi.searchTokenId");
-        if (!coingeckoListUrl) {
-            throw new Error("Coingecko search token URL is required");
-        }
-        this.coingeckoListUrl = coingeckoListUrl;
     }
 
     async findOne(address: string): Promise<TokenResponseDto | null> {
-        const token = await this.tokenRepository.findOneBy({ address });
-        let metadata: Partial<Token> | null = null;
+        let token = await this.tokenRepository.findOneBy({ address });
+
         if (!token) {
-            metadata = await this.jupiterService.searchToken(address);
-            if (!metadata) {
+            const jupiterToken = await this.jupiterService.searchToken(address);
+            if (!jupiterToken) {
                 return null;
             }
-            await this.updateToken(address, metadata);
+            const tokenData = mapJupiterTokenToEntity(jupiterToken);
+
+            // Try to find CoinGecko ID for this token
+            const coingeckoId = await this.coinGeckoService.findCoinGeckoId(jupiterToken.symbol, jupiterToken.name);
+            if (coingeckoId) {
+                tokenData.coingeckoId = coingeckoId;
+            }
+
+            await this.updateToken(address, tokenData);
+            token = await this.tokenRepository.findOneBy({ address });
         }
-        const tokenMetadata = token ?? metadata;
-        if (!tokenMetadata) {
+
+        if (!token) {
             return null;
         }
 
-        return {
-            address: tokenMetadata.address
-        }
+        return mapTokenEntityToResponseDto(token, this.network);
     }
 
     async search(query: string, limit: number = 10): Promise<TokenDetailsResponseDto[]> {
@@ -218,65 +220,6 @@ export class TokensService {
         const token = await this.tokenRepository.upsert({ address, ...data }, ["address"]);
         return token;
     }
-
-    // async getMetadata(address: string): Promise<Partial<Token>> {
-    //     try {
-    //         // const [tokenInfo, coingeckoIdList] = await Promise.all([
-    //         //     this.jupiterService.searchToken(address),
-    //         //     fetch(this.coingeckoListUrl).then((res) => res.json())
-    //         // ]);
-    //         const tokenInfo
-    //         if (!tokenInfo || !coingeckoIdList) return {};
-    //         // if (coingeckoIdList.length == 0) return {};
-    //
-    //         // const coingeckoId = coingeckoIdList.find(
-    //         //     (c: any) => c.symbol.toLowerCase() == tokenInfo.symbol.toLowerCase() && c.name.toLowerCase() == tokenInfo.name.toLowerCase()
-    //         // )?.id;
-    //         return {
-    //             address: address,
-    //             symbol: tokenInfo.symbol,
-    //             name: tokenInfo.name,
-    //             logoUri: tokenInfo.icon || undefined,
-    //             decimals: tokenInfo.decimals,
-    //             website: tokenInfo.website,
-    //             socialLinks: {
-    //                 twitter: tokenInfo.twitter,
-    //                 telegram: tokenInfo.telegram,
-    //                 discord: tokenInfo.discord
-    //             },
-    //
-    //             // Price & Market Data
-    //             price: tokenInfo.usdPrice || 0,
-    //             fdv: tokenInfo.fdv || 0,
-    //             marketCap: tokenInfo.mcap || 0,
-    //             liquidity: tokenInfo.liquidity || 0,
-    //
-    //             // Supply Data
-    //             totalSupply: tokenInfo.totalSupply,
-    //             circulatingSupply: tokenInfo.circSupply,
-    //
-    //             // Holder Data
-    //             holdersCount: tokenInfo.holderCount || 0,
-    //
-    //             // 24h Statistics
-    //             priceChange24h: tokenInfo.stats24h?.priceChange || 0,
-    //             liquidityChange24h: tokenInfo.stats24h?.liquidityChange || 0,
-    //             volumeChange24h: tokenInfo.stats24h?.volumeChange || 0,
-    //             holdersChange24h: tokenInfo.stats24h?.holderChange || 0,
-    //             txns24hBuys: tokenInfo.stats24h?.numBuys || 0,
-    //             txns24hSells: tokenInfo.stats24h?.numSells || 0,
-    //             txns24hTotal: (tokenInfo.stats24h?.numBuys || 0) + (tokenInfo.stats24h?.numSells || 0),
-    //
-    //             // Security Audit Data
-    //             mintAuthorityDisabled: tokenInfo.audit?.mintAuthorityDisabled || false,
-    //             freezeAuthorityDisabled: tokenInfo.audit?.freezeAuthorityDisabled || false,
-    //             hasSocialLinks: !!(tokenInfo.twitter || tokenInfo.telegram || tokenInfo.discord)
-    //         };
-    //     } catch (e) {
-    //         console.log("error", e);
-    //         return {};
-    //     }
-    // }
 
     async getTop20Holders(mintAddresses: string[]): Promise<
         {

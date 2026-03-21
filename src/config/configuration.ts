@@ -24,10 +24,7 @@ export default () => ({
         heliusRpcUrl: process.env.HELIUS_RPC_URL,
         heliusApiKey: process.env.HELIUS_API_KEY,
         network: process.env.SOLANA_NETWORK || "mainnet-beta",
-        commitment: "confirmed",
-        coingeckoApi: {
-            searchTokenId: process.env.COINGECKO_LIST_API || "https://api.coingecko.com/api/v3/coins/list"
-        }
+        commitment: "confirmed"
     },
 
     jupiter: {

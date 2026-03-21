@@ -5,7 +5,8 @@ import { TokensService } from "./services/tokens.service";
 import { TokensController } from "./controllers/tokens.controller";
 import { TokenSeederService } from "./services/token-seeder.service";
 import { SolanaModule } from "src/infra/solana/solana.module";
-import { ConfigModule } from "@nestjs/config";
+import { JupiterModule } from "src/infra/jupiter/jupiter.module";
+import { CoinGeckoModule } from "src/infra/coingecko/coingecko.module";
 import { WebsocketModule } from "../../websocket/websocket.module";
 import { RedisModule } from "../../redis/redis.module";
 import { TokenSocketService } from "./services/socket/token.socket.service";
@@ -20,7 +21,7 @@ import { PromptBuilderService } from "./services/prompt-builder.service";
 import { GeminiModule } from "../../infra/gemini/gemini.module";
 
 @Module({
-    imports: [TypeOrmModule.forFeature([Token]), SolanaModule, ConfigModule, WebsocketModule, RedisModule, GeminiModule],
+    imports: [TypeOrmModule.forFeature([Token]), SolanaModule, JupiterModule, CoinGeckoModule, WebsocketModule, RedisModule, GeminiModule],
     providers: [
         TokensService,
         TokenSocketService,
