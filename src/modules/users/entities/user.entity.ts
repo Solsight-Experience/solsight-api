@@ -1,54 +1,54 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, OneToMany } from 'typeorm';
-import { Wallet } from '../../wallets/entities/wallet.entity';
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, OneToMany } from "typeorm";
+import { Wallet } from "../../wallets/entities/wallet.entity";
 
-@Entity('users')
+@Entity("users")
 export class User {
-  @PrimaryGeneratedColumn('uuid')
-  id: string;
+    @PrimaryGeneratedColumn("uuid")
+    id: string;
 
-  @Column({ type: 'varchar', unique: true })
-  email: string;
+    @Column({ type: "varchar", unique: true })
+    email: string;
 
-  @Column({ type: 'varchar' })
-  username: string;
+    @Column({ type: "varchar" })
+    username: string;
 
-  @Column({ type: 'varchar', select: false })
-  password?: string;
+    @Column({ type: "varchar", select: false })
+    password?: string;
 
-  @Column({ type: 'varchar', nullable: true })
-  firstName?: string;
+    @Column({ type: "varchar", nullable: true })
+    firstName?: string;
 
-  @Column({ type: 'varchar', nullable: true })
-  lastName?: string;
+    @Column({ type: "varchar", nullable: true })
+    lastName?: string;
 
-  @Column({ type: 'varchar', nullable: true })
-  avatar?: string;
+    @Column({ type: "varchar", nullable: true })
+    avatar?: string;
 
-  @Column({ default: true })
-  isActive: boolean;
+    @Column({ default: true })
+    isActive: boolean;
 
-  @Column({ default: false })
-  isEmailVerified: boolean;
+    @Column({ default: false })
+    isEmailVerified: boolean;
 
-  @Column({ type: 'varchar', nullable: true })
-  emailVerificationToken?: string | null;
+    @Column({ type: "varchar", nullable: true })
+    emailVerificationToken?: string | null;
 
-  @Column({ type: 'varchar', nullable: true })
-  passwordResetToken?: string | null;
+    @Column({ type: "varchar", nullable: true })
+    passwordResetToken?: string | null;
 
-  @Column({ type: 'timestamp', nullable: true })
-  passwordResetExpires?: Date | null;
-  @CreateDateColumn()
-  createdAt: Date;
+    @Column({ type: "timestamp", nullable: true })
+    passwordResetExpires?: Date | null;
+    @CreateDateColumn()
+    createdAt: Date;
 
-  @Column({ type: 'varchar', length: 255, nullable: true })
-  oauthProvider: string;
-  @Column({ type: 'varchar', length: 255, nullable: true })
-  oauthId: string;
+    @Column({ type: "varchar", length: 255, nullable: true })
+    oauthProvider: string;
+    @Column({ type: "varchar", length: 255, nullable: true })
+    oauthId: string;
 
-  @UpdateDateColumn()
-  updatedAt: Date;
+    @UpdateDateColumn()
+    updatedAt: Date;
 
-  @OneToMany(() => Wallet, (wallet) => wallet.user)
-  wallets: Wallet[];
+    @OneToMany(() => Wallet, (wallet) => wallet.user)
+    wallets: Wallet[];
 }

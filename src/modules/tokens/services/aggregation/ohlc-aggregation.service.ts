@@ -1,71 +1,71 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { RedisService } from '../../../../redis/services/redis.service';
-import { SwapEvent, OhlcData, SwapPriceResult } from '../../types/swap-event.type';
-import { OhlcInterval } from '../socket/room/room.constants';
+import { Injectable, Logger } from "@nestjs/common";
+import { RedisService } from "../../../../redis/services/redis.service";
+import { SwapEvent, OhlcData, SwapPriceResult } from "../../types/swap-event.type";
+import { OhlcInterval } from "../socket/room/room.constants";
 
 const INTERVAL_MS: Record<OhlcInterval, number> = {
-  '10s': 10 * 1000,
-  '1m': 60 * 1000,
-  '5m': 5 * 60 * 1000,
+    "10s": 10 * 1000,
+    "1m": 60 * 1000,
+    "5m": 5 * 60 * 1000
 };
 
 const INTERVAL_TTL: Record<OhlcInterval, number> = {
-  '10s': 60 * 60, // 1 hour
-  '1m': 6 * 60 * 60, // 6 hours
-  '5m': 24 * 60 * 60, // 24 hours
+    "10s": 60 * 60, // 1 hour
+    "1m": 6 * 60 * 60, // 6 hours
+    "5m": 24 * 60 * 60 // 24 hours
 };
 
 @Injectable()
 export class OhlcAggregationService {
-  private readonly logger = new Logger(OhlcAggregationService.name);
+    private readonly logger = new Logger(OhlcAggregationService.name);
 
-  constructor(private readonly redisService: RedisService) {}
+    constructor(private readonly redisService: RedisService) {}
 
-  async onSwapEvent(swap: SwapEvent, prices: SwapPriceResult): Promise<void> {
-    const intervals: OhlcInterval[] = ['10s', '1m', '5m'];
+    async onSwapEvent(swap: SwapEvent, prices: SwapPriceResult): Promise<void> {
+        const intervals: OhlcInterval[] = ["10s", "1m", "5m"];
 
-    for (const interval of intervals) {
-      await this.updateOhlc(swap.token_out.mint, interval, prices.priceUsdTokenOut, prices.volumeUsdTokenOut);
-      await this.updateOhlc(swap.token_in.mint, interval, prices.priceUsdTokenIn, prices.volumeUsdTokenIn);
+        for (const interval of intervals) {
+            await this.updateOhlc(swap.token_out.mint, interval, prices.priceUsdTokenOut, prices.volumeUsdTokenOut);
+            await this.updateOhlc(swap.token_in.mint, interval, prices.priceUsdTokenIn, prices.volumeUsdTokenIn);
+        }
     }
-  }
 
-  async getOhlc(tokenMint: string, interval: OhlcInterval): Promise<OhlcData | null> {
-    const redis = this.redisService.getClient();
-    if (!redis) return null;
+    async getOhlc(tokenMint: string, interval: OhlcInterval): Promise<OhlcData | null> {
+        const redis = this.redisService.getClient();
+        if (!redis) return null;
 
-    try {
-      const bucket = this.getBucketTimestamp(interval);
-      const key = `ohlc:${tokenMint}:${interval}:${bucket}`;
-      const data = await redis.hgetall(key);
+        try {
+            const bucket = this.getBucketTimestamp(interval);
+            const key = `ohlc:${tokenMint}:${interval}:${bucket}`;
+            const data = await redis.hgetall(key);
 
-      if (!data || Object.keys(data).length === 0) {
-        return null;
-      }
+            if (!data || Object.keys(data).length === 0) {
+                return null;
+            }
 
-      return {
-        open: parseFloat(data.open) || 0,
-        high: parseFloat(data.high) || 0,
-        low: parseFloat(data.low) || 0,
-        close: parseFloat(data.close) || 0,
-        volume: parseFloat(data.volume) || 0,
-      };
-    } catch (error) {
-      this.logger.error(`Redis error in getOhlc for "${tokenMint}" interval "${interval}":`, error);
-      return null;
+            return {
+                open: parseFloat(data.open) || 0,
+                high: parseFloat(data.high) || 0,
+                low: parseFloat(data.low) || 0,
+                close: parseFloat(data.close) || 0,
+                volume: parseFloat(data.volume) || 0
+            };
+        } catch (error) {
+            this.logger.error(`Redis error in getOhlc for "${tokenMint}" interval "${interval}":`, error);
+            return null;
+        }
     }
-  }
 
-  private async updateOhlc(tokenMint: string, interval: OhlcInterval, price: number, volume: number): Promise<void> {
-    const redis = this.redisService.getClient();
-    if (!redis) return;
+    private async updateOhlc(tokenMint: string, interval: OhlcInterval, price: number, volume: number): Promise<void> {
+        const redis = this.redisService.getClient();
+        if (!redis) return;
 
-    try {
-      const bucket = this.getBucketTimestamp(interval);
-      const bucketKey = `ohlc:${tokenMint}:${interval}:${bucket}`;
-      const lastCloseKey = `ohlc:${tokenMint}:${interval}:last_close`;
+        try {
+            const bucket = this.getBucketTimestamp(interval);
+            const bucketKey = `ohlc:${tokenMint}:${interval}:${bucket}`;
+            const lastCloseKey = `ohlc:${tokenMint}:${interval}:last_close`;
 
-      const luaScript = `
+            const luaScript = `
       local bucketKey = KEYS[1]
       local lastCloseKey = KEYS[2]
       local price = tonumber(ARGV[1])
@@ -115,15 +115,15 @@ export class OhlcAggregationService {
       return 1
     `;
 
-      await redis.eval(luaScript, 2, bucketKey, lastCloseKey, price, volume, INTERVAL_TTL[interval]);
-    } catch (error) {
-      this.logger.error(`Redis error in updateOhlc for "${tokenMint}" interval "${interval}":`, error);
+            await redis.eval(luaScript, 2, bucketKey, lastCloseKey, price, volume, INTERVAL_TTL[interval]);
+        } catch (error) {
+            this.logger.error(`Redis error in updateOhlc for "${tokenMint}" interval "${interval}":`, error);
+        }
     }
-  }
 
-  getBucketTimestamp(interval: OhlcInterval): number {
-    const now = Date.now();
-    const intervalMs = INTERVAL_MS[interval];
-    return Math.floor(now / intervalMs) * intervalMs;
-  }
+    getBucketTimestamp(interval: OhlcInterval): number {
+        const now = Date.now();
+        const intervalMs = INTERVAL_MS[interval];
+        return Math.floor(now / intervalMs) * intervalMs;
+    }
 }

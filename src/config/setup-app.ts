@@ -1,23 +1,23 @@
-import { INestApplication, ValidationPipe } from '@nestjs/common';
-import { AppLoggerService } from 'src/common/logger/logger.service';
+import { INestApplication, ValidationPipe } from "@nestjs/common";
+import { AppLoggerService } from "src/common/logger/logger.service";
 
 export function setupApp(app: INestApplication) {
-  // Use custom logger
-  const logger = app.get(AppLoggerService);
-  app.useLogger(logger);
+    // Use custom logger
+    const logger = app.get(AppLoggerService);
+    app.useLogger(logger);
 
-  // Set global prefix for all routes
-  app.setGlobalPrefix('api');
+    // Set global prefix for all routes
+    app.setGlobalPrefix("api");
 
-  // Validation
-  app.useGlobalPipes(
-    new ValidationPipe({
-      whitelist: true,
-      forbidNonWhitelisted: true,
-      transform: true,
-    }),
-  );
+    // Validation
+    app.useGlobalPipes(
+        new ValidationPipe({
+            whitelist: true,
+            forbidNonWhitelisted: true,
+            transform: true
+        })
+    );
 
-  console.log('Application setup completed.');
-  return app;
+    console.log("Application setup completed.");
+    return app;
 }

@@ -1,75 +1,75 @@
 export default () => ({
-  port: parseInt(process.env.PORT || '', 10) || 3000,
-  ws_port: parseInt(process.env.WS_PORT || '', 10) || 3001,
-  environment: process.env.NODE_ENV || 'development',
+    port: parseInt(process.env.PORT || "", 10) || 3000,
+    ws_port: parseInt(process.env.WS_PORT || "", 10) || 3001,
+    environment: process.env.NODE_ENV || "development",
 
-  database: {
-    type: 'postgres',
-    url: process.env.DATABASE_URL,
-    host: process.env.DATABASE_HOST || 'localhost',
-    port: parseInt(process.env.DATABASE_PORT || '', 10) || 5432,
-    username: process.env.DATABASE_USERNAME || 'postgres',
-    password: process.env.DATABASE_PASSWORD || 'password',
-    database: process.env.DATABASE_NAME || 'flaxh_trade',
-    synchronize: process.env.NODE_ENV === 'development',
-    logging: false, // Tạm tắt log query DB
-  },
-
-  redis: {
-    url: process.env.REDIS_URL || 'redis://localhost:6379',
-  },
-
-  solana: {
-    rpcUrl: process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com',
-    heliusRpcUrl: process.env.HELIUS_RPC_URL,
-    heliusApiKey: process.env.HELIUS_API_KEY,
-    network: process.env.SOLANA_NETWORK || 'mainnet-beta',
-    commitment: 'confirmed',
-    coingeckoApi: {
-      searchTokenId: process.env.COINGECKO_LIST_API || 'https://api.coingecko.com/api/v3/coins/list',
+    database: {
+        type: "postgres",
+        url: process.env.DATABASE_URL,
+        host: process.env.DATABASE_HOST || "localhost",
+        port: parseInt(process.env.DATABASE_PORT || "", 10) || 5432,
+        username: process.env.DATABASE_USERNAME || "postgres",
+        password: process.env.DATABASE_PASSWORD || "password",
+        database: process.env.DATABASE_NAME || "flaxh_trade",
+        synchronize: process.env.NODE_ENV === "development",
+        logging: false // Tạm tắt log query DB
     },
-  },
 
-  jupiter: {
-    apiUrl: process.env.JUPITER_API_URL,
-    apiKey: process.env.JUPITER_API_KEY,
-  },
+    redis: {
+        url: process.env.REDIS_URL || "redis://localhost:6379"
+    },
 
-  coingecko: {
-    apiUrl: process.env.COINGECKO_API_URL || 'https://api.coingecko.com/api/v3',
-    apiKey: process.env.COINGECKO_API_KEY || '',
-  },
+    solana: {
+        rpcUrl: process.env.SOLANA_RPC_URL || "https://api.mainnet-beta.solana.com",
+        heliusRpcUrl: process.env.HELIUS_RPC_URL,
+        heliusApiKey: process.env.HELIUS_API_KEY,
+        network: process.env.SOLANA_NETWORK || "mainnet-beta",
+        commitment: "confirmed",
+        coingeckoApi: {
+            searchTokenId: process.env.COINGECKO_LIST_API || "https://api.coingecko.com/api/v3/coins/list"
+        }
+    },
 
-  llm: {
-    apiKey: process.env.LLM_API_KEY || '',
-    apiUrl: process.env.LLM_API_URL || 'https://api.openai.com/v1',
-    model: process.env.LLM_MODEL || 'gpt-4o',
-    timeoutMs: parseInt(process.env.LLM_TIMEOUT_MS || '', 10) || 30000,
-  },
+    jupiter: {
+        apiUrl: process.env.JUPITER_API_URL,
+        apiKey: process.env.JUPITER_API_KEY
+    },
 
-  openai: {
-    apiKey: process.env.GEMINI_API_KEY || '',
-    baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai',
-    model: process.env.GEMINI_MODEL || 'gemini-2.5-flash-lite',
-  },
+    coingecko: {
+        apiUrl: process.env.COINGECKO_API_URL || "https://api.coingecko.com/api/v3",
+        apiKey: process.env.COINGECKO_API_KEY || ""
+    },
 
-  jwt: {
-    secret: process.env.JWT_SECRET || 'your-secret-key',
-    expiresIn: process.env.JWT_EXPIRES_IN || '7d',
-  },
+    llm: {
+        apiKey: process.env.LLM_API_KEY || "",
+        apiUrl: process.env.LLM_API_URL || "https://api.openai.com/v1",
+        model: process.env.LLM_MODEL || "gpt-4o",
+        timeoutMs: parseInt(process.env.LLM_TIMEOUT_MS || "", 10) || 30000
+    },
 
-  cors: {
-    origin: process.env.CORS_ORIGIN?.split(',') || ['http://localhost:3000'],
-    credentials: true,
-  },
+    openai: {
+        apiKey: process.env.GEMINI_API_KEY || "",
+        baseURL: "https://generativelanguage.googleapis.com/v1beta/openai",
+        model: process.env.GEMINI_MODEL || "gemini-2.5-flash-lite"
+    },
 
-  logging: {
-    level: process.env.LOG_LEVEL || 'info',
-    format: process.env.LOG_FORMAT || 'json',
-  },
+    jwt: {
+        secret: process.env.JWT_SECRET || "your-secret-key",
+        expiresIn: process.env.JWT_EXPIRES_IN || "7d"
+    },
 
-  api: {
-    prefix: process.env.API_PREFIX || 'api',
-    version: process.env.API_VERSION || 'v1',
-  },
+    cors: {
+        origin: process.env.CORS_ORIGIN?.split(",") || ["http://localhost:3000"],
+        credentials: true
+    },
+
+    logging: {
+        level: process.env.LOG_LEVEL || "info",
+        format: process.env.LOG_FORMAT || "json"
+    },
+
+    api: {
+        prefix: process.env.API_PREFIX || "api",
+        version: process.env.API_VERSION || "v1"
+    }
 });
