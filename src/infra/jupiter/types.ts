@@ -1,4 +1,4 @@
-type ComputeUnitPrice = "auto";
+type ComputeUnitPrice = "auto" | string;
 
 export interface JupiterPriceV3Item {
     createdAt: string;

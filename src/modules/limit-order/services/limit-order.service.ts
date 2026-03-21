@@ -51,7 +51,11 @@ export class LimitOrderService {
         try {
             this.logger.log(`Canceling order: ${cancelOrderDto.order}`);
 
-            const result = await this.jupiterService.cancelOrder(cancelOrderDto.maker, cancelOrderDto.order, cancelOrderDto.computeUnitPrice || "auto");
+            const result = await this.jupiterService.cancelOrder({
+                maker: cancelOrderDto.maker,
+                order: cancelOrderDto.order,
+                computeUnitPrice: cancelOrderDto.computeUnitPrice || "auto"
+            });
 
             return {
                 success: true,
@@ -115,7 +119,10 @@ export class LimitOrderService {
         try {
             this.logger.log(`Executing order with requestId: ${executeOrderDto.requestId}`);
 
-            const result = await this.jupiterService.executeOrder(executeOrderDto.requestId, executeOrderDto.signedTransaction);
+            const result = await this.jupiterService.executeOrder({
+                requestId: executeOrderDto.requestId,
+                signedTransaction: executeOrderDto.signedTransaction
+            });
 
             return {
                 success: true,

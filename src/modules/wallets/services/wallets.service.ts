@@ -139,7 +139,7 @@ export class WalletsService {
                 // Get token info from Jupiter
                 let tokenInfo;
                 try {
-                    tokenInfo = await this.jupiterService.getTokenInfo(mintAddress);
+                    tokenInfo = await this.jupiterService.searchToken(mintAddress);
                 } catch (error) {
                     console.error("Failed to get token info from Jupiter", error);
                 }
@@ -165,7 +165,7 @@ export class WalletsService {
                     token_address: mintAddress,
                     token_symbol: tokenInfo.symbol,
                     token_name: tokenInfo.name,
-                    token_logo: tokenInfo.logoURI || "",
+                    token_logo: tokenInfo.icon || "",
                     balance,
                     price_usd: priceUsd,
                     value_usd: valueUsd,
