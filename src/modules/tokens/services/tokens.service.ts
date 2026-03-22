@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Between, FindOptionsOrderValue, ILike, Repository } from 'typeorm';
 import { Token } from '../entities/token.entity';
+import { OhlcCandle } from '../entities/ohlc-candle.entity';
 import {
   TokenResponseDto,
   TokenDetailsResponseDto,
@@ -14,9 +15,13 @@ import { Connection, PublicKey } from '@solana/web3.js';
 import { getAccount, TOKEN_PROGRAM_ID, getMint } from '@solana/spl-token';
 import { ConfigService } from '@nestjs/config';
 import { TokenFilterConditionDto, TokenFilterResponseDto } from '../dtos/token.filter.dto';
+import { ChartQueryDto, ChartResponseDto } from '../dtos/token.chart.dto';
+import { OhlcAggregationService } from './aggregation/ohlc-aggregation.service';
+import { OhlcInterval } from './socket/room/room.constants';
 
 @Injectable()
 export class TokensService {
+  private readonly logger = new Logger(TokensService.name);
   private connection: Connection;
   private network: string;
   private jupiterSearchTokenUrl: string;
@@ -25,7 +30,10 @@ export class TokensService {
     private readonly configService: ConfigService,
     @InjectRepository(Token)
     private readonly tokenRepository: Repository<Token>,
+    @InjectRepository(OhlcCandle)
+    private readonly ohlcCandleRepository: Repository<OhlcCandle>,
     private readonly solanaService: SolanaService,
+    private readonly ohlcAggregationService: OhlcAggregationService,
   ) {
     this.connection = this.solanaService.getConnection();
     this.network = this.solanaService.getNetwork();
@@ -234,6 +242,127 @@ export class TokensService {
       total: responseTokens.length,
       filter_applied: filter,
     };
+  }
+
+  private parseIntervalMs(interval: string): number {
+    const value = parseInt(interval, 10);
+    const unit = interval.slice(-1);
+    const unitMap: Record<string, number> = { s: 1000, m: 60_000, h: 3_600_000, d: 86_400_000, w: 604_800_000 };
+    return value * (unitMap[unit] ?? 1000);
+  }
+
+  private calcDays(interval: string, limit: number): number {
+    const totalMs = this.parseIntervalMs(interval) * limit;
+    const daysByInterval = Math.max(1, Math.ceil(totalMs / 86_400_000));
+    // CoinGecko trả ~6 candles/ngày ở 4h granularity (days 2-90)
+    const daysByCount = Math.ceil(limit / 6);
+    const raw = Math.max(daysByInterval, daysByCount);
+    // CoinGecko OHLC chỉ chấp nhận các giá trị cụ thể
+    const validDays = [1, 7, 14, 30, 90, 180, 365];
+    return validDays.find((d) => d >= raw) ?? 365;
+  }
+
+  private readonly REALTIME_INTERVALS: OhlcInterval[] = ['10s', '1m', '5m'];
+
+  async getChartData(address: string, query: ChartQueryDto): Promise<ChartResponseDto> {
+    const { interval, limit = 500 } = query;
+    const limitNum = Number(limit);
+
+    // Real-time intervals (10s/1m/5m): serve from Redis
+    if (this.REALTIME_INTERVALS.includes(interval as OhlcInterval)) {
+      const raw = await this.ohlcAggregationService.getHistoricalOhlc(address, interval as OhlcInterval, limitNum);
+      const points = raw.map((p) => ({
+        timestamp: p.timestamp,
+        open: p.open,
+        high: p.high,
+        low: p.low,
+        close: p.close,
+        volume: p.volume ?? 0,
+      }));
+      for (let i = 1; i < points.length; i++) {
+        points[i].open = points[i - 1].close;
+      }
+      return { interval, points };
+    }
+
+    // Historical intervals: CoinGecko + DB
+    const days = this.calcDays(interval, limitNum);
+    const to = Date.now();
+    const from = to - days * 86_400_000;
+
+    // 1. Query DB theo range [from, to]
+    const cached = await this.ohlcCandleRepository.find({
+      where: { tokenMint: address, interval, timestamp: Between(from, to) },
+      order: { timestamp: 'ASC' },
+    });
+
+    if (cached.length >= limitNum) {
+      return { interval, points: this.mapCandles(cached.slice(-limitNum)) };
+    }
+
+    // 2. Get coingeckoId from token DB
+    const token = await this.tokenRepository.findOne({ where: { address }, select: ['coingeckoId'] });
+    if (!token?.coingeckoId) {
+      return { interval, points: this.mapCandles(cached) };
+    }
+
+    // 3. Fetch from CoinGecko để bổ sung
+    try {
+      const url = `https://api.coingecko.com/api/v3/coins/${token.coingeckoId}/ohlc?vs_currency=usd&days=${days}`;
+      const response = await fetch(url);
+      if (!response.ok) {
+        this.logger.warn(`CoinGecko API error ${response.status} for ${token.coingeckoId}`);
+        return { interval, points: this.mapCandles(cached) };
+      }
+      const raw: number[][] = await response.json();
+
+      // 4. Upsert vào DB (ignore duplicates)
+      const candles = raw.map(([timestamp, open, high, low, close]) => ({
+        tokenMint: address,
+        interval,
+        timestamp,
+        open,
+        high,
+        low,
+        close,
+        volume: 0,
+      }));
+      await this.ohlcCandleRepository
+        .createQueryBuilder()
+        .insert()
+        .into(OhlcCandle)
+        .values(candles)
+        .orIgnore()
+        .execute();
+
+      // 5. Re-query DB theo cùng range [from, to]
+      const fresh = await this.ohlcCandleRepository.find({
+        where: { tokenMint: address, interval, timestamp: Between(from, to) },
+        order: { timestamp: 'ASC' },
+      });
+      return { interval, points: this.mapCandles(fresh.slice(-limitNum)) };
+    } catch (error) {
+      this.logger.error(`Failed to fetch CoinGecko chart data for ${address}:`, error);
+      return { interval, points: this.mapCandles(cached) };
+    }
+  }
+
+  private mapCandles(candles: OhlcCandle[]) {
+    const points = candles.map((c) => ({
+      timestamp: Number(c.timestamp),
+      open: Number(c.open),
+      high: Number(c.high),
+      low: Number(c.low),
+      close: Number(c.close),
+      volume: Number(c.volume),
+    }));
+
+    // Ensure close[i] == open[i+1] (candlestick continuity)
+    for (let i = 1; i < points.length; i++) {
+      points[i].open = points[i - 1].close;
+    }
+
+    return points;
   }
 
   async updateToken(address: string, data: Partial<Token>) {

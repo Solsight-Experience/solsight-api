@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Token } from './entities/token.entity';
+import { OhlcCandle } from './entities/ohlc-candle.entity';
 import { TokensService } from './services/tokens.service';
 import { TokensController } from './controllers/tokens.controller';
 import { TokenSeederService } from './services/token-seeder.service';
@@ -19,7 +20,7 @@ import { PromptBuilderService } from './services/prompt-builder.service';
 import { GeminiModule } from '../../infra/gemini/gemini.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Token]), SolanaModule, ConfigModule, WebsocketModule, RedisModule, GeminiModule],
+  imports: [TypeOrmModule.forFeature([Token, OhlcCandle]), SolanaModule, ConfigModule, WebsocketModule, RedisModule, GeminiModule],
   providers: [
     TokensService,
     TokenSocketService,
@@ -30,7 +31,7 @@ import { GeminiModule } from '../../infra/gemini/gemini.module';
     HolderAggregationService,
     TokenSummaryService,
     PromptBuilderService,
-    // TokenSeederService,
+    TokenSeederService,
   ],
   controllers: [TokensController],
   exports: [TokensService],
