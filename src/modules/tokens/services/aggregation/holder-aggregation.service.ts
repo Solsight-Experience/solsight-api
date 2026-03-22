@@ -20,6 +20,11 @@ interface HolderUpdateEvent {
     is_removed: boolean;
     rank: number | null;
     rank_change: number | null;
+    // Trade-related fields from indexer
+    total_bought_raw: number;
+    total_sold_raw: number;
+    buy_tx_count: number;
+    sell_tx_count: number;
 }
 
 interface PriceUpdateEvent {
@@ -85,11 +90,28 @@ export class HolderAggregationService implements OnModuleInit {
                 return;
             }
 
-            await redis.hset(holderKey, {
+            // Update balance and activity fields
+            const updateData: Record<string, string | number> = {
                 balance: event.balance,
                 last_active_ts: event.last_active_ts,
                 last_active_slot: event.last_active_slot
-            });
+            };
+
+            // Include trade-related fields if present (from indexer HolderUpdateEvent)
+            if (event.total_bought_raw !== undefined) {
+                updateData.total_bought_raw = event.total_bought_raw;
+            }
+            if (event.total_sold_raw !== undefined) {
+                updateData.total_sold_raw = event.total_sold_raw;
+            }
+            if (event.buy_tx_count !== undefined) {
+                updateData.buy_tx_count = event.buy_tx_count;
+            }
+            if (event.sell_tx_count !== undefined) {
+                updateData.sell_tx_count = event.sell_tx_count;
+            }
+
+            await redis.hset(holderKey, updateData);
             await redis.expire(holderKey, HOLDER_TTL);
 
             if (event.balance > 0) {
