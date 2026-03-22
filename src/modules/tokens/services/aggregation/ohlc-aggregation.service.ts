@@ -126,4 +126,64 @@ export class OhlcAggregationService {
         const intervalMs = INTERVAL_MS[interval];
         return Math.floor(now / intervalMs) * intervalMs;
     }
+
+    async getOhlcData(
+        tokenMint: string,
+        interval: string,
+        limit: number = 500
+    ): Promise<
+        Array<{
+            timestamp: number;
+            open: number;
+            high: number;
+            low: number;
+            close: number;
+            volume: number;
+        }>
+    > {
+        const redis = this.redisService.getClient();
+        if (!redis) return [];
+
+        try {
+            // Map common interval formats
+            const intervalMap: Record<string, OhlcInterval> = {
+                "10s": "10s",
+                "1m": "1m",
+                "5m": "5m",
+                "15m": "5m", // fallback to 5m
+                "1h": "5m", // fallback to 5m
+                "4h": "5m", // fallback to 5m
+                "1d": "5m", // fallback to 5m
+                "1w": "5m" // fallback to 5m
+            };
+
+            const ohlcInterval = intervalMap[interval] || "1m";
+            const intervalMs = INTERVAL_MS[ohlcInterval];
+            const now = Date.now();
+            const data: Array<any> = [];
+
+            // Fetch historical buckets
+            for (let i = limit - 1; i >= 0; i--) {
+                const bucketTime = Math.floor((now - i * intervalMs) / intervalMs) * intervalMs;
+                const key = `ohlc:${tokenMint}:${ohlcInterval}:${bucketTime}`;
+                const ohlcData = await redis.hgetall(key);
+
+                if (ohlcData && Object.keys(ohlcData).length > 0) {
+                    data.push({
+                        timestamp: bucketTime,
+                        open: parseFloat(ohlcData.open) || 0,
+                        high: parseFloat(ohlcData.high) || 0,
+                        low: parseFloat(ohlcData.low) || 0,
+                        close: parseFloat(ohlcData.close) || 0,
+                        volume: parseFloat(ohlcData.volume) || 0
+                    });
+                }
+            }
+
+            return data;
+        } catch (error) {
+            this.logger.error(`Redis error in getOhlcData for "${tokenMint}":`, error);
+            return [];
+        }
+    }
 }

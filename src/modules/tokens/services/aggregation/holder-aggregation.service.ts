@@ -33,12 +33,15 @@ interface PriceUpdateEvent {
 export interface EnrichedHolder extends HolderData {
     last_active_ts: number;
     avg_buy_price: number;
+    avg_sell_price: number;
     cost_basis: number;
     unrealized_pnl: number;
     realized_pnl: number;
     remaining_usd: number;
     funding_label: string | null;
     account_type: string | null;
+    buy_tx_count: number;
+    sell_tx_count: number;
 }
 
 @Injectable()
@@ -160,9 +163,11 @@ export class HolderAggregationService implements OnModuleInit {
                 await redis.hincrbyfloat(holderKey, "balance", tokenAmount);
                 await redis.hincrbyfloat(holderKey, "total_bought", volumeUsd);
                 await redis.hincrbyfloat(holderKey, "cost_basis", volumeUsd);
+                await redis.hincrby(holderKey, "buy_tx_count", 1);
             } else {
                 await redis.hincrbyfloat(holderKey, "balance", -tokenAmount);
                 await redis.hincrbyfloat(holderKey, "total_sold", volumeUsd);
+                await redis.hincrby(holderKey, "sell_tx_count", 1);
 
                 // Track realized PnL on sell: reduce cost_basis proportionally
                 const balanceRaw = await redis.hget(holderKey, "balance");
@@ -230,6 +235,8 @@ export class HolderAggregationService implements OnModuleInit {
                 const costBasis = parseFloat(data.cost_basis || "0");
                 const realizedPnl = parseFloat(data.realized_pnl || "0");
                 const txCount = parseInt(data.tx_count || "0", 10);
+                const buyTxCount = parseInt(data.buy_tx_count || "0", 10);
+                const sellTxCount = parseInt(data.sell_tx_count || "0", 10);
                 const firstTxTime = parseInt(data.first_tx_time || "0", 10);
                 const lastTxTime = parseInt(data.last_tx_time || "0", 10);
                 const lastActiveTs = parseInt(data.last_active_ts || data.last_tx_time || "0", 10);
@@ -238,7 +245,8 @@ export class HolderAggregationService implements OnModuleInit {
 
                 const totalPnl = realizedPnl + unrealizedPnl;
                 const roiPercent = totalBought > 0 ? (totalPnl / totalBought) * 100 : 0;
-                const avgBuyPrice = txCount > 0 && totalBought > 0 ? costBasis / balance || 0 : 0;
+                const avgBuyPrice = buyTxCount > 0 && balance > 0 ? costBasis / balance : 0;
+                const avgSellPrice = sellTxCount > 0 && totalSold > 0 ? totalSold / sellTxCount : 0;
                 const remainingUsd = balance * currentPriceUsd;
 
                 const walletLabel = getWalletLabel(address);
@@ -252,6 +260,7 @@ export class HolderAggregationService implements OnModuleInit {
                     balance,
                     balance_percent: balancePercent,
                     avg_buy_price: avgBuyPrice,
+                    avg_sell_price: avgSellPrice,
                     total_bought: totalBought,
                     total_sold: totalSold,
                     realized_pnl: realizedPnl,
@@ -265,7 +274,9 @@ export class HolderAggregationService implements OnModuleInit {
                     remaining_usd: remainingUsd,
                     funding_label: walletLabel?.name ?? null,
                     account_type: walletLabel?.type ?? null,
-                    tx_count: txCount
+                    tx_count: txCount,
+                    buy_tx_count: buyTxCount,
+                    sell_tx_count: sellTxCount
                 });
             }
 
