@@ -371,4 +371,11 @@ export class WalletsService {
   async activateWallet(walletId: string): Promise<Wallet> {
     return await this.update(walletId, { isActive: true });
   }
+
+  async deleteAllByUserId(userId: string): Promise<void> {
+    const wallets = await this.findByUserId(userId);
+    if (wallets.length > 0) {
+      await this.walletRepository.remove(wallets);
+    }
+  }
 }
