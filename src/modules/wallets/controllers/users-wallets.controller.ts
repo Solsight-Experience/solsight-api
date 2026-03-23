@@ -61,6 +61,14 @@ export class UsersWalletsController {
   }
 
   @UseGuards(JwtAuthGuard)
+  @Delete()
+  async removeAll(@Request() req: AuthenticatedRequest) {
+    const userId = req.user.id;
+    await this.walletsService.deleteAllByUserId(userId);
+    return { message: 'All wallets deleted successfully' };
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Delete(':walletAddress')
   async remove(@Request() req: AuthenticatedRequest, @Param('walletAddress') walletAddress: string) {
     const userId = req.user.id;
