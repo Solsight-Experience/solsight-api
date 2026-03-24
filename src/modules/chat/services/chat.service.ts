@@ -1,8 +1,7 @@
-import { HttpException, Injectable } from "@nestjs/common";
+import { HttpException, Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import OpenAI from "openai";
 import type { ChatCompletionMessageParam, ChatCompletionTool } from "openai/resources/chat/completions";
-import { AppLoggerService } from "../../../common/logger/logger.service";
 import { SortByTrending, TimeFrame } from "../../discovery/dtos/get-trending.dto";
 import { DiscoveryService } from "../../discovery/services/discovery.service";
 import { PortfolioService } from "../../portfolio/services/portfolio.service";
@@ -180,13 +179,13 @@ export class ChatService {
     private readonly openai: OpenAI;
     private readonly sessions = new Map<string, ChatSession>();
     private readonly model: string;
+    private readonly logger = new Logger(ChatService.name);
 
     constructor(
         private readonly configService: ConfigService,
         private readonly tokensService: TokensService,
         private readonly discoveryService: DiscoveryService,
-        private readonly portfolioService: PortfolioService,
-        private readonly logger: AppLoggerService
+        private readonly portfolioService: PortfolioService
     ) {
         const apiKey = this.configService.get<string>("llm.apiKey");
         const baseURL = this.configService.get<string>("llm.apiUrl");

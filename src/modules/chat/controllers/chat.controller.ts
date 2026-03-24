@@ -1,9 +1,8 @@
-import { Controller, Post, Body, UseGuards, Request, HttpException } from "@nestjs/common";
+import { Controller, Post, Body, UseGuards, Request, HttpException, Logger } from "@nestjs/common";
 import { JwtAuthGuard } from "../../auth/guards/jwt-auth.guard";
 import { ChatService } from "../services/chat.service";
 import { SendMessageDto } from "../dtos/send-message.dto";
 import { ChatResponsePayload } from "../types/chat.types";
-import { AppLoggerService } from "src/common/logger/logger.service";
 
 @Controller("chat")
 @UseGuards(JwtAuthGuard)
@@ -11,11 +10,9 @@ export class ChatController {
     private rateLimitMap = new Map<string, { count: number; windowStart: number }>();
     private readonly RATE_LIMIT = 20;
     private readonly WINDOW_MS = 60_000;
+    private readonly logger = new Logger(ChatController.name);
 
-    constructor(
-        private readonly chatService: ChatService,
-        private readonly logger: AppLoggerService
-    ) {}
+    constructor(private readonly chatService: ChatService) {}
 
     @Post("message")
     async sendMessage(@Body() dto: SendMessageDto, @Request() req: any): Promise<ChatResponsePayload> {

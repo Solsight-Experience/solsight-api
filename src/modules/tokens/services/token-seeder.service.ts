@@ -23,7 +23,7 @@ export class TokenSeederService implements OnModuleInit {
     }
 
     async onModuleInit() {
-        console.log("Initializing TokenSeederService...");
+        this.logger.log("Initializing TokenSeederService...");
         await this.seedTokens();
         // await this.updateTokenDecimals();
         // this.updateTokenOnChainData();
@@ -31,7 +31,7 @@ export class TokenSeederService implements OnModuleInit {
 
     async seedTokens() {
         try {
-            console.log("Checking existing token data...");
+            this.logger.log("Checking existing token data...");
             const count = await this.tokenRepository.count();
             if (count > 0) {
                 this.logger.log("Token data already exists. Skipping seed.");
@@ -122,7 +122,7 @@ export class TokenSeederService implements OnModuleInit {
 
     async updateTokenDecimals() {
         try {
-            console.log("[DEBUG] updateTokenDecimals called");
+            this.logger.debug("updateTokenDecimals called");
             this.logger.log("Updating token decimals...");
             const tokenListProvider = new TokenListProvider();
             const tokens = await tokenListProvider.resolve();

@@ -18,6 +18,6 @@ export function setupApp(app: INestApplication) {
         })
     );
 
-    console.log("Application setup completed.");
+    logger.log("Application setup completed.");
     return app;
 }

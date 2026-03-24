@@ -4,7 +4,7 @@ import bs58 from "bs58";
 import * as crypto from "crypto";
 
 // src/auth/services/auth.service.ts
-import { BadRequestException, Injectable, UnauthorizedException, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Injectable, Logger, UnauthorizedException, NotFoundException } from "@nestjs/common";
 import { JwtService } from "@nestjs/jwt";
 import * as bcrypt from "bcrypt";
 import { UserRepository } from "../repositories/user.repository";
@@ -35,6 +35,8 @@ export interface JwtPayload {
 
 @Injectable()
 export class AuthService {
+    private readonly logger = new Logger(AuthService.name);
+
     constructor(
         private readonly userRepository: UserRepository,
         private readonly jwtService: JwtService,
@@ -71,12 +73,12 @@ export class AuthService {
 
             if (!googleRes.ok) {
                 const errorText = await googleRes.text();
-                console.error("Google API error:", errorText);
+                this.logger.error("Google API error:", errorText);
                 throw new BadRequestException("Invalid Google token");
             }
 
             const profile = await googleRes.json();
-            console.log("Google profile:", profile);
+            this.logger.log(`Google profile: ${JSON.stringify(profile)}`);
 
             if (!profile.email) {
                 throw new BadRequestException("Invalid Google token - no email");
@@ -86,7 +88,7 @@ export class AuthService {
             let user = await this.userRepository.findByEmail(profile.email);
 
             if (!user) {
-                console.log("Creating new OAuth user...");
+                this.logger.log("Creating new OAuth user...");
                 const dummyPassword = await bcrypt.hash(randomBytes(32).toString("hex"), 10);
                 const username = profile.name ? profile.name.replace(/\s+/g, "_").toLowerCase() : profile.email.split("@")[0];
 
@@ -105,15 +107,15 @@ export class AuthService {
                         // KHÔNG set password - để undefined
                     });
 
-                    console.log("✅ OAuth user created:", user.id);
+                    this.logger.log(`OAuth user created: ${user.id}`);
                 } catch (dbError) {
-                    console.error("❌ Database error:", dbError);
-                    console.error("Error code:", dbError.code);
-                    console.error("Error detail:", dbError.detail);
+                    this.logger.error(`Database error: ${dbError}`);
+                    this.logger.error(`Error code: ${dbError.code}`);
+                    this.logger.error(`Error detail: ${dbError.detail}`);
                     throw new BadRequestException(`Failed to create user: ${dbError.message}`);
                 }
             } else {
-                console.log("✅ Existing user found:", user.id);
+                this.logger.log(`Existing user found: ${user.id}`);
             }
 
             const accessToken = await this.generateAccessToken(user);
@@ -121,7 +123,7 @@ export class AuthService {
 
             return { user: userWithoutPassword, accessToken };
         } catch (error) {
-            console.error("💥 OAuth login error:", error);
+            this.logger.error(`OAuth login error: ${error}`);
 
             if (error instanceof BadRequestException) {
                 throw error;

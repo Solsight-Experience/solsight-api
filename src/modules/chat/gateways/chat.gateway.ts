@@ -1,7 +1,6 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import { JwtService } from "@nestjs/jwt";
 import { Socket } from "socket.io";
-import { AppLoggerService } from "../../../common/logger/logger.service";
 import { WebsocketGateway } from "../../../websocket/websocket.gateway";
 import { ChatService } from "../services/chat.service";
 import { SendMessagePayload, ChatErrorPayload, ChatToolProgressPayload } from "../types/chat.types";
@@ -11,12 +10,12 @@ export class ChatGateway {
     private rateLimitMap = new Map<string, { count: number; windowStart: number }>();
     private readonly RATE_LIMIT = 20;
     private readonly WINDOW_MS = 60_000;
+    private readonly logger = new Logger(ChatGateway.name);
 
     constructor(
         private gateway: WebsocketGateway,
         private chatService: ChatService,
-        private readonly jwtService: JwtService,
-        private readonly logger: AppLoggerService
+        private readonly jwtService: JwtService
     ) {
         this.gateway.register("chat:message", this.handleMessage.bind(this));
         this.logger.log("ChatGateway registered handler for chat:message", ChatGateway.name);

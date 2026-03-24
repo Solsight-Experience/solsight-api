@@ -4,7 +4,6 @@ import { RoomFactory } from "./room/room.factory";
 import { WebsocketGateway } from "../../../../websocket/websocket.gateway";
 import { Injectable, Logger } from "@nestjs/common";
 import { HolderTrackingService } from "./holder-tracking.service";
-import { AppLoggerService } from "src/common/logger/logger.service";
 
 @Injectable()
 export class TokenSocketGateway {

@@ -90,7 +90,7 @@ export class PortfolioService {
             }
             return 0;
         } catch (error) {
-            console.error("Failed to fetch SOL price from CoinGecko", error);
+            this.logger.error("Failed to fetch SOL price from CoinGecko", error);
             return 0; // Return 0 or a fallback price if the API call fails
         }
     }
@@ -127,7 +127,7 @@ export class PortfolioService {
             await this.cacheManager.set(cacheKey, Object.fromEntries(priceChart), ttl);
             return priceChart;
         } catch (error) {
-            console.error("Failed to fetch SOL price history from CoinGecko");
+            this.logger.error("Failed to fetch SOL price history from CoinGecko");
             return new Map();
         }
     }
@@ -168,7 +168,7 @@ export class PortfolioService {
             await this.cacheManager.set(TOKEN_LIST_CACHE_KEY, Object.fromEntries(tokenMap), CACHE_TTL_SECONDS * 1000);
             return tokenMap;
         } catch (error) {
-            console.error("Failed to fetch Solana token list", error);
+            this.logger.error("Failed to fetch Solana token list", error);
             return new Map();
         }
     }
@@ -220,7 +220,7 @@ export class PortfolioService {
             await this.cacheManager.set(cacheKey, Object.fromEntries(priceMap), CACHE_TTL_SECONDS * 1000);
             return priceMap;
         } catch (error) {
-            console.error("Failed to fetch token prices from CoinGecko", error);
+            this.logger.error("Failed to fetch token prices from CoinGecko", error);
             return new Map();
         }
     }
@@ -476,7 +476,7 @@ export class PortfolioService {
                 const solAmount = isBuy ? tokenOut.tokenAmount : tokenIn.tokenAmount;
                 const tokenAmount = isBuy ? tokenIn.tokenAmount : tokenOut.tokenAmount;
 
-                console.log("DEBUG", isBuy, tokenMint, solAmount, tokenAmount);
+                this.logger.debug(`DEBUG ${isBuy} ${tokenMint} ${solAmount} ${tokenAmount}`);
                 if (!tokenMint || !solAmount || !tokenAmount) continue;
 
                 const holding = runningHoldings.get(tokenMint) ?? {
@@ -500,7 +500,7 @@ export class PortfolioService {
 
             const solPriceAtTime = this.getSolPriceNear(timeSec, solPriceChart);
             const pnlUsd = cumulativePnlSol * solPriceAtTime;
-            console.log("f", solPriceAtTime, cumulativePnlSol, pnlUsd);
+            this.logger.debug(`pnl calc: solPriceAtTime=${solPriceAtTime} cumulativePnlSol=${cumulativePnlSol} pnlUsd=${pnlUsd}`);
             chartData.push({ timestamp: time, pnl: pnlUsd, balance_usd: pnlUsd });
         }
 
@@ -690,7 +690,7 @@ export class PortfolioService {
             if (axios.isAxiosError(error) && error.response?.status === 404) {
                 return [];
             }
-            console.error(`Failed to fetch activities for ${walletAddress}`);
+            this.logger.error(`Failed to fetch activities for ${walletAddress}`);
             return [];
         }
     }
@@ -864,7 +864,7 @@ export class PortfolioService {
     async getActivities(userId: string, walletAddress?: string, type: string = "all", limit: number = 20, before?: string, from?: number, to?: number) {
         const heliusApiKey = this.solanaService.getHeliusApiKey();
         if (!heliusApiKey) {
-            console.error("Helius API Key is not configured.");
+            this.logger.error("Helius API Key is not configured.");
             return {
                 activities: [],
                 total: 0,
@@ -1230,10 +1230,10 @@ export class PortfolioService {
                               return response.data as any[];
                           } catch (error) {
                               if (axios.isAxiosError(error) && error.response?.status === 404) {
-                                  console.log(`No transactions found for wallet ${wallet.address}.`);
+                                  this.logger.log(`No transactions found for wallet ${wallet.address}.`);
                                   await this.cacheManager.set(cacheKey, [], HELIUS_CACHE_TTL);
                               } else {
-                                  console.error(`Failed to fetch transaction stats for ${wallet.address}`);
+                                  this.logger.error(`Failed to fetch transaction stats for ${wallet.address}`);
                               }
                               return [];
                           }

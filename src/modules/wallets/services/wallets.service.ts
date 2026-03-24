@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ConflictException, BadRequestException } from "@nestjs/common";
+import { Injectable, Logger, NotFoundException, ConflictException, BadRequestException } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
 import { Wallet } from "../entities/wallet.entity";
@@ -11,6 +11,8 @@ import { CoinGeckoService } from "../../../infra/coingecko/coingecko.service";
 
 @Injectable()
 export class WalletsService {
+    private readonly logger = new Logger(WalletsService.name);
+
     constructor(
         @InjectRepository(Wallet)
         private readonly walletRepository: Repository<Wallet>,
@@ -81,7 +83,7 @@ export class WalletsService {
             await Promise.all(wallets.map((wallet) => this.updateBalance(wallet.id)));
         } catch (error) {
             // Log the error but don't block the response if updates fail
-            console.error("Failed to update one or more wallet balances", error);
+            this.logger.error("Failed to update one or more wallet balances", error);
         }
 
         // Refetch wallets to get the potentially updated balances
@@ -141,7 +143,7 @@ export class WalletsService {
                 try {
                     tokenInfo = await this.jupiterService.searchToken(mintAddress);
                 } catch (error) {
-                    console.error("Failed to get token info from Jupiter", error);
+                    this.logger.error("Failed to get token info from Jupiter", error);
                 }
 
                 if (!tokenInfo) {
@@ -156,7 +158,7 @@ export class WalletsService {
                     const price = await this.jupiterService.getTokenPrice(mintAddress);
                     priceUsd = price || 0;
                 } catch (error) {
-                    console.error("Failed to get price from Jupiter", error);
+                    this.logger.error("Failed to get price from Jupiter", error);
                 }
 
                 const valueUsd = balance * priceUsd;
@@ -176,7 +178,7 @@ export class WalletsService {
             // Sort by value descending
             return positions.sort((a, b) => b.value_usd - a.value_usd);
         } catch (error) {
-            console.error("Failed to get wallet positions", error);
+            this.logger.error("Failed to get wallet positions", error);
             return [];
         }
     }
@@ -240,7 +242,7 @@ export class WalletsService {
         try {
             await this.updateBalance(wallet.id);
         } catch (error) {
-            console.error("Failed to update wallet balance", error);
+            this.logger.error("Failed to update wallet balance", error);
         }
 
         // Refetch with updated balance
@@ -350,7 +352,7 @@ export class WalletsService {
             }
             return 0;
         } catch (error) {
-            console.error("Failed to get SOL price from CoinGecko", error);
+            this.logger.error("Failed to get SOL price from CoinGecko", error);
             return 0;
         }
     }
