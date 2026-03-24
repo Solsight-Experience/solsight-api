@@ -1,27 +1,17 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import OpenAI from "openai";
+import { OpenAIService } from "../openai/openai.service";
 import { GeminiGenerateRequest, GeminiGenerateResponse, GeminiError } from "./types/gemini.types";
 
 @Injectable()
 export class GeminiService {
     private readonly logger = new Logger(GeminiService.name);
-    private readonly openai: OpenAI;
-    private readonly modelName: string;
 
-    constructor(private readonly configService: ConfigService) {
-        const apiKey = this.configService.get<string>("openai.apiKey") || "";
-        const baseURL = this.configService.get<string>("openai.baseURL");
-        this.modelName = this.configService.get<string>("openai.model") || "gemini-2.0-flash-exp";
-
-        if (!apiKey) {
-            this.logger.warn("OpenAI API key not configured");
-        }
-
-        this.openai = new OpenAI({
-            apiKey,
-            baseURL
-        });
+    constructor(
+        private readonly configService: ConfigService,
+        private readonly openaiService: OpenAIService
+    ) {
+        // this.modelName = this.configService.get<string>("openai.model") || "gemini-2.0-flash-exp";
     }
 
     /**
@@ -31,11 +21,9 @@ export class GeminiService {
      */
     async generateText(request: GeminiGenerateRequest): Promise<GeminiGenerateResponse> {
         try {
-            this.logger.log(`Generating text with model: ${this.modelName}`);
             const startTime = Date.now();
 
-            const completion = await this.openai.chat.completions.create({
-                model: this.modelName,
+            const completion = await this.openaiService.createCompletion({
                 messages: [
                     {
                         role: "user",
@@ -79,10 +67,7 @@ export class GeminiService {
      */
     async generateStreaming(request: GeminiGenerateRequest): Promise<AsyncGenerator<string>> {
         try {
-            this.logger.log(`Generating streaming text with model: ${this.modelName}`);
-
-            const stream = await this.openai.chat.completions.create({
-                model: this.modelName,
+            const stream = await this.openaiService.createCompletion({
                 messages: [
                     {
                         role: "user",

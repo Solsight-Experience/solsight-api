@@ -2,6 +2,7 @@ import { Module } from "@nestjs/common";
 import { ConfigModule, ConfigService } from "@nestjs/config";
 import { JwtModule } from "@nestjs/jwt";
 import { LoggerModule } from "src/common/logger/logger.module";
+import { OpenAIModule } from "src/infra/openai/openai.module";
 import { DiscoveryModule } from "../discovery/discovery.module";
 import { PortfolioModule } from "../portfolio/portfolio.module";
 import { TokensModule } from "../tokens/tokens.module";
@@ -24,7 +25,8 @@ import { ChatController } from "./controllers/chat.controller";
         PortfolioModule,
         DiscoveryModule,
         LoggerModule,
-        WebsocketModule
+        WebsocketModule,
+        OpenAIModule
     ],
     providers: [ChatService, ChatGateway],
     controllers: [ChatController],

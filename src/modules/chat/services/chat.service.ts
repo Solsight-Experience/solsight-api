@@ -1,7 +1,6 @@
 import { HttpException, Injectable, Logger } from "@nestjs/common";
-import { ConfigService } from "@nestjs/config";
-import OpenAI from "openai";
 import type { ChatCompletionMessageParam, ChatCompletionTool } from "openai/resources/chat/completions";
+import { OpenAIService } from "src/infra/openai/openai.service";
 import { SortByTrending, TimeFrame } from "../../discovery/dtos/get-trending.dto";
 import { DiscoveryService } from "../../discovery/services/discovery.service";
 import { PortfolioService } from "../../portfolio/services/portfolio.service";
@@ -176,32 +175,15 @@ export const TOOL_DEFINITIONS: ChatCompletionTool[] = [
 
 @Injectable()
 export class ChatService {
-    private readonly openai: OpenAI;
     private readonly sessions = new Map<string, ChatSession>();
-    private readonly model: string;
     private readonly logger = new Logger(ChatService.name);
 
     constructor(
-        private readonly configService: ConfigService,
         private readonly tokensService: TokensService,
         private readonly discoveryService: DiscoveryService,
-        private readonly portfolioService: PortfolioService
-    ) {
-        const apiKey = this.configService.get<string>("llm.apiKey");
-        const baseURL = this.configService.get<string>("llm.apiUrl");
-
-        if (!apiKey) {
-            throw new Error("LLM API key is required");
-        }
-
-        this.model = this.configService.get<string>("llm.model") || "gpt-4o";
-        this.openai = new OpenAI({
-            apiKey,
-            baseURL
-        });
-
-        this.logger.log(`ChatService initialized: model=${this.model} baseURL=${baseURL ?? "default"}`, ChatService.name);
-    }
+        private readonly portfolioService: PortfolioService,
+        private readonly openaiService: OpenAIService
+    ) {}
 
     async sendMessage(payload: SendMessagePayload, onToolProgress: (label: string) => void = () => {}): Promise<ChatResponsePayload> {
         const session = this.getOrCreateSession(payload.sessionId);
@@ -305,7 +287,7 @@ export class ChatService {
             })
         ];
 
-        this.logger.debug(`LLM request: model=${this.model} messages=${messages.length}`, ChatService.name);
+        this.logger.debug(`LLM request: messages=${messages.length}`, ChatService.name);
 
         const controller = new AbortController();
         const timeout = setTimeout(() => {
@@ -314,9 +296,8 @@ export class ChatService {
         }, LLM_TIMEOUT_MS);
 
         try {
-            const completion = await this.openai.chat.completions.create(
+            const completion = await this.openaiService.createCompletion(
                 {
-                    model: this.model,
                     messages,
                     tools: TOOL_DEFINITIONS,
                     tool_choice: "auto",
@@ -425,7 +406,7 @@ export class ChatService {
             })
         ];
 
-        this.logger.debug(`LLM stream request: model=${this.model} messages=${messages.length}`, ChatService.name);
+        this.logger.debug(`LLM stream request: messages=${messages.length}`, ChatService.name);
 
         const controller = new AbortController();
         const timeout = setTimeout(() => {
@@ -437,9 +418,8 @@ export class ChatService {
         const toolCallMap: Record<string, { function: { name: string; arguments: string } }> = {};
 
         try {
-            const stream = await this.openai.chat.completions.create(
+            const stream = await this.openaiService.createCompletion(
                 {
-                    model: this.model,
                     messages,
                     tools: TOOL_DEFINITIONS,
                     tool_choice: "auto",

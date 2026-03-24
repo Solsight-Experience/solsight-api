@@ -37,17 +37,10 @@ export default () => ({
         apiKey: process.env.COINGECKO_API_KEY || ""
     },
 
-    llm: {
-        apiKey: process.env.LLM_API_KEY || "",
-        apiUrl: process.env.LLM_API_URL || "https://api.openai.com/v1",
-        model: process.env.LLM_MODEL || "gpt-4o",
-        timeoutMs: parseInt(process.env.LLM_TIMEOUT_MS || "", 10) || 30000
-    },
-
     openai: {
-        apiKey: process.env.GEMINI_API_KEY || "",
-        baseURL: "https://generativelanguage.googleapis.com/v1beta/openai",
-        model: process.env.GEMINI_MODEL || "gemini-2.5-flash-lite"
+        apiKey: process.env.OPENAI_API_KEY,
+        apiUrl: process.env.OPENAI_API_URL,
+        model: process.env.OPENAI_MODEL || "gpt-4o"
     },
 
     jwt: {

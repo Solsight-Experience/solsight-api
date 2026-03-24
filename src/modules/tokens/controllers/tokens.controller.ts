@@ -84,20 +84,20 @@ export class TokensController {
         };
     }
 
-    @Get(":address/chart")
-    async getChart(
-        @Param("address") address: string,
-        @Query("interval") interval: string = "1m",
-        @Query("limit") limit: number = 500,
-        @Query("from") from?: number,
-        @Query("to") to?: number
-    ) {
-        const points = await this.ohlcAggregationService.getOhlcData(address, interval, limit);
-        return {
-            points,
-            interval
-        };
-    }
+    // @Get(":address/chart")
+    // async getChart(
+    //     @Param("address") address: string,
+    //     @Query("interval") interval: string = "1m",
+    //     @Query("limit") limit: number = 500,
+    //     @Query("from") from?: number,
+    //     @Query("to") to?: number
+    // ) {
+    //     const points = await this.ohlcAggregationService.getOhlcData(address, interval, limit);
+    //     return {
+    //         points,
+    //         interval
+    //     };
+    // }
 
     @Get(":address")
     findOne(@Param("address") address: string) {

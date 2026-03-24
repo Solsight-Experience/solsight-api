@@ -51,9 +51,8 @@ export const validationSchema = Joi.object({
     COINGECKO_API_URL: Joi.string().uri().default("https://api.coingecko.com/api/v3"),
     COINGECKO_API_KEY: Joi.string().optional(),
 
-    // LLM
-    LLM_API_KEY: Joi.string().required(),
-    LLM_API_URL: Joi.string().uri().default("https://api.openai.com/v1"),
-    LLM_MODEL: Joi.string().default("gpt-4o"),
-    LLM_TIMEOUT_MS: Joi.number().default(30000)
+    // OpenAI (default provider)
+    OPENAI_API_KEY: Joi.string().optional(),
+    OPENAI_API_URL: Joi.string().uri().optional(),
+    OPENAI_MODEL: Joi.string().default("gpt-4o")
 });
