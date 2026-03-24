@@ -23,6 +23,8 @@ interface HolderUpdateEvent {
     // Trade-related fields from indexer
     total_bought_raw: number;
     total_sold_raw: number;
+    total_bought_usd: number;
+    total_sold_usd: number;
     buy_tx_count: number;
     sell_tx_count: number;
 }
@@ -103,6 +105,12 @@ export class HolderAggregationService implements OnModuleInit {
             }
             if (event.total_sold_raw !== undefined) {
                 updateData.total_sold_raw = event.total_sold_raw;
+            }
+            if (event.total_bought_usd !== undefined) {
+                updateData.total_bought = event.total_bought_usd;
+            }
+            if (event.total_sold_usd !== undefined) {
+                updateData.total_sold = event.total_sold_usd;
             }
             if (event.buy_tx_count !== undefined) {
                 updateData.buy_tx_count = event.buy_tx_count;
