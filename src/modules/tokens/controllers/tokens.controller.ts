@@ -41,9 +41,10 @@ export class TokensController {
 
   @Post('summarize')
   async summarize(@Body() dto: SummarizeTokenRequestDto): Promise<TokenSummaryResponseDto> {
-    const result = await this.tokenSummaryService.generateSummary(dto.address, {
-
-      forceRefresh: dto.forceRefresh,
+    const result = await this.tokenSummaryService.generateSummary({
+      address: dto.address,
+      name: dto.name,
+      symbol: dto.symbol,
     });
 
     return result;

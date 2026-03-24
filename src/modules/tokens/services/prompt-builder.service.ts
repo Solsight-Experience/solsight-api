@@ -1,5 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { Token } from '../entities/token.entity';
+
+export interface TokenContext {
+  name: string;
+  symbol: string;
+  description?: string;
+  category?: string;
+  website?: string;
+}
 
 @Injectable()
 export class PromptBuilderService {
@@ -7,10 +14,10 @@ export class PromptBuilderService {
 
   /**
    * Build a concise prompt for AI token summarization (Jupiter-style)
-   * @param token - Token entity with full data
+   * @param token - Token context with basic data
    * @returns Structured prompt for AI
    */
-  buildSummaryPrompt(token: Token): string {
+  buildSummaryPrompt(token: TokenContext): string {
     const sections: string[] = [];
 
     sections.push(
@@ -22,8 +29,8 @@ export class PromptBuilderService {
       sections.push(`Description: ${token.description}`);
     }
 
-    if (token.category?.name) {
-      sections.push(`Category: ${token.category.name}`);
+    if (token.category) {
+      sections.push(`Category: ${token.category}`);
     }
 
     if (token.website) {

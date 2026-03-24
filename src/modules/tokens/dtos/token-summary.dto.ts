@@ -1,12 +1,17 @@
-import { IsString, IsBoolean, IsOptional } from 'class-validator';
+import { IsString, IsNotEmpty } from 'class-validator';
 
 export class SummarizeTokenRequestDto {
   @IsString()
+  @IsNotEmpty()
   address: string;
 
-  @IsOptional()
-  @IsBoolean()
-  forceRefresh?: boolean;
+  @IsString()
+  @IsNotEmpty()
+  name: string;
+
+  @IsString()
+  @IsNotEmpty()
+  symbol: string;
 }
 
 export class TokenSummaryResponseDto {
@@ -18,7 +23,7 @@ export class TokenSummaryResponseDto {
   tokenData?: {
     name: string;
     symbol: string;
-    price: number;
-    priceChange24h: number;
+    price?: number;
+    priceChange24h?: number;
   };
 }
