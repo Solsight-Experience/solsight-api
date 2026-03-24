@@ -3,6 +3,7 @@ import { RedisService } from "../../../../redis/services/redis.service";
 import { PubSubService } from "../../../../redis/services/pubsub.service";
 import { SwapEvent, HolderData } from "../../types/swap-event.type";
 import { getWalletLabel } from "../../data/wallet-labels";
+import { JupiterService } from "../../../../infra/jupiter/jupiter.service";
 
 const HOLDER_TTL = 24 * 60 * 60; // 24 hours
 const PRICE_TTL = 60 * 60; // 1 hour
@@ -57,7 +58,8 @@ export class HolderAggregationService implements OnModuleInit {
 
     constructor(
         private readonly redisService: RedisService,
-        private readonly pubSubService: PubSubService
+        private readonly pubSubService: PubSubService,
+        private readonly jupiterService: JupiterService
     ) {}
 
     async onModuleInit(): Promise<void> {
@@ -244,12 +246,28 @@ export class HolderAggregationService implements OnModuleInit {
 
             const priceKey = `price:${tokenMint}:latest`;
             const priceData = await redis.hgetall(priceKey);
-            const currentPriceUsd = priceData ? parseFloat(priceData.price_usd || "0") : 0;
+            let currentPriceUsd = priceData ? parseFloat(priceData.price_usd || "0") : 0;
 
             // Fetch total supply for balance_percent calculation
             const supplyKey = `supply:${tokenMint}`;
             const totalSupplyStr = await redis.get(supplyKey);
-            const totalSupply = totalSupplyStr ? parseFloat(totalSupplyStr) : 0;
+            let totalSupply = totalSupplyStr ? parseFloat(totalSupplyStr) : 0;
+
+            // Fallback to Jupiter if price or supply not found in Redis
+            if (currentPriceUsd === 0 || totalSupply === 0) {
+                this.logger.debug(`Price or supply not found in Redis for ${tokenMint}, fetching from Jupiter`);
+                const tokenInfo = await this.jupiterService.searchToken(tokenMint);
+                if (tokenInfo) {
+                    if (currentPriceUsd === 0 && tokenInfo.usdPrice) {
+                        currentPriceUsd = tokenInfo.usdPrice;
+                        this.logger.log(`Fetched price from Jupiter for ${tokenMint}: $${currentPriceUsd}`);
+                    }
+                    if (totalSupply === 0 && tokenInfo.totalSupply) {
+                        totalSupply = tokenInfo.totalSupply;
+                        this.logger.log(`Fetched total supply from Jupiter for ${tokenMint}: ${totalSupply}`);
+                    }
+                }
+            }
 
             const holders: EnrichedHolder[] = [];
 
