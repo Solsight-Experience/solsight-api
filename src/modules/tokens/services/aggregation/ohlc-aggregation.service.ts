@@ -121,6 +121,57 @@ export class OhlcAggregationService {
         }
     }
 
+    async getHistoricalOhlc(
+        tokenMint: string,
+        interval: OhlcInterval,
+        limit: number = 500,
+        from?: number,
+        to?: number
+    ): Promise<Array<OhlcData & { timestamp: number }>> {
+        const redis = this.redisService.getClient();
+        if (!redis) return [];
+
+        try {
+            const intervalMs = INTERVAL_MS[interval];
+            const endBucket = to ? Math.floor(to / intervalMs) * intervalMs : this.getBucketTimestamp(interval);
+            const startBucket = from ? Math.floor(from / intervalMs) * intervalMs : endBucket - (limit - 1) * intervalMs;
+
+            const buckets: number[] = [];
+            for (let b = startBucket; b <= endBucket; b += intervalMs) {
+                buckets.push(b);
+            }
+            const limitedBuckets = buckets.slice(-limit);
+
+            const pipeline = redis.pipeline();
+            for (const bucket of limitedBuckets) {
+                pipeline.hgetall(`ohlc:${tokenMint}:${interval}:${bucket}`);
+            }
+
+            const results = await pipeline.exec();
+            if (!results) return [];
+            const points: Array<OhlcData & { timestamp: number }> = [];
+
+            for (let i = 0; i < limitedBuckets.length; i++) {
+                const data = results[i][1] as Record<string, string> | null;
+                if (data && Object.keys(data).length > 0) {
+                    points.push({
+                        timestamp: limitedBuckets[i],
+                        open: parseFloat(data.open) || 0,
+                        high: parseFloat(data.high) || 0,
+                        low: parseFloat(data.low) || 0,
+                        close: parseFloat(data.close) || 0,
+                        volume: parseFloat(data.volume) || 0
+                    });
+                }
+            }
+
+            return points;
+        } catch (error) {
+            this.logger.error(`Redis error in getHistoricalOhlc for "${tokenMint}" interval "${interval}":`, error);
+            return [];
+        }
+    }
+
     getBucketTimestamp(interval: OhlcInterval): number {
         const now = Date.now();
         const intervalMs = INTERVAL_MS[interval];

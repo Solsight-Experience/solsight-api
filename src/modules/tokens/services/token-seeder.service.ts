@@ -66,6 +66,7 @@ export class TokenSeederService implements OnModuleInit {
                         name: token.name,
                         decimals: token.decimals,
                         logoUri: token.logoURI,
+                        coingeckoId: coingeckoId.find((c: any) => c.platforms?.solana == token.address)?.id || null,
                         description: token.extensions?.description,
                         website: token.extensions?.website,
                         socialLinks: {

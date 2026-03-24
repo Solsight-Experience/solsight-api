@@ -5,6 +5,7 @@ import { SummarizeTokenRequestDto, TokenSummaryResponseDto } from "../dtos/token
 import { HolderAggregationService } from "../services/aggregation/holder-aggregation.service";
 import { TraderAggregationService } from "../services/aggregation/trader-aggregation.service";
 import { OhlcAggregationService } from "../services/aggregation/ohlc-aggregation.service";
+import { ChartQueryDto } from "../dtos/token.chart.dto";
 
 @Controller("tokens")
 export class TokensController {
@@ -30,6 +31,11 @@ export class TokensController {
         @Body() filterDto: any
     ) {
         return this.tokensService.filter(filterDto, limit, sort_by, sort_order, offset);
+    }
+
+    @Get(":address/chart")
+    getChart(@Param("address") address: string, @Query() query: ChartQueryDto) {
+        return this.tokensService.getChartData(address, query);
     }
 
     @Post("summarize")
