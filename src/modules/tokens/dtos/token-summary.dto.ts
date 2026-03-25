@@ -1,44 +1,29 @@
-import { IsString, IsBoolean, IsOptional } from "class-validator";
+import { IsString, IsNotEmpty } from 'class-validator';
 
 export class SummarizeTokenRequestDto {
-    @IsString()
-    address: string;
+  @IsString()
+  @IsNotEmpty()
+  address: string;
 
-    @IsOptional()
-    @IsBoolean()
-    includePriceAnalysis?: boolean;
+  @IsString()
+  @IsNotEmpty()
+  name: string;
 
-    @IsOptional()
-    @IsBoolean()
-    includeRiskAssessment?: boolean;
-
-    @IsOptional()
-    @IsBoolean()
-    includeTradingMetrics?: boolean;
-
-    @IsOptional()
-    @IsBoolean()
-    includeMarketComparison?: boolean;
-
-    @IsOptional()
-    @IsBoolean()
-    includeSocialSentiment?: boolean;
-
-    @IsOptional()
-    @IsBoolean()
-    forceRefresh?: boolean;
+  @IsString()
+  @IsNotEmpty()
+  symbol: string;
 }
 
 export class TokenSummaryResponseDto {
-    address: string;
-    summary: string;
-    generatedAt: Date;
-    model: string;
-    cached: boolean;
-    tokenData?: {
-        name: string;
-        symbol: string;
-        price: number;
-        priceChange24h: number;
-    };
+  address: string;
+  summary: string;
+  generatedAt: Date;
+  model: string;
+  cached: boolean;
+  tokenData?: {
+    name: string;
+    symbol: string;
+    price?: number;
+    priceChange24h?: number;
+  };
 }

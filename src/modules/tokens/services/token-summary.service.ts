@@ -1,253 +1,203 @@
-import { Injectable, Logger, NotFoundException, HttpException, HttpStatus } from "@nestjs/common";
-import { TokensService } from "./tokens.service";
-import { PromptBuilderService, SummaryOptions } from "./prompt-builder.service";
-import { GeminiService } from "../../../infra/gemini/gemini.service";
-import { RedisService } from "../../../redis/services/redis.service";
-import { InjectRepository } from "@nestjs/typeorm";
-import { Repository } from "typeorm";
-import { Token } from "../entities/token.entity";
+import { Injectable, Logger, HttpException, HttpStatus } from '@nestjs/common';
+import { TokensService } from './tokens.service';
+import { PromptBuilderService, TokenContext } from './prompt-builder.service';
+import { GeminiService } from '../../../infra/gemini/gemini.service';
+import { RedisService } from '../../../redis/services/redis.service';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { Token } from '../entities/token.entity';
 
-export interface GenerateSummaryOptions extends SummaryOptions {
-    forceRefresh?: boolean;
+export interface TokenSummaryInput {
+  address: string;
+  name: string;
+  symbol: string;
 }
 
 export interface TokenSummaryResult {
-    address: string;
-    summary: string;
-    generatedAt: Date;
-    model: string;
-    cached: boolean;
-    tokenData?: {
-        name: string;
-        symbol: string;
-        price: number;
-        priceChange24h: number;
-    };
+  address: string;
+  summary: string;
+  generatedAt: Date;
+  model: string;
+  cached: boolean;
+  tokenData?: {
+    name: string;
+    symbol: string;
+    price?: number;
+    priceChange24h?: number;
+  };
 }
 
 @Injectable()
 export class TokenSummaryService {
-    private readonly logger = new Logger(TokenSummaryService.name);
-    private readonly CACHE_KEY_PREFIX = "token:summary";
-    private readonly DEFAULT_CACHE_TTL = 600; // 10 minutes default
-    private readonly ACTIVE_TOKEN_TTL = 300; // 5 minutes for active tokens
-    private readonly INACTIVE_TOKEN_TTL = 900; // 15 minutes for less active tokens
+  private readonly logger = new Logger(TokenSummaryService.name);
+  private readonly CACHE_KEY_PREFIX = 'token:summary';
+  private readonly DEFAULT_CACHE_TTL = 600; // 10 minutes default
+  private readonly ACTIVE_TOKEN_TTL = 300; // 5 minutes for active tokens
+  private readonly INACTIVE_TOKEN_TTL = 900; // 15 minutes for less active tokens
 
-    constructor(
-        private readonly tokensService: TokensService,
-        private readonly promptBuilderService: PromptBuilderService,
-        private readonly geminiService: GeminiService,
-        private readonly redisService: RedisService,
-        @InjectRepository(Token)
-        private readonly tokenRepository: Repository<Token>
-    ) {}
+  constructor(
+    private readonly tokensService: TokensService,
+    private readonly promptBuilderService: PromptBuilderService,
+    private readonly geminiService: GeminiService,
+    private readonly redisService: RedisService,
+    @InjectRepository(Token)
+    private readonly tokenRepository: Repository<Token>,
+  ) {}
 
-    /**
-     * Generate AI-powered summary for a token
-     * @param address - Token address
-     * @param options - Summarization options
-     * @returns Token summary result
-     */
-    async generateSummary(address: string, options: GenerateSummaryOptions = {}): Promise<TokenSummaryResult> {
-        const { forceRefresh = false, ...summaryOptions } = options;
+  /**
+   * Generate AI-powered summary for a token
+   * @param input - Token input (address, name, symbol)
+   * @returns Token summary result
+   */
+  async generateSummary(input: TokenSummaryInput): Promise<TokenSummaryResult> {
+    const { address, name, symbol } = input;
 
-        // Check if Gemini is configured
-        if (!this.geminiService.isConfigured()) {
-            throw new HttpException("AI service is not configured. Please set GEMINI_API_KEY in environment variables.", HttpStatus.SERVICE_UNAVAILABLE);
-        }
+    // Check if Gemini is configured
+    if (!this.geminiService.isConfigured()) {
+      throw new HttpException(
+        'AI service is not configured. Please set GEMINI_API_KEY in environment variables.',
+        HttpStatus.SERVICE_UNAVAILABLE,
+      );
+    }
 
-        // Check cache first (if not forcing refresh)
-        if (!forceRefresh) {
-            const cached = await this.getCachedSummary(address);
-            if (cached) {
-                this.logger.log(`Returning cached summary for token: ${address}`);
-                return cached;
-            }
-        }
+    // Check cache first
+    const cached = await this.getCachedSummary(address);
+    if (cached) {
+      this.logger.log(`Returning cached summary for token: ${address}`);
+      return cached;
+    }
 
-        // Fetch token data
-        const tokenResponse = await this.tokensService.findOne(address);
-        if (!tokenResponse) {
-            throw new NotFoundException(`Token with address ${address} not found`);
-        }
+    // Attempt to fetch full token entity for richer data
+    let token: Token | null = null;
+    try {
+      token = await this.tokenRepository.findOne({
+        where: { address },
+        relations: ['category'],
+      });
+    } catch (error) {
+      this.logger.warn(`Could not find token entity for ${address}, falling back to basic input.`);
+    }
 
-        // Fetch full token entity for complete data
-        const token = await this.tokenRepository.findOne({
-            where: { address },
-            relations: ["category"]
-        });
+    // Construct context for prompt builder
+    const context: TokenContext = {
+      name: token?.name || name,
+      symbol: token?.symbol || symbol,
+      description: token?.description,
+      category: token?.category?.name,
+      website: token?.website,
+    };
 
-        if (!token) {
-            throw new NotFoundException(`Token entity not found for address ${address}`);
-        }
+    // Build prompt
+    const prompt = this.promptBuilderService.buildSummaryPrompt(context);
 
-        // Fetch category tokens for comparison if requested
-        let categoryTokens: Token[] | undefined;
-        if (summaryOptions.includeMarketComparison !== false && token.categoryId) {
-            categoryTokens = await this.tokenRepository.find({
-                where: { categoryId: token.categoryId },
-                take: 20, // Limit to top 20 tokens in category
-                order: { marketCap: "DESC" }
-            });
-        }
+    // Generate summary using Gemini
+    let summary: string;
+    let model: string;
 
-        // Build prompt
-        const prompt = this.promptBuilderService.buildSummaryPrompt(token, categoryTokens, summaryOptions);
+    try {
+      this.logger.log(`Generating AI summary for token: ${context.symbol} (${address})`);
+      const startTime = Date.now();
 
-        // Generate summary using Gemini
-        let summary: string;
-        let model: string;
+      const geminiResponse = await this.geminiService.generateText({
+        prompt,
+        temperature: 0.7,
+        maxOutputTokens: 200,
+      });
 
-        try {
-            this.logger.log(`Generating AI summary for token: ${token.symbol} (${address})`);
-            const startTime = Date.now();
+      summary = geminiResponse.text;
+      model = geminiResponse.model;
 
-            const geminiResponse = await this.geminiService.generateText({
-                prompt,
-                temperature: 0.5,
-                maxOutputTokens: 800
-            });
+      const duration = Date.now() - startTime;
+      this.logger.log(
+        `AI summary generated in ${duration}ms. Tokens: ${geminiResponse.totalTokenCount || 'N/A'}`,
+      );
+    } catch (error) {
+      this.logger.error('Error generating AI summary', error);
+      throw new HttpException(
+        'Failed to generate AI summary. Please try again later.',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
 
-            summary = geminiResponse.text;
-            model = geminiResponse.model;
+    // Prepare result
+    const result: TokenSummaryResult = {
+      address,
+      summary,
+      generatedAt: new Date(),
+      model,
+      cached: false,
+      tokenData: {
+        name: context.name,
+        symbol: context.symbol,
+        price: token ? Number(token.price) : undefined,
+        priceChange24h: token ? Number(token.priceChange24h) : undefined,
+      },
+    };
 
-            const duration = Date.now() - startTime;
-            this.logger.log(`AI summary generated in ${duration}ms. Tokens: ${geminiResponse.totalTokenCount || "N/A"}`);
-        } catch (error) {
-            this.logger.error("Error generating AI summary", error);
-            throw new HttpException("Failed to generate AI summary. Please try again later.", HttpStatus.INTERNAL_SERVER_ERROR);
-        }
+    // Cache the result
+    await this.cacheSummary(address, token, result);
 
-        // Prepare result
-        const result: TokenSummaryResult = {
-            address: token.address,
-            summary,
-            generatedAt: new Date(),
-            model,
-            cached: false,
-            tokenData: {
-                name: token.name,
-                symbol: token.symbol,
-                price: Number(token.price),
-                priceChange24h: Number(token.priceChange24h)
-            }
+    return result;
+  }
+
+  /**
+   * Get cached summary if available
+   */
+  private async getCachedSummary(address: string): Promise<TokenSummaryResult | null> {
+    try {
+      const cacheKey = this.getCacheKey(address);
+      const cached = await this.redisService.get<TokenSummaryResult>(cacheKey);
+
+      if (cached) {
+        return {
+          ...cached,
+          cached: true,
+          generatedAt: new Date(cached.generatedAt),
         };
-
-        // Cache the result
-        await this.cacheSummary(token, result);
-
-        return result;
+      }
+      return null;
+    } catch (error) {
+      this.logger.error('Error getting cached summary', error);
+      return null;
     }
+  }
 
-    /**
-     * Get cached summary if available
-     */
-    private async getCachedSummary(address: string): Promise<TokenSummaryResult | null> {
-        try {
-            const cacheKey = this.getCacheKey(address);
-            const cached = await this.redisService.get<TokenSummaryResult>(cacheKey);
+  /**
+   * Cache summary with dynamic TTL based on token activity
+   */
+  private async cacheSummary(
+    address: string,
+    token: Token | null,
+    result: TokenSummaryResult,
+  ): Promise<void> {
+    try {
+      const cacheKey = this.getCacheKey(address);
+      const ttl = token ? this.calculateCacheTTL(token) : this.DEFAULT_CACHE_TTL;
 
-            if (cached) {
-                return {
-                    ...cached,
-                    cached: true,
-                    generatedAt: new Date(cached.generatedAt) // Parse date
-                };
-            }
-
-            return null;
-        } catch (error) {
-            this.logger.error("Error getting cached summary", error);
-            return null;
-        }
+      await this.redisService.set(cacheKey, result, ttl);
+      this.logger.debug(`Cached summary for ${address} with TTL: ${ttl} seconds`);
+    } catch (error) {
+      this.logger.error('Error caching summary', error);
     }
+  }
 
-    /**
-     * Cache summary with dynamic TTL based on token activity
-     */
-    private async cacheSummary(token: Token, result: TokenSummaryResult): Promise<void> {
-        try {
-            const cacheKey = this.getCacheKey(token.address);
-            const ttl = this.calculateCacheTTL(token);
+  /**
+   * Calculate cache TTL based on token activity level
+   */
+  private calculateCacheTTL(token: Token): number {
+    const txns24h = token.txns24hTotal || 0;
+    const volume24h = Number(token.volume24h) || 0;
 
-            await this.redisService.set(cacheKey, result, ttl);
-            this.logger.debug(`Cached summary for ${token.symbol} with TTL: ${ttl} seconds`);
-        } catch (error) {
-            this.logger.error("Error caching summary", error);
-            // Don't throw - caching failure shouldn't block the response
-        }
+    if (txns24h > 1000 || volume24h > 100000) {
+      return this.ACTIVE_TOKEN_TTL;
     }
-
-    /**
-     * Calculate cache TTL based on token activity level
-     * More active tokens get shorter cache time for fresher data
-     */
-    private calculateCacheTTL(token: Token): number {
-        const txns24h = token.txns24hTotal || 0;
-        const volume24h = Number(token.volume24h) || 0;
-
-        // High activity: > 1000 transactions or > $100k volume
-        if (txns24h > 1000 || volume24h > 100000) {
-            return this.ACTIVE_TOKEN_TTL; // 5 minutes
-        }
-
-        // Medium to low activity
-        if (txns24h > 100 || volume24h > 10000) {
-            return this.DEFAULT_CACHE_TTL; // 10 minutes
-        }
-
-        // Very low activity
-        return this.INACTIVE_TOKEN_TTL; // 15 minutes
+    if (txns24h > 100 || volume24h > 10000) {
+      return this.DEFAULT_CACHE_TTL;
     }
+    return this.INACTIVE_TOKEN_TTL;
+  }
 
-    /**
-     * Get cache key for a token summary
-     */
-    private getCacheKey(address: string): string {
-        return `${this.CACHE_KEY_PREFIX}:${address}`;
-    }
-
-    /**
-     * Invalidate cached summary for a token
-     */
-    async invalidateCache(address: string): Promise<void> {
-        try {
-            const cacheKey = this.getCacheKey(address);
-            const redis = this.redisService.getClient();
-
-            if (redis) {
-                await redis.del(cacheKey);
-                this.logger.log(`Invalidated cache for token: ${address}`);
-            }
-        } catch (error) {
-            this.logger.error("Error invalidating cache", error);
-        }
-    }
-
-    /**
-     * Get summary statistics (for monitoring/debugging)
-     */
-    async getSummaryStats(): Promise<{
-        totalCached: number;
-        cacheKeys: string[];
-    }> {
-        try {
-            const redis = this.redisService.getClient();
-
-            if (!redis) {
-                return { totalCached: 0, cacheKeys: [] };
-            }
-
-            const pattern = `${this.CACHE_KEY_PREFIX}:*`;
-            const keys = await redis.keys(pattern);
-
-            return {
-                totalCached: keys.length,
-                cacheKeys: keys
-            };
-        } catch (error) {
-            this.logger.error("Error getting summary stats", error);
-            return { totalCached: 0, cacheKeys: [] };
-        }
-    }
+  private getCacheKey(address: string): string {
+    return `${this.CACHE_KEY_PREFIX}:${address}`;
+  }
 }
