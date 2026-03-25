@@ -1,29 +1,29 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, Index } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, Index } from "typeorm";
 
-@Entity('swap_trades')
-@Index(['walletAddress', 'timestamp'])
+@Entity("swap_trades")
+@Index(["walletAddress", "timestamp"])
 export class SwapTrade {
-  @PrimaryGeneratedColumn('uuid')
-  id: string;
+    @PrimaryGeneratedColumn("uuid")
+    id: string;
 
-  @Column()
-  walletAddress: string;
+    @Column()
+    walletAddress: string;
 
-  @Column({ unique: true })
-  signature: string;
+    @Column({ unique: true })
+    signature: string;
 
-  @Column({ type: 'bigint' })
-  timestamp: number;
+    @Column({ type: "bigint" })
+    timestamp: number;
 
-  @Column({ type: 'json' })
-  tokenTransfers: any[];
+    @Column({ type: "json" })
+    tokenTransfers: any[];
 
-  @Column({ type: 'text', nullable: true })
-  description: string;
+    @Column({ type: "text", nullable: true })
+    description: string;
 
-  @Column({ default: 'SWAP' })
-  type: string;
+    @Column({ default: "SWAP" })
+    type: string;
 
-  @CreateDateColumn()
-  createdAt: Date;
+    @CreateDateColumn()
+    createdAt: Date;
 }

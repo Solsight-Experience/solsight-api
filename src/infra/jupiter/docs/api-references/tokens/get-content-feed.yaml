@@ -1,0 +1,229 @@
+openapi: 3.1.0
+info:
+  title: Jupiter Content API
+  version: 1.0.0
+  description: Jupiter Content API Schema
+servers:
+  - url: https://api.jup.ag/tokens/v2
+    description: Jupiter Content API endpoint
+security: []
+paths:
+  /content/feed:
+    get:
+      tags:
+        - Content
+      summary: Get paginated content feed
+      description: Retrieves a paginated feed of content for a specific mint.
+      parameters:
+        - schema:
+            type: string
+            example: JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN
+            description: Solana token mint address
+          required: true
+          description: Solana token mint address
+          name: mint
+          in: query
+        - schema:
+            type: integer
+            minimum: 1
+            default: 1
+            example: 1
+            description: Page number (starts from 1)
+          required: false
+          description: Page number (starts from 1)
+          name: page
+          in: query
+        - schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+            example: 50
+            description: Number of items per page (1-100)
+          required: false
+          description: Number of items per page (1-100)
+          name: limit
+          in: query
+      responses:
+        '200':
+          description: Successfully retrieved content feed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FeedResponse'
+        '400':
+          description: Invalid parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      security:
+        - ApiKeyAuth: []
+components:
+  schemas:
+    FeedResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            contents:
+              type: array
+              items:
+                $ref: '#/components/schemas/ContentItem'
+            tokenSummary:
+              $ref: '#/components/schemas/TokenSummary'
+            newsSummary:
+              $ref: '#/components/schemas/NewsSummary'
+            pagination:
+              $ref: '#/components/schemas/Pagination'
+          required:
+            - contents
+            - tokenSummary
+            - newsSummary
+            - pagination
+      required:
+        - data
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+      required:
+        - error
+    ContentItem:
+      type: object
+      properties:
+        contentId:
+          type: string
+        content:
+          type: string
+        contentType:
+          type: string
+          enum:
+            - text
+            - tweet
+        status:
+          type: string
+          enum:
+            - pending
+            - approved
+          example: approved
+        source:
+          type:
+            - string
+            - 'null'
+        submittedAt:
+          type: string
+        submittedBy:
+          $ref: '#/components/schemas/User'
+        updatedAt:
+          type:
+            - string
+            - 'null'
+        updatedBy:
+          $ref: '#/components/schemas/User'
+        postedAt:
+          type:
+            - string
+            - 'null'
+      required:
+        - contentId
+        - content
+        - contentType
+        - status
+        - source
+        - submittedAt
+        - submittedBy
+        - updatedAt
+        - updatedBy
+        - postedAt
+    TokenSummary:
+      type:
+        - object
+        - 'null'
+      properties:
+        summaryFull:
+          type:
+            - string
+            - 'null'
+        summaryShort:
+          type:
+            - string
+            - 'null'
+        updatedAt:
+          type: string
+        citations:
+          type: array
+          items:
+            type: string
+      required:
+        - summaryFull
+        - summaryShort
+        - updatedAt
+        - citations
+    NewsSummary:
+      type:
+        - object
+        - 'null'
+      properties:
+        summaryFull:
+          type:
+            - string
+            - 'null'
+        summaryShort:
+          type:
+            - string
+            - 'null'
+        updatedAt:
+          type: string
+        citations:
+          type: array
+          items:
+            type: string
+      required:
+        - summaryFull
+        - summaryShort
+        - updatedAt
+        - citations
+    Pagination:
+      type: object
+      properties:
+        limit:
+          type: number
+        total:
+          type: number
+        page:
+          type: number
+        totalPages:
+          type: number
+      required:
+        - limit
+        - total
+        - page
+        - totalPages
+    User:
+      type: object
+      properties:
+        id:
+          type:
+            - string
+            - 'null'
+        username:
+          type:
+            - string
+            - 'null'
+        role:
+          type:
+            - string
+            - 'null'
+      required:
+        - id
+        - username
+        - role
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: x-api-key
+      description: Get API key via https://portal.jup.ag

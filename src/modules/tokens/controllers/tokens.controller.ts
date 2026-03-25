@@ -1,10 +1,13 @@
-import { Controller, Get, Param, NotFoundException, Query, Body, Post } from '@nestjs/common';
-import { TokensService } from '../services/tokens.service';
-import { TokenSummaryService } from '../services/token-summary.service';
-import { SummarizeTokenRequestDto, TokenSummaryResponseDto } from '../dtos/token-summary.dto';
-import { ChartQueryDto } from '../dtos/token.chart.dto';
+import { Controller, Get, Param, NotFoundException, Query, Body, Post } from "@nestjs/common";
+import { TokensService } from "../services/tokens.service";
+import { TokenSummaryService } from "../services/token-summary.service";
+import { SummarizeTokenRequestDto, TokenSummaryResponseDto } from "../dtos/token-summary.dto";
+import { HolderAggregationService } from "../services/aggregation/holder-aggregation.service";
+import { TraderAggregationService } from "../services/aggregation/trader-aggregation.service";
+import { OhlcAggregationService } from "../services/aggregation/ohlc-aggregation.service";
+import { ChartQueryDto } from "../dtos/token.chart.dto";
 
-@Controller('tokens')
+@Controller("tokens")
 export class TokensController {
   constructor(
     private readonly tokensService: TokensService,

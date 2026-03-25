@@ -1,0 +1,133 @@
+openapi: 3.0.0
+info:
+  title: Jupiter Trigger Order API
+  version: 1.0.0
+  description: Jupiter Trigger Order API Schema
+servers:
+  - url: https://api.jup.ag/trigger/v1
+    description: Jupiter Trigger Order API Endpoint
+security: []
+paths:
+  /cancelOrder:
+    post:
+      summary: cancelOrder
+      description: >
+        Request for a base64-encoded unsigned trigger order cancellation
+        transaction to be used in `POST /trigger/v1/execute`
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                maker:
+                  type: string
+                  default: jdocuPgEAjMfihABsPgKEvYtsmMzjUHeq9LX4Hvs7f3
+                order:
+                  type: string
+                  default: 6fe8ByaiFHisjnYnH5qdpyiNtkn89mMBQUemRkVmKhro
+                computeUnitPrice:
+                  type: string
+                  default: auto
+                  description: >
+                    In microlamports, defaults to 95th percentile of priority
+                    fees
+              required:
+                - maker
+                - order
+              example:
+                maker: jdocuPgEAjMfihABsPgKEvYtsmMzjUHeq9LX4Hvs7f3
+                order: 6fe8ByaiFHisjnYnH5qdpyiNtkn89mMBQUemRkVmKhro
+                computeUnitPrice: auto
+      responses:
+        '200':
+          description: >
+            Returns the base64-encoded unsigned transaction needed to cancel an
+            order
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  requestId:
+                    type: string
+                    description: Required to make a request to `/execute`
+                  transaction:
+                    type: string
+                    description: Unsigned base-64 encoded transaction
+                required:
+                  - requestId
+                  - transaction
+                example:
+                  requestId: f7d5dd40-a416-4dae-8367-7dc10cab6554
+                  transaction: >
+                    AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAkOCWPK8t5w2W1nIsonBw2T/TCNCKkrgBQia9/YVlLEcjM9zTXA2aZIqK0k40U/eCZ0Zu1176lxIuHLsY6UyQjTdash6wigo20Auc3RVYRWME9FjnpbdgdRKYjLJLe0lVi47IZO5XCZ/U0AirZsOIWLoumtNiLomxcYL6d2R2rSxzkNgnQl2IV0spQPT+7K7zraa8oytEZyZ4HSFpxmV2v3WgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEImJzcxhjwZ2dKxnfimarbEo/iDZzNgo5QjJ8b+bMOuSf2yH7EMQBZfZLsgOHg/C5SyLv/x1D4MHZgRX7jOy4YyXJY9OJInxuz0QKRSODYMLWhOZ2v8QhASOe9jb6fhZAwZGb+UhFzL/7K26csOb57yM5bvF9xJrLEObOkAAAADG+nrzvtutOj1l82qryXQxsbvkwtL24OR8pgIDRS9dYQrDSpbBZnFaYMEjPsolig3zCx7IWOB0XHNqEmJmY0siBpuIV/6rgYT7aH9jRhjANdrEOdwa6ztVmKDwAAAAAAEG3fbh12Whk9nL4UbO63msHLSF7V9bN5E6jPWFfv8AqXeleaIpvDk6bHUITYxyjNU3ParFA70LbecfV6NupbbBCAkABQKgAwIACQAJAy48AAAAAAAACAYABAAMBQ0BAQUCAAQMAgAAAIDw+gIAAAAADQEEAREIBgABAAoFDQEBCw8AAAIDBAYLDAoNDQUIBwsihW5Kr3Cf9Z9OyUY1qj0LZYDw+gIAAAAAAOH1BQAAAAAAAA0DBAAAAQk=
+              example:
+                requestId: b2c3d4e5-f6a7-8901-bcde-f12345678901
+                transaction: >-
+                  AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAEN...
+        '400':
+          description: Bad request body
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: number
+                  cause:
+                    type: string
+                  signature:
+                    type: string
+                    description: Signature of the transaction, if generated
+                    example: >
+                      38CtpugRBobyj1JMkHj9umQyj1D8q6bs1jcMRcw7Fiyp4BXv4uh4bD4TyJs6fsqYCDDfQpeRewA7HjLA1Eprc8uR
+                  status:
+                    type: string
+                    enum:
+                      - Failed
+                required:
+                  - error
+                  - code
+                example:
+                  error: invalid maker pubkey
+                  code: 400
+        '500':
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: number
+                  cause:
+                    type: string
+                  signature:
+                    type: string
+                    description: Signature of the transaction, if generated
+                    example: >
+                      38CtpugRBobyj1JMkHj9umQyj1D8q6bs1jcMRcw7Fiyp4BXv4uh4bD4TyJs6fsqYCDDfQpeRewA7HjLA1Eprc8uR
+                  status:
+                    type: string
+                    enum:
+                      - Failed
+                required:
+                  - error
+                  - code
+                example:
+                  error: something went wrong while generating cancel instructions
+                  code: 500
+      security:
+        - ApiKeyAuth: []
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: x-api-key
+      description: Get API key via https://portal.jup.ag

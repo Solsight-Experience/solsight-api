@@ -1,0 +1,136 @@
+openapi: 3.0.0
+info:
+  title: Jupiter Trigger Order API
+  version: 1.0.0
+  description: Jupiter Trigger Order API Schema
+servers:
+  - url: https://api.jup.ag/trigger/v1
+    description: Jupiter Trigger Order API Endpoint
+security: []
+paths:
+  /execute:
+    post:
+      summary: execute
+      description: |
+        Execute the signed transaction and get the execution status
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                requestId:
+                  type: string
+                  description: Found in the response of `/createOrder` or `/cancelOrder`
+                signedTransaction:
+                  type: string
+                  description: The signed transaction to execute
+              required:
+                - requestId
+                - signedTransaction
+              title: executeRequestBody
+            example:
+              requestId: a1b2c3d4-e5f6-7890-abcd-ef1234567890
+              signedTransaction: >-
+                AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAEN...
+      responses:
+        '200':
+          description: Signature of the successful transaction
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code:
+                    type: number
+                  signature:
+                    type: string
+                    description: Signature of the successful transaction
+                  status:
+                    type: string
+                    enum:
+                      - Success
+                      - Failed
+                required:
+                  - signature
+                  - status
+                  - code
+                example:
+                  signature: >
+                    38CtpugRBobyj1JMkHj9umQyj1D8q6bs1jcMRcw7Fiyp4BXv4uh4bD4TyJs6fsqYCDDfQpeRewA7HjLA1Eprc8uR
+                  status: Success
+              example:
+                status: Success
+                signature: >-
+                  5UfDuX7hXbTiKFJqS1MzGsNpbXTzMKJe2bZP1zrd7DnFBSChKvF2FVDNAuqz7SJpaHXTB9E5DP6tMjfZmVDMJRs
+                code: 0
+        '400':
+          description: Bad request body
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: number
+                  cause:
+                    type: string
+                  signature:
+                    type: string
+                    description: Signature of the transaction, if generated
+                    example: >
+                      38CtpugRBobyj1JMkHj9umQyj1D8q6bs1jcMRcw7Fiyp4BXv4uh4bD4TyJs6fsqYCDDfQpeRewA7HjLA1Eprc8uR
+                  status:
+                    type: string
+                    enum:
+                      - Failed
+                required:
+                  - error
+                  - code
+                example:
+                  error: invalid transaction
+                  code: 400
+                  status: Failed
+        '500':
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: number
+                  cause:
+                    type: string
+                  signature:
+                    type: string
+                    description: Signature of the transaction, if generated
+                    example: >
+                      38CtpugRBobyj1JMkHj9umQyj1D8q6bs1jcMRcw7Fiyp4BXv4uh4bD4TyJs6fsqYCDDfQpeRewA7HjLA1Eprc8uR
+                  status:
+                    type: string
+                    enum:
+                      - Failed
+                required:
+                  - error
+                  - code
+                example:
+                  error: unable to confirm transaction
+                  code: 500
+                  signature: >
+                    38CtpugRBobyj1JMkHj9umQyj1D8q6bs1jcMRcw7Fiyp4BXv4uh4bD4TyJs6fsqYCDDfQpeRewA7HjLA1Eprc8uR
+                  status: Failed
+      security:
+        - ApiKeyAuth: []
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: x-api-key
+      description: Get API key via https://portal.jup.ag

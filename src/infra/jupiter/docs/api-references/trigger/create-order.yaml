@@ -1,0 +1,193 @@
+openapi: 3.0.0
+info:
+  title: Jupiter Trigger Order API
+  version: 1.0.0
+  description: Jupiter Trigger Order API Schema
+servers:
+  - url: https://api.jup.ag/trigger/v1
+    description: Jupiter Trigger Order API Endpoint
+security: []
+paths:
+  /createOrder:
+    post:
+      summary: createOrder
+      description: >
+        Request for a base64-encoded unsigned trigger order creation transaction
+        to be used in `POST /trigger/v1/execute`
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                inputMint:
+                  type: string
+                  default: EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v
+                outputMint:
+                  type: string
+                  default: So11111111111111111111111111111111111111112
+                maker:
+                  type: string
+                  default: jdocuPgEAjMfihABsPgKEvYtsmMzjUHeq9LX4Hvs7f3
+                payer:
+                  type: string
+                  default: jdocuPgEAjMfihABsPgKEvYtsmMzjUHeq9LX4Hvs7f3
+                params:
+                  type: object
+                  properties:
+                    makingAmount:
+                      type: string
+                      description: Amount of input mint to swap
+                      default: '100000000'
+                    takingAmount:
+                      type: string
+                      description: Amount of output mint to receive
+                      default: '50000000'
+                    expiredAt:
+                      type: string
+                    slippageBps:
+                      type: string
+                      description: |
+                        Amount of slippage the order can be executed with
+                      default: 0
+                    feeBps:
+                      type: string
+                      description: >
+                        Requires the `feeAccount` parameter, the amount of fees
+                        in bps that will be sent to the fee account
+                  required:
+                    - makingAmount
+                    - takingAmount
+                computeUnitPrice:
+                  type: string
+                  default: auto
+                  description: >
+                    In microlamports, defaults to 95th percentile of priority
+                    fees
+                feeAccount:
+                  description: >
+                    - A token account (via the Referral Program) that will
+                    receive the fees
+
+                    - Refer to [Referral Program
+                    Github](https://github.com/TeamRaccoons/referral/tree/main)
+                    for more information
+                  type: string
+                wrapAndUnwrapSol:
+                  type: boolean
+                  default: true
+                  description: If either input or output mint is native SOL
+              required:
+                - inputMint
+                - outputMint
+                - maker
+                - payer
+                - params
+              title: createOrdersRequestBody
+              example:
+                maker: jdocuPgEAjMfihABsPgKEvYtsmMzjUHeq9LX4Hvs7f3
+                payer: jdocuPgEAjMfihABsPgKEvYtsmMzjUHeq9LX4Hvs7f3
+                inputMint: EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v
+                outputMint: So11111111111111111111111111111111111111112
+                params:
+                  makingAmount: '100000000'
+                  takingAmount: '50000000'
+                computeUnitPrice: auto
+      responses:
+        '200':
+          description: >
+            Returns the base64-encoded unsigned transaction from the provided
+            request body.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  requestId:
+                    type: string
+                    description: Required to make a request to `/execute`
+                  transaction:
+                    type: string
+                    description: Unsigned base-64 encoded transaction
+                  order:
+                    type: string
+                    description: Base-58 account which is the Trigger Order account
+                required:
+                  - requestId
+                  - transaction
+                example:
+                  requestId: f7d5dd40-a416-4dae-8367-7dc10cab6554
+                  transaction: >
+                    AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAkOCWPK8t5w2W1nIsonBw2T/TCNCKkrgBQia9/YVlLEcjM9zTXA2aZIqK0k40U/eCZ0Zu1176lxIuHLsY6UyQjTdash6wigo20Auc3RVYRWME9FjnpbdgdRKYjLJLe0lVi47IZO5XCZ/U0AirZsOIWLoumtNiLomxcYL6d2R2rSxzkNgnQl2IV0spQPT+7K7zraa8oytEZyZ4HSFpxmV2v3WgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEImJzcxhjwZ2dKxnfimarbEo/iDZzNgo5QjJ8b+bMOuSf2yH7EMQBZfZLsgOHg/C5SyLv/x1D4MHZgRX7jOy4YyXJY9OJInxuz0QKRSODYMLWhOZ2v8QhASOe9jb6fhZAwZGb+UhFzL/7K26csOb57yM5bvF9xJrLEObOkAAAADG+nrzvtutOj1l82qryXQxsbvkwtL24OR8pgIDRS9dYQrDSpbBZnFaYMEjPsolig3zCx7IWOB0XHNqEmJmY0siBpuIV/6rgYT7aH9jRhjANdrEOdwa6ztVmKDwAAAAAAEG3fbh12Whk9nL4UbO63msHLSF7V9bN5E6jPWFfv8AqXeleaIpvDk6bHUITYxyjNU3ParFA70LbecfV6NupbbBCAkABQKgAwIACQAJAy48AAAAAAAACAYABAAMBQ0BAQUCAAQMAgAAAIDw+gIAAAAADQEEAREIBgABAAoFDQEBCw8AAAIDBAYLDAoNDQUIBwsihW5Kr3Cf9Z9OyUY1qj0LZYDw+gIAAAAAAOH1BQAAAAAAAA0DBAAAAQk=
+                  order: CX2iPk4nxarGPkk7ziViJTfL1z2e1LnGWRDimVQ4tzYf
+              example:
+                requestId: a1b2c3d4-e5f6-7890-abcd-ef1234567890
+                transaction: >-
+                  AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAEN...
+                order: 7nE9GJoYHNmtaQvTQpota3KV2oz4pQ2dA6nvYK8EUJHV
+        '400':
+          description: Bad request body
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: number
+                  cause:
+                    type: string
+                  signature:
+                    type: string
+                    description: Signature of the transaction, if generated
+                    example: >
+                      38CtpugRBobyj1JMkHj9umQyj1D8q6bs1jcMRcw7Fiyp4BXv4uh4bD4TyJs6fsqYCDDfQpeRewA7HjLA1Eprc8uR
+                  status:
+                    type: string
+                    enum:
+                      - Failed
+                required:
+                  - error
+                  - code
+                example:
+                  error: invalid create order request
+                  cause: 'input mint making amount must be at least 5 USD, received: 1'
+                  code: 400
+        '500':
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: number
+                  cause:
+                    type: string
+                  signature:
+                    type: string
+                    description: Signature of the transaction, if generated
+                    example: >
+                      38CtpugRBobyj1JMkHj9umQyj1D8q6bs1jcMRcw7Fiyp4BXv4uh4bD4TyJs6fsqYCDDfQpeRewA7HjLA1Eprc8uR
+                  status:
+                    type: string
+                    enum:
+                      - Failed
+                required:
+                  - error
+                  - code
+                example:
+                  error: unable to get latest blockhash
+                  code: 500
+      security:
+        - ApiKeyAuth: []
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: x-api-key
+      description: Get API key via https://portal.jup.ag
