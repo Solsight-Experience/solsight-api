@@ -34,7 +34,8 @@ export default () => ({
 
     coingecko: {
         apiUrl: process.env.COINGECKO_API_URL || "https://api.coingecko.com/api/v3",
-        apiKey: process.env.COINGECKO_API_KEY || ""
+        apiKey: process.env.COINGECKO_API_KEY || "",
+        searchTokenId: process.env.COINGECKO_LIST_API || "https://api.coingecko.com/api/v3/coins/list?include_platform=true"
     },
 
     openai: {

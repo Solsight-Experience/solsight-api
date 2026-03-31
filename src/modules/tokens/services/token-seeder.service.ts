@@ -15,7 +15,7 @@ export class TokenSeederService implements OnModuleInit {
         @InjectRepository(Token)
         private readonly tokenRepository: Repository<Token>
     ) {
-        const coingeckoListUrl = this.configService.get<string>("solana.coingeckoApi.searchTokenId");
+        const coingeckoListUrl = this.configService.get<string>("coingecko.searchTokenId");
         if (!coingeckoListUrl) {
             throw new Error("Coingecko search token URL is required");
         }
