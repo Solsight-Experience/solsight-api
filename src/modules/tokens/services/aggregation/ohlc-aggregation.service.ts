@@ -152,17 +152,30 @@ export class OhlcAggregationService {
       const results = await pipeline.exec();
       if (!results) return [];
       const points: Array<OhlcData & { timestamp: number }> = [];
+      let lastClose: number | null = null;
 
       for (let i = 0; i < limitedBuckets.length; i++) {
         const data = results[i][1] as Record<string, string> | null;
         if (data && Object.keys(data).length > 0) {
-          points.push({
+          const point = {
             timestamp: limitedBuckets[i],
             open: parseFloat(data.open) || 0,
             high: parseFloat(data.high) || 0,
             low: parseFloat(data.low) || 0,
             close: parseFloat(data.close) || 0,
             volume: parseFloat(data.volume) || 0,
+          };
+          lastClose = point.close;
+          points.push(point);
+        } else if (lastClose !== null) {
+          // Bucket rỗng (không có giao dịch) → thêm flat candle, nhất quán với WebSocket
+          points.push({
+            timestamp: limitedBuckets[i],
+            open: lastClose,
+            high: lastClose,
+            low: lastClose,
+            close: lastClose,
+            volume: 0,
           });
         }
       }
