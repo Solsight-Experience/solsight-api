@@ -37,10 +37,12 @@ export class StatsAggregationService {
         if (!redis) return;
 
         try {
-            // Store latest price
-            await this.redisService.set(`price:${tokenMint}:latest`, {
-                usd: priceUsd
+            // Store latest price as hash
+            await redis.hset(`price:${tokenMint}:latest`, {
+                price_usd: priceUsd,
+                timestamp: Date.now()
             });
+            await redis.expire(`price:${tokenMint}:latest`, 60 * 60); // 1 hour TTL
 
             // Store price in history for 24h change calculation
             const now = Date.now();
@@ -85,17 +87,17 @@ export class StatsAggregationService {
     }
 
     async getStats(tokenMint: string): Promise<TokenStats> {
-        // Get latest price from Redis (object with native and usd)
-        const latestPriceData = await this.redisService.get<{
-            native: number;
-            usd: number;
+        // Get latest price from Redis (hash with price_usd field)
+        const latestPriceData = await this.redisService.getHash<{
+            price_usd: string;
+            timestamp?: string;
         }>(`price:${tokenMint}:latest`);
 
         // Get token from database for other stats
         const token = await this.tokenRepository.findOneBy({ address: tokenMint });
 
         // Calculate 24h price change (use USD price)
-        const priceUsd = latestPriceData?.usd ?? null;
+        const priceUsd = latestPriceData ? parseFloat(latestPriceData.price_usd) : null;
         const priceChange24h = await this.calculatePriceChange24h(tokenMint, priceUsd);
 
         // Get volume and txns from Redis (real-time from swap events)
@@ -146,8 +148,10 @@ export class StatsAggregationService {
         return totalSupply;
     }
 
-    async getLatestPrice(tokenMint: string): Promise<{ native: number; usd: number } | null> {
-        return this.redisService.get<{ native: number; usd: number }>(`price:${tokenMint}:latest`);
+    async getLatestPrice(tokenMint: string): Promise<number | null> {
+        const data = await this.redisService.getHash<{ price_usd: string }>(`price:${tokenMint}:latest`);
+        if (!data?.price_usd) return null;
+        return parseFloat(data.price_usd);
     }
 
     private async getVolume24h(tokenMint: string): Promise<number> {

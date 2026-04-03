@@ -30,8 +30,28 @@ export class RedisService implements OnModuleDestroy {
             } catch {
                 return value as T;
             }
-        } catch (error) {
-            this.logger.error(`Redis get error for key "${key}":`, error);
+        } catch (error: any) {
+            if (error.message?.includes('WRONGTYPE')) {
+                this.logger.warn(`Redis WRONGTYPE for key "${key}" - key may be stored as hash/list/set instead of string`);
+            } else {
+                this.logger.error(`Redis get error for key "${key}": ${error.message}`);
+            }
+            return null;
+        }
+    }
+
+    async getHash<T extends Record<string, any> = Record<string, string>>(key: string): Promise<T | null> {
+        if (!this.redis) return null;
+        try {
+            const data = await this.redis.hgetall(key);
+            if (!data || Object.keys(data).length === 0) return null;
+            return data as T;
+        } catch (error: any) {
+            if (error.message?.includes('WRONGTYPE')) {
+                this.logger.warn(`Redis WRONGTYPE for key "${key}" - key is not a hash`);
+            } else {
+                this.logger.error(`Redis getHash error for key "${key}": ${error.message}`);
+            }
             return null;
         }
     }
