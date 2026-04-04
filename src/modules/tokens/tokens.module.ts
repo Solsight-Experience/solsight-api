@@ -16,6 +16,7 @@ import { StatsAggregationService } from "./services/aggregation/stats-aggregatio
 import { OhlcAggregationService } from "./services/aggregation/ohlc-aggregation.service";
 import { TraderAggregationService } from "./services/aggregation/trader-aggregation.service";
 import { HolderAggregationService } from "./services/aggregation/holder-aggregation.service";
+import { PoolsAggregationService } from "./services/aggregation/pools-aggregation.service";
 import { HolderTrackingService } from "./services/socket/holder-tracking.service";
 import { TokenSummaryService } from "./services/token-summary.service";
 import { PromptBuilderService } from "./services/prompt-builder.service";
@@ -31,6 +32,7 @@ import { GeminiModule } from "../../infra/gemini/gemini.module";
         OhlcAggregationService,
         TraderAggregationService,
         HolderAggregationService,
+        PoolsAggregationService,
         HolderTrackingService,
         TokenSummaryService,
         PromptBuilderService,
