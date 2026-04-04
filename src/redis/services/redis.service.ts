@@ -31,7 +31,7 @@ export class RedisService implements OnModuleDestroy {
                 return value as T;
             }
         } catch (error: any) {
-            if (error.message?.includes('WRONGTYPE')) {
+            if (error.message?.includes("WRONGTYPE")) {
                 this.logger.warn(`Redis WRONGTYPE for key "${key}" - key may be stored as hash/list/set instead of string`);
             } else {
                 this.logger.error(`Redis get error for key "${key}": ${error.message}`);
@@ -47,7 +47,7 @@ export class RedisService implements OnModuleDestroy {
             if (!data || Object.keys(data).length === 0) return null;
             return data as T;
         } catch (error: any) {
-            if (error.message?.includes('WRONGTYPE')) {
+            if (error.message?.includes("WRONGTYPE")) {
                 this.logger.warn(`Redis WRONGTYPE for key "${key}" - key is not a hash`);
             } else {
                 this.logger.error(`Redis getHash error for key "${key}": ${error.message}`);

@@ -38,8 +38,8 @@ export class TokensController {
     }
 
     @Get(":address/pools")
-    async getTokenPools(@Param("address") address: string) {
-        return this.poolsAggregationService.getPoolsForToken(address);
+    async getTokenPools(@Param("address") address: string, @Query("limit") limit: number = 20, @Query("offset") offset: number = 0) {
+        return this.poolsAggregationService.getPoolsForToken(address, limit, offset);
     }
 
     @Get(":address")

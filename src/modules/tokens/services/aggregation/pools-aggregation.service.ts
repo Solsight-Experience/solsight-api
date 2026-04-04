@@ -5,6 +5,8 @@ import { StatsAggregationService } from "./stats-aggregation.service";
 const USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 const USDT_MINT = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB";
 const WSOL_MINT = "So11111111111111111111111111111111111111112";
+const DEFAULT_PAGE_LIMIT = 20;
+const MAX_PAGE_LIMIT = 100;
 
 const DEX_DISPLAY_NAMES: Record<string, string> = {
     raydium_clmm: "Raydium CLMM",
@@ -50,6 +52,11 @@ export interface TokenPoolsResponseDto {
     summary: TokenPoolsSummaryDto;
 }
 
+interface RedisPaginationResult {
+    snapshots: RedisPoolSnapshot[];
+    usedRedisPagination: boolean;
+}
+
 @Injectable()
 export class PoolsAggregationService {
     private readonly logger = new Logger(PoolsAggregationService.name);
@@ -59,7 +66,7 @@ export class PoolsAggregationService {
         private readonly statsAggregationService: StatsAggregationService
     ) {}
 
-    async getPoolsForToken(tokenAddress: string): Promise<TokenPoolsResponseDto> {
+    async getPoolsForToken(tokenAddress: string, limit: number = DEFAULT_PAGE_LIMIT, offset: number = 0): Promise<TokenPoolsResponseDto> {
         const redis = this.redisService.getClient();
         if (!redis) {
             this.logger.warn("Redis unavailable, returning empty pools");
@@ -67,20 +74,18 @@ export class PoolsAggregationService {
         }
 
         try {
-            const redisKey = `solsight:pools:${tokenAddress}`;
-            const rawPools = await redis.hgetall(redisKey);
-
-            if (!rawPools || Object.keys(rawPools).length === 0) {
+            const normalizedLimit = this.normalizeLimit(limit);
+            const normalizedOffset = this.normalizeOffset(offset);
+            if (normalizedLimit === 0) {
                 return this.emptyResponse();
             }
 
-            const snapshots: RedisPoolSnapshot[] = [];
-            for (const [, value] of Object.entries(rawPools)) {
-                try {
-                    snapshots.push(JSON.parse(value));
-                } catch (e) {
-                    this.logger.warn(`Failed to parse pool snapshot: ${String(e)}`);
-                }
+            const redisKey = `solsight:pools:${tokenAddress}`;
+
+            const { snapshots, usedRedisPagination } = await this.getPagedPoolSnapshots(redisKey, normalizedLimit, normalizedOffset);
+
+            if (snapshots.length === 0) {
+                return this.emptyResponse();
             }
 
             const solPrice = await this.getSolPriceUsd();
@@ -123,11 +128,83 @@ export class PoolsAggregationService {
                 unique_pool_count: pools.length
             };
 
-            return { pools, summary };
+            const pagedPools = usedRedisPagination ? pools : pools.slice(normalizedOffset, normalizedOffset + normalizedLimit);
+
+            return { pools: pagedPools, summary };
         } catch (error) {
             this.logger.error(`Error fetching pools for ${tokenAddress}:`, error);
             return this.emptyResponse();
         }
+    }
+
+    private normalizeLimit(limit?: number): number {
+        const numericLimit = Number(limit);
+        if (!Number.isFinite(numericLimit) || Number.isNaN(numericLimit)) {
+            return DEFAULT_PAGE_LIMIT;
+        }
+        return Math.max(0, Math.min(MAX_PAGE_LIMIT, Math.trunc(numericLimit)));
+    }
+
+    private normalizeOffset(offset?: number): number {
+        const numericOffset = Number(offset);
+        if (!Number.isFinite(numericOffset) || Number.isNaN(numericOffset) || numericOffset < 0) {
+            return 0;
+        }
+        return Math.trunc(numericOffset);
+    }
+
+    private async getPagedPoolSnapshots(redisKey: string, limit: number, offset: number): Promise<RedisPaginationResult> {
+        const redis = this.redisService.getClient();
+        if (!redis) {
+            return { snapshots: [], usedRedisPagination: false };
+        }
+
+        const type = await redis.type(redisKey);
+
+        if (type === "none") {
+            return { snapshots: [], usedRedisPagination: false };
+        }
+
+        if (type === "list") {
+            const values = await redis.lrange(redisKey, offset, offset + limit - 1);
+            return {
+                snapshots: this.parsePoolSnapshots(values),
+                usedRedisPagination: true
+            };
+        }
+
+        if (type === "zset") {
+            const values = await redis.zrevrange(redisKey, offset, offset + limit - 1);
+            return {
+                snapshots: this.parsePoolSnapshots(values),
+                usedRedisPagination: true
+            };
+        }
+
+        const rawPools = await redis.hgetall(redisKey);
+        if (!rawPools || Object.keys(rawPools).length === 0) {
+            return { snapshots: [], usedRedisPagination: false };
+        }
+
+        const values = Object.values(rawPools);
+        return {
+            snapshots: this.parsePoolSnapshots(values),
+            usedRedisPagination: false
+        };
+    }
+
+    private parsePoolSnapshots(values: string[]): RedisPoolSnapshot[] {
+        const snapshots: RedisPoolSnapshot[] = [];
+
+        for (const value of values) {
+            try {
+                snapshots.push(JSON.parse(value) as RedisPoolSnapshot);
+            } catch (e) {
+                this.logger.warn(`Failed to parse pool snapshot: ${String(e)}`);
+            }
+        }
+
+        return snapshots;
     }
 
     private async getReserveValueUsd(mint: string, reserve: number, solPriceUsd: number): Promise<number> {
