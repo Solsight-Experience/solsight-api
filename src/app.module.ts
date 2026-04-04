@@ -21,6 +21,7 @@ import { RedisModule } from "./redis/redis.module";
 import { ChatModule } from "./modules/chat/chat.module";
 import { NotificationsModule } from "./modules/notifications/notifications.module";
 import { IndexerModule } from "./modules/indexer/indexer.module";
+import { WatchlistModule } from "./modules/watchlist/watchlist.module";
 @Module({
     imports: [
         ConfigModule.forRoot({
@@ -51,7 +52,8 @@ import { IndexerModule } from "./modules/indexer/indexer.module";
         LimitOrderModule,
         ChatModule,
         NotificationsModule,
-        IndexerModule
+        IndexerModule,
+        WatchlistModule
     ],
     controllers: [],
     providers: []

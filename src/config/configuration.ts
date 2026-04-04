@@ -28,8 +28,10 @@ export default () => ({
     },
 
     jupiter: {
-        apiUrl: process.env.JUPITER_API_URL,
-        apiKey: process.env.JUPITER_API_KEY
+        apiUrl: process.env.JUPITER_API_URL || 'https://lite-api.jup.ag/swap/v1',
+        priceApiUrl: process.env.JUPITER_PRICE_API_URL || 'https://api.jup.ag/price',
+        triggerApiUrl: process.env.JUPITER_TRIGGER_API_URL || 'https://api.jup.ag/trigger/v1',
+        apiKey: process.env.JUPITER_API_KEY || '',
     },
 
     coingecko: {
