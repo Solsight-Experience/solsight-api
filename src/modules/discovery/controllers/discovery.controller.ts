@@ -24,6 +24,12 @@ export class DiscoveryController {
         return this.discoveryService.getCategories();
     }
 
+    @Get("categories/sync")
+    async syncCategories() {
+        await this.discoveryService.syncCategories();
+        return { message: "Categories synced successfully" };
+    }
+
     @Get("categories/:slug")
     async getCategoryDetail(@Param("slug") slug: string, @Query() dto: GetCategoryDto) {
         return this.discoveryService.getCategoryDetail(slug, dto);

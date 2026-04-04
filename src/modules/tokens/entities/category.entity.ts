@@ -15,23 +15,20 @@ export class Category {
     @Column({ type: "text", nullable: true })
     description?: string;
 
-    @Column({ type: "decimal", precision: 30, scale: 2, default: 0 })
+    @Column({ type: "float", default: 0 })
     marketCap: number;
 
-    @Column({ type: "decimal", precision: 10, scale: 2, default: 0 })
-    change1h: number;
+    @Column({ type: "float", default: 0 })
+    marketCapChange24h: number;
 
-    @Column({ type: "decimal", precision: 10, scale: 2, default: 0 })
-    change24h: number;
+    @Column({ type: "float", default: 0 })
+    volume24h: number;
 
-    @Column({ type: "decimal", precision: 10, scale: 2, default: 0 })
-    change7d: number;
+    @Column("simple-array", { nullable: true })
+    top3Coins: string[];
 
-    @Column({ type: "decimal", precision: 30, scale: 2, default: 0 })
-    volume: number;
-
-    @Column({ type: "int", default: 0 })
-    numTokens: number;
+    @Column("simple-array", { nullable: true })
+    top3CoinsId: string[];
 
     @OneToMany(() => Token, (token) => token.category)
     tokens: Token[];

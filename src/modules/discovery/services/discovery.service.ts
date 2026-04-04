@@ -28,20 +28,19 @@ export class DiscoveryService {
     ) {}
 
     /**
-     * Transform Category entity to CategoryOverview format
+     * Transform Category entity to match CoinGecko format
      */
-    private transformToCategory(category: Category): CategoryOverview {
+    private transformToCategory(category: Category) {
         return {
+            id: category.slug,
             name: category.name,
-            slug: category.slug,
-            description: category.description || "",
-            market_cap: category.marketCap,
-            change_1h: category.change1h,
-            change_24h: category.change24h,
-            change_7d: category.change7d,
-            volume: category.volume,
-            num_tokens: category.numTokens,
-            top_tokens: [] // Will be populated separately if needed
+            market_cap: Number(category.marketCap),
+            market_cap_change_24h: Number(category.marketCapChange24h),
+            content: category.description || "",
+            top_3_coins_id: category.top3CoinsId || [],
+            top_3_coins: category.top3Coins || [],
+            volume_24h: Number(category.volume24h),
+            updated_at: category.updatedAt
         };
     }
 
@@ -339,11 +338,20 @@ export class DiscoveryService {
             order: { marketCap: "DESC" }
         });
 
-        const transformedCategories = categories.map((category) => this.transformToCategory(category));
+        // Filter out categories with missing or zero data
+        const validCategories = categories.filter(
+            (cat) =>
+                Number(cat.marketCap) > 0 &&
+                Number(cat.volume24h) > 0 &&
+                cat.top3Coins &&
+                cat.top3Coins.length > 0 &&
+                cat.top3CoinsId &&
+                cat.top3CoinsId.length > 0
+        );
 
-        return {
-            categories: transformedCategories
-        };
+        const transformedCategories = validCategories.map((category) => this.transformToCategory(category));
+
+        return transformedCategories;
     }
 
     /**
@@ -356,6 +364,7 @@ export class DiscoveryService {
             this.logger.log("Starting categories sync...");
 
             // Fetch categories from CoinGecko
+            await this.coingeckoService["cacheManager"].del("cg-categories"); // Force clear cache
             const categories = await this.coingeckoService.getCategories();
 
             if (!categories || categories.length === 0) {
@@ -365,14 +374,28 @@ export class DiscoveryService {
 
             // Process and save categories
             for (const cat of categories) {
+                // Skip if doesn't have required info per user request
+                if (
+                    !cat.name ||
+                    !cat.market_cap ||
+                    !cat.volume_24h ||
+                    !cat.top_3_coins ||
+                    cat.top_3_coins.length === 0 ||
+                    !cat.top_3_coins_id ||
+                    cat.top_3_coins_id.length === 0
+                ) {
+                    continue;
+                }
+
                 const categoryData = {
                     slug: cat.id,
                     name: cat.name,
                     description: cat.content || "",
                     marketCap: cat.market_cap,
-                    change24h: cat.market_cap_change_24h || 0,
-                    volume: cat.volume_24h,
-                    numTokens: 0
+                    marketCapChange24h: cat.market_cap_change_24h || 0,
+                    volume24h: cat.volume_24h,
+                    top3Coins: cat.top_3_coins,
+                    top3CoinsId: cat.top_3_coins_id
                 };
 
                 await this.categoryRepository.upsert(categoryData, {
@@ -425,13 +448,7 @@ export class DiscoveryService {
         });
 
         const transformedCategory = this.transformToCategory(category);
-        const transformedTokens = tokens.map((token) => this.transformToTokenOverview(token));
-
-        return {
-            category: transformedCategory,
-            tokens: transformedTokens,
-            total
-        };
+        return transformedCategory;
     }
 
     /**
