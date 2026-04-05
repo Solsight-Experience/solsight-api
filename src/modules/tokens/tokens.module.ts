@@ -21,9 +21,19 @@ import { HolderTrackingService } from "./services/socket/holder-tracking.service
 import { TokenSummaryService } from "./services/token-summary.service";
 import { PromptBuilderService } from "./services/prompt-builder.service";
 import { GeminiModule } from "../../infra/gemini/gemini.module";
+import { PortfolioModule } from "../portfolio/portfolio.module";
 
 @Module({
-    imports: [TypeOrmModule.forFeature([Token, OhlcCandle]), SolanaModule, JupiterModule, CoinGeckoModule, WebsocketModule, RedisModule, GeminiModule],
+    imports: [
+        TypeOrmModule.forFeature([Token, OhlcCandle]),
+        SolanaModule,
+        JupiterModule,
+        CoinGeckoModule,
+        WebsocketModule,
+        RedisModule,
+        GeminiModule,
+        PortfolioModule
+    ],
     providers: [
         TokensService,
         TokenSocketService,

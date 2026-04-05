@@ -1,6 +1,10 @@
 import { Injectable, Logger } from "@nestjs/common";
+import { InjectRepository } from "@nestjs/typeorm";
+import { In, Repository } from "typeorm";
 import { RedisService } from "../../../../redis/services/redis.service";
 import { StatsAggregationService } from "./stats-aggregation.service";
+import { PortfolioService } from "src/modules/portfolio/services/portfolio.service";
+import { Token } from "../../entities/token.entity";
 
 const USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 const USDT_MINT = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB";
@@ -28,6 +32,16 @@ interface RedisPoolSnapshot {
     last_updated: number;
 }
 
+interface RedisPoolSnapshotEntry {
+    snapshot: RedisPoolSnapshot;
+    rawValue: string;
+    listIndex?: number;
+    zsetScore?: number;
+    hashField?: string;
+}
+
+type RedisPoolStorageType = "none" | "list" | "zset" | "hash" | "unknown";
+
 export interface TokenPoolDto {
     pool_address: string;
     dex: string;
@@ -53,8 +67,10 @@ export interface TokenPoolsResponseDto {
 }
 
 interface RedisPaginationResult {
-    snapshots: RedisPoolSnapshot[];
+    entries: RedisPoolSnapshotEntry[];
     usedRedisPagination: boolean;
+    totalCount: number;
+    storageType: RedisPoolStorageType;
 }
 
 @Injectable()
@@ -62,8 +78,11 @@ export class PoolsAggregationService {
     private readonly logger = new Logger(PoolsAggregationService.name);
 
     constructor(
+        @InjectRepository(Token)
+        private readonly tokenRepository: Repository<Token>,
         private readonly redisService: RedisService,
-        private readonly statsAggregationService: StatsAggregationService
+        private readonly statsAggregationService: StatsAggregationService,
+        private readonly portfolioService: PortfolioService
     ) {}
 
     async getPoolsForToken(tokenAddress: string, limit: number = DEFAULT_PAGE_LIMIT, offset: number = 0): Promise<TokenPoolsResponseDto> {
@@ -82,22 +101,43 @@ export class PoolsAggregationService {
 
             const redisKey = `solsight:pools:${tokenAddress}`;
 
-            const { snapshots, usedRedisPagination } = await this.getPagedPoolSnapshots(redisKey, normalizedLimit, normalizedOffset);
+            const { entries, usedRedisPagination, totalCount, storageType } = await this.getPagedPoolSnapshots(redisKey, normalizedLimit, normalizedOffset);
+            const snapshots = entries.map((entry) => entry.snapshot);
 
             if (snapshots.length === 0) {
-                return this.emptyResponse();
+                return this.emptyResponse(totalCount);
             }
 
+            const symbolByMint = await this.resolveUnknownSymbolsFromDb(snapshots);
             const solPrice = await this.getSolPriceUsd();
             const poolVolumes = await this.getPoolVolumes(snapshots.map((s) => s.pool_address));
 
             const pools: TokenPoolDto[] = [];
+            const snapshotsToBackfill: RedisPoolSnapshotEntry[] = [];
 
-            for (const snapshot of snapshots) {
-                const isBaseTokenA = snapshot.token_a_mint === tokenAddress;
+            for (const entry of entries) {
+                const snapshot = entry.snapshot;
+                const resolvedTokenASymbol = this.resolveSnapshotSymbol(snapshot.token_a_symbol, snapshot.token_a_mint, symbolByMint);
+                const resolvedTokenBSymbol = this.resolveSnapshotSymbol(snapshot.token_b_symbol, snapshot.token_b_mint, symbolByMint);
+
+                if (
+                    this.shouldBackfillSymbol(snapshot.token_a_symbol, resolvedTokenASymbol) ||
+                    this.shouldBackfillSymbol(snapshot.token_b_symbol, resolvedTokenBSymbol)
+                ) {
+                    snapshotsToBackfill.push({
+                        ...entry,
+                        snapshot: {
+                            ...snapshot,
+                            token_a_symbol: resolvedTokenASymbol,
+                            token_b_symbol: resolvedTokenBSymbol
+                        }
+                    });
+                }
+
+                const isBaseTokenA = [WSOL_MINT, USDC_MINT, USDT_MINT].includes(snapshot.token_b_mint);
                 const quoteMint = isBaseTokenA ? snapshot.token_b_mint : snapshot.token_a_mint;
-                const baseSymbol = isBaseTokenA ? snapshot.token_a_symbol : snapshot.token_b_symbol;
-                const quoteSymbol = isBaseTokenA ? snapshot.token_b_symbol : snapshot.token_a_symbol;
+                const baseSymbol = isBaseTokenA ? resolvedTokenASymbol : resolvedTokenBSymbol;
+                const quoteSymbol = isBaseTokenA ? resolvedTokenBSymbol : resolvedTokenASymbol;
                 const reserveBase = isBaseTokenA ? snapshot.reserve_a : snapshot.reserve_b;
                 const reserveQuote = isBaseTokenA ? snapshot.reserve_b : snapshot.reserve_a;
 
@@ -119,13 +159,17 @@ export class PoolsAggregationService {
                 });
             }
 
+            if (snapshotsToBackfill.length > 0) {
+                await this.backfillResolvedSymbols(redisKey, storageType, snapshotsToBackfill);
+            }
+
             pools.sort((a, b) => b.liquidity_usd - a.liquidity_usd);
 
             const summary: TokenPoolsSummaryDto = {
                 total_liquidity_usd: pools.reduce((sum, p) => sum + p.liquidity_usd, 0),
                 total_volume_24h_usd: pools.reduce((sum, p) => sum + p.volume_24h_usd, 0),
                 unique_dex_count: new Set(pools.map((p) => p.dex)).size,
-                unique_pool_count: pools.length
+                unique_pool_count: totalCount || pools.length
             };
 
             const pagedPools = usedRedisPagination ? pools : pools.slice(normalizedOffset, normalizedOffset + normalizedLimit);
@@ -156,55 +200,191 @@ export class PoolsAggregationService {
     private async getPagedPoolSnapshots(redisKey: string, limit: number, offset: number): Promise<RedisPaginationResult> {
         const redis = this.redisService.getClient();
         if (!redis) {
-            return { snapshots: [], usedRedisPagination: false };
+            return { entries: [], usedRedisPagination: false, totalCount: 0, storageType: "none" };
         }
 
-        const type = await redis.type(redisKey);
+        const type = (await redis.type(redisKey)) as RedisPoolStorageType;
 
         if (type === "none") {
-            return { snapshots: [], usedRedisPagination: false };
+            return { entries: [], usedRedisPagination: false, totalCount: 0, storageType: "none" };
         }
 
         if (type === "list") {
+            const totalCount = await redis.llen(redisKey);
             const values = await redis.lrange(redisKey, offset, offset + limit - 1);
+            const entries = values
+                .map((value, index) => ({ value, listIndex: offset + index }))
+                .map(({ value, listIndex }) => {
+                    const snapshot = this.parsePoolSnapshot(value);
+                    if (!snapshot) {
+                        return null;
+                    }
+                    return {
+                        snapshot,
+                        rawValue: value,
+                        listIndex
+                    } as RedisPoolSnapshotEntry;
+                })
+                .filter((entry): entry is RedisPoolSnapshotEntry => entry !== null);
             return {
-                snapshots: this.parsePoolSnapshots(values),
-                usedRedisPagination: true
+                entries,
+                usedRedisPagination: true,
+                totalCount,
+                storageType: "list"
             };
         }
 
         if (type === "zset") {
-            const values = await redis.zrevrange(redisKey, offset, offset + limit - 1);
+            const totalCount = await redis.zcard(redisKey);
+            const values = await redis.zrevrange(redisKey, offset, offset + limit - 1, "WITHSCORES");
+            const entries: RedisPoolSnapshotEntry[] = [];
+
+            for (let i = 0; i < values.length; i += 2) {
+                const rawValue = values[i];
+                const score = Number(values[i + 1]);
+                const snapshot = this.parsePoolSnapshot(rawValue);
+                if (!snapshot) {
+                    continue;
+                }
+                entries.push({
+                    snapshot,
+                    rawValue,
+                    zsetScore: Number.isFinite(score) ? score : snapshot.last_updated
+                });
+            }
+
             return {
-                snapshots: this.parsePoolSnapshots(values),
-                usedRedisPagination: true
+                entries,
+                usedRedisPagination: true,
+                totalCount,
+                storageType: "zset"
             };
         }
 
-        const rawPools = await redis.hgetall(redisKey);
-        if (!rawPools || Object.keys(rawPools).length === 0) {
-            return { snapshots: [], usedRedisPagination: false };
+        if (type !== "hash") {
+            return { entries: [], usedRedisPagination: false, totalCount: 0, storageType: "unknown" };
         }
 
-        const values = Object.values(rawPools);
+        const rawPools = await redis.hgetall(redisKey);
+        const totalCount = await redis.hlen(redisKey);
+        if (!rawPools || Object.keys(rawPools).length === 0) {
+            return { entries: [], usedRedisPagination: false, totalCount, storageType: "hash" };
+        }
+
+        const entries = Object.entries(rawPools)
+            .map(([hashField, rawValue]) => {
+                const snapshot = this.parsePoolSnapshot(rawValue);
+                if (!snapshot) {
+                    return null;
+                }
+                return {
+                    snapshot,
+                    rawValue,
+                    hashField
+                } as RedisPoolSnapshotEntry;
+            })
+            .filter((entry): entry is RedisPoolSnapshotEntry => entry !== null);
+
         return {
-            snapshots: this.parsePoolSnapshots(values),
-            usedRedisPagination: false
+            entries,
+            usedRedisPagination: false,
+            totalCount,
+            storageType: "hash"
         };
     }
 
-    private parsePoolSnapshots(values: string[]): RedisPoolSnapshot[] {
-        const snapshots: RedisPoolSnapshot[] = [];
+    private parsePoolSnapshot(value: string): RedisPoolSnapshot | null {
+        try {
+            return JSON.parse(value) as RedisPoolSnapshot;
+        } catch (e) {
+            this.logger.warn(`Failed to parse pool snapshot: ${String(e)}`);
+            return null;
+        }
+    }
 
-        for (const value of values) {
-            try {
-                snapshots.push(JSON.parse(value) as RedisPoolSnapshot);
-            } catch (e) {
-                this.logger.warn(`Failed to parse pool snapshot: ${String(e)}`);
+    private isUnknownSymbol(symbol?: string): boolean {
+        return !symbol || symbol.trim().length === 0 || symbol.toUpperCase() === "UNKNOWN";
+    }
+
+    private resolveSnapshotSymbol(snapshotSymbol: string | undefined, mint: string, symbolByMint: Map<string, string>): string {
+        if (typeof snapshotSymbol === "string" && !this.isUnknownSymbol(snapshotSymbol)) {
+            return snapshotSymbol.trim();
+        }
+        const dbSymbol = symbolByMint.get(mint);
+        if (dbSymbol && !this.isUnknownSymbol(dbSymbol)) {
+            return dbSymbol;
+        }
+        return "UNKNOWN";
+    }
+
+    private shouldBackfillSymbol(previousSymbol: string | undefined, resolvedSymbol: string): boolean {
+        return this.isUnknownSymbol(previousSymbol) && !this.isUnknownSymbol(resolvedSymbol);
+    }
+
+    private async resolveUnknownSymbolsFromDb(snapshots: RedisPoolSnapshot[]): Promise<Map<string, string>> {
+        const unknownMints = new Set<string>();
+
+        for (const snapshot of snapshots) {
+            if (this.isUnknownSymbol(snapshot.token_a_symbol)) {
+                unknownMints.add(snapshot.token_a_mint);
+            }
+            if (this.isUnknownSymbol(snapshot.token_b_symbol)) {
+                unknownMints.add(snapshot.token_b_mint);
             }
         }
 
-        return snapshots;
+        if (unknownMints.size === 0) {
+            return new Map();
+        }
+
+        const tokens = await this.tokenRepository.find({
+            where: { address: In([...unknownMints]) },
+            select: ["address", "symbol"]
+        });
+
+        return new Map(tokens.filter((token) => !this.isUnknownSymbol(token.symbol)).map((token) => [token.address, token.symbol.trim()]));
+    }
+
+    private async backfillResolvedSymbols(redisKey: string, storageType: RedisPoolStorageType, updatedEntries: RedisPoolSnapshotEntry[]): Promise<void> {
+        const redis = this.redisService.getClient();
+        if (!redis || updatedEntries.length === 0) {
+            return;
+        }
+
+        const pipeline = redis.pipeline();
+        let updates = 0;
+
+        for (const entry of updatedEntries) {
+            const serializedSnapshot = JSON.stringify(entry.snapshot);
+
+            if (storageType === "list" && typeof entry.listIndex === "number") {
+                pipeline.lset(redisKey, entry.listIndex, serializedSnapshot);
+                updates += 1;
+                continue;
+            }
+
+            if (storageType === "hash" && entry.hashField) {
+                pipeline.hset(redisKey, entry.hashField, serializedSnapshot);
+                updates += 1;
+                continue;
+            }
+
+            if (storageType === "zset" && typeof entry.zsetScore === "number") {
+                pipeline.zrem(redisKey, entry.rawValue);
+                pipeline.zadd(redisKey, entry.zsetScore, serializedSnapshot);
+                updates += 1;
+            }
+        }
+
+        if (updates === 0) {
+            return;
+        }
+
+        try {
+            await pipeline.exec();
+        } catch (e) {
+            this.logger.warn(`Failed to backfill pool symbols in redis key ${redisKey}: ${String(e)}`);
+        }
     }
 
     private async getReserveValueUsd(mint: string, reserve: number, solPriceUsd: number): Promise<number> {
@@ -222,7 +402,11 @@ export class PoolsAggregationService {
     }
 
     private async getSolPriceUsd(): Promise<number> {
-        return (await this.statsAggregationService.getLatestPrice(WSOL_MINT)) ?? 0;
+        const cache = (await this.statsAggregationService.getLatestPrice(WSOL_MINT)) ?? 0;
+        if (cache > 0) {
+            return cache;
+        }
+        return this.portfolioService.getSolPriceUsd() ?? 0;
     }
 
     private async getPoolVolumes(poolAddresses: string[]): Promise<Map<string, number>> {
@@ -263,14 +447,14 @@ export class PoolsAggregationService {
         return result;
     }
 
-    private emptyResponse(): TokenPoolsResponseDto {
+    private emptyResponse(uniquePoolCount: number = 0): TokenPoolsResponseDto {
         return {
             pools: [],
             summary: {
                 total_liquidity_usd: 0,
                 total_volume_24h_usd: 0,
                 unique_dex_count: 0,
-                unique_pool_count: 0
+                unique_pool_count: uniquePoolCount
             }
         };
     }

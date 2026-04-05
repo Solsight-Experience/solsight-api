@@ -70,7 +70,7 @@ export class PortfolioService {
         return axios.get(url);
     }
 
-    private async getSolPriceUsd(): Promise<number> {
+    public async getSolPriceUsd(): Promise<number> {
         const cachedPrice = await this.cacheManager.get<number>(SOL_PRICE_CACHE_KEY);
         if (cachedPrice) {
             return cachedPrice;
