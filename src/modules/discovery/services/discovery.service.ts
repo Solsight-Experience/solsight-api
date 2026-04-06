@@ -11,7 +11,7 @@ import { GetCategoryDto } from "../dtos/get-category.dto";
 import { JupiterService } from "../../../infra/jupiter/jupiter.service";
 import { CoinGeckoService } from "../../../infra/coingecko/coingecko.service";
 import { SolanaService } from "../../../infra/solana/solana.service";
-import { TokenOverview, CategoryOverview } from "../dtos/discovery.response.dto";
+import { TokenOverview, CategoryOverview, PaginatedCategoriesResponse } from "../dtos/discovery.response.dto";
 
 @Injectable()
 export class DiscoveryService {
@@ -333,9 +333,13 @@ export class DiscoveryService {
         }
     }
 
-    async getCategories() {
-        const categories = await this.categoryRepository.find({
-            order: { marketCap: "DESC" }
+    async getCategories(dto: GetCategoryDto): Promise<PaginatedCategoriesResponse> {
+        const { limit = 10, offset = 0 } = dto;
+
+        const [categories, total] = await this.categoryRepository.findAndCount({
+            order: { marketCap: "DESC" },
+            take: limit,
+            skip: offset
         });
 
         // Filter out categories with missing or zero data
@@ -351,7 +355,12 @@ export class DiscoveryService {
 
         const transformedCategories = validCategories.map((category) => this.transformToCategory(category));
 
-        return transformedCategories;
+        return {
+            data: transformedCategories,
+            total,
+            limit,
+            offset
+        };
     }
 
     /**

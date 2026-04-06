@@ -20,8 +20,8 @@ export class DiscoveryController {
     }
 
     @Get("categories")
-    async getCategories() {
-        return this.discoveryService.getCategories();
+    async getCategories(@Query() dto: GetCategoryDto) {
+        return this.discoveryService.getCategories(dto);
     }
 
     @Get("categories/sync")
