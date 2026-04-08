@@ -37,7 +37,7 @@ export type TokenOverviewResponseDto = {
     network: string | null;
     category: string | null;
     age_seconds: number | null;
-    price: number | null;
+    price: string | null;
     price_change_1h: number | null;
     price_change_24h: number | null;
     price_change_7d: number | null;
@@ -81,7 +81,7 @@ export type TokenResponseOnchainData = {
     circulating_supply: number | null;
     max_supply: number | null;
 
-    price: number | null;
+    price: string | null;
     price_change: {
         "1h": number | null;
         "24h": number | null;
