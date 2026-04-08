@@ -2,6 +2,12 @@ export type TradeDirection = "BUY" | "SELL";
 
 const STABLECOIN_SYMBOLS = new Set(["USDC", "USDT"]);
 
+const MAX_PRICE_USD = 1_000_000_000; // 1 billion USD — cap for out-of-range detection
+
+export function isValidPrice(price: number): boolean {
+    return isFinite(price) && price > 0 && price < MAX_PRICE_USD;
+}
+
 export function isStablecoin(token: TokenInfo): boolean {
     return STABLECOIN_SYMBOLS.has(token.symbol);
 }
@@ -81,7 +87,7 @@ export interface TradeData {
 
 export interface TokenStats {
     timestamp: number;
-    price: number;
+    price: string;
     price_change: {
         "24h": number;
     };

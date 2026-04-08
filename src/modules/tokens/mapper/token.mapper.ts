@@ -92,7 +92,7 @@ export function mapTokenEntityToResponseDto(token: Token, network: string): Toke
         circulating_supply: token.circulatingSupply ?? null,
         max_supply: token.maxSupply ?? null,
 
-        price: token.price ?? null,
+        price: token.price != null ? String(token.price) : null,
         price_change: {
             "1h": token.priceChange1h ?? null,
             "24h": token.priceChange24h ?? null,
@@ -161,7 +161,7 @@ export function mapTokenEntityToOverviewDto(token: Token, network: string): Toke
         category: token.category?.name ?? null,
         age_seconds: token.ageSeconds ?? null,
 
-        price: token.price ?? null,
+        price: token.price != null ? String(token.price) : null,
         price_change_1h: token.priceChange1h ?? null,
         price_change_24h: token.priceChange24h ?? null,
         price_change_7d: token.priceChange7d ?? null,

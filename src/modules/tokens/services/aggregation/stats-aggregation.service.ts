@@ -3,7 +3,7 @@ import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
 import { RedisService } from "../../../../redis/services/redis.service";
 import { Token } from "../../entities/token.entity";
-import { SwapEvent, TokenStats, SwapPriceResult } from "../../types/swap-event.type";
+import { SwapEvent, TokenStats, SwapPriceResult, isValidPrice } from "../../types/swap-event.type";
 
 @Injectable()
 export class StatsAggregationService {
@@ -28,11 +28,13 @@ export class StatsAggregationService {
         // Store volume and txns for both tokens
         // token_out = user is BUYING this token
         // token_in = user is SELLING this token
-        await this.storeVolumeAndTxns(tokenOutMint, prices.volumeUsdTokenOut, "buy");
-        await this.storeVolumeAndTxns(tokenInMint, prices.volumeUsdTokenIn, "sell");
+        await this.storeVolumeAndTxns(tokenOutMint, prices.volumeUsdTokenOut, "buy", prices.priceUsdTokenOut);
+        await this.storeVolumeAndTxns(tokenInMint, prices.volumeUsdTokenIn, "sell", prices.priceUsdTokenIn);
     }
 
     private async storePriceData(tokenMint: string, priceUsd: number): Promise<void> {
+        if (!isValidPrice(priceUsd)) return;
+
         const redis = this.redisService.getClient();
         if (!redis) return;
 
@@ -60,7 +62,9 @@ export class StatsAggregationService {
         }
     }
 
-    private async storeVolumeAndTxns(tokenMint: string, volumeUsd: number, txType: "buy" | "sell"): Promise<void> {
+    private async storeVolumeAndTxns(tokenMint: string, volumeUsd: number, txType: "buy" | "sell", priceUsd: number): Promise<void> {
+        if (!isValidPrice(priceUsd)) return;
+
         const redis = this.redisService.getClient();
         if (!redis) return;
 
@@ -70,13 +74,13 @@ export class StatsAggregationService {
 
             // Store volume in sorted set (rolling 24h window)
             const volumeKey = `volume:${tokenMint}:24h`;
-            await redis.zadd(volumeKey, now, `${volumeUsd}:${now}`);
+            await redis.zadd(volumeKey, now, `${volumeUsd}:${priceUsd}:${now}`);
             await redis.zremrangebyscore(volumeKey, "-inf", cutoff);
             await redis.expire(volumeKey, 25 * 60 * 60);
 
             // Store transaction in sorted set (rolling 24h window)
             const txnsKey = `txns:${tokenMint}:24h`;
-            await redis.zadd(txnsKey, now, `${txType}:${now}`);
+            await redis.zadd(txnsKey, now, `${txType}:${priceUsd}:${now}`);
             await redis.zremrangebyscore(txnsKey, "-inf", cutoff);
             await redis.expire(txnsKey, 25 * 60 * 60);
         } catch (error) {
@@ -108,7 +112,7 @@ export class StatsAggregationService {
 
         return {
             timestamp: Date.now() / 1000,
-            price: Number(price),
+            price: String(price),
             price_change: {
                 "24h": priceChange24h ?? Number(token?.priceChange24h ?? 0)
             },
@@ -161,7 +165,9 @@ export class StatsAggregationService {
 
             let totalVolume = 0;
             for (const entry of entries) {
-                const [volumeStr] = entry.split(":");
+                const [volumeStr, priceStr] = entry.split(":");
+                const price = parseFloat(priceStr);
+                if (!isValidPrice(price)) continue;
                 totalVolume += parseFloat(volumeStr) || 0;
             }
             return totalVolume;
@@ -185,7 +191,9 @@ export class StatsAggregationService {
             let buys = 0;
             let sells = 0;
             for (const entry of entries) {
-                const [txType] = entry.split(":");
+                const [txType, priceStr] = entry.split(":");
+                const price = parseFloat(priceStr);
+                if (!isValidPrice(price)) continue;
                 if (txType === "buy") buys++;
                 else if (txType === "sell") sells++;
             }
