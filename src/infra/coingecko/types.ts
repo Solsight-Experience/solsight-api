@@ -34,6 +34,7 @@ export interface CoinGeckoCategory {
     market_cap: number;
     market_cap_change_24h: number;
     content?: string;
+    top_3_coins_id?: string[];
     top_3_coins?: string[];
     volume_24h: number;
     updated_at: string;
