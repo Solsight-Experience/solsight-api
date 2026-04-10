@@ -8,12 +8,16 @@ import { WalletAlertService } from './wallet-alert.service';
 import { WalletAlertCheckerService } from './wallet-alert-checker.service';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { SolanaModule } from '../../infra/solana/solana.module';
+import { ZaloModule } from '../zalo/zalo.module';
+import { EmailModule } from '../email/email.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([WatchedWallet, WalletAlert]),
     NotificationsModule,
     SolanaModule,
+    ZaloModule,
+    EmailModule,
   ],
   controllers: [WatchlistController],
   providers: [WatchlistService, WalletAlertService, WalletAlertCheckerService],

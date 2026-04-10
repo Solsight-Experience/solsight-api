@@ -119,4 +119,12 @@ export class NotificationsService {
             where: { userId, isRead: false }
         });
     }
+
+    async delete(notificationId: string, userId: string): Promise<void> {
+        await this.notificationRepository.delete({ id: notificationId, userId });
+    }
+
+    async deleteAll(userId: string): Promise<void> {
+        await this.notificationRepository.delete({ userId });
+    }
 }

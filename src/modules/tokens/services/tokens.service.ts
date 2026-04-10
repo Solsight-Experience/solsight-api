@@ -12,6 +12,10 @@ import { mapJupiterTokenToEntity, mapTokenEntityToResponseDto, mapTokenEntityToO
 import { ChartQueryDto, ChartResponseDto } from "../dtos/token.chart.dto";
 import { OhlcAggregationService } from "./aggregation/ohlc-aggregation.service";
 import { OhlcInterval } from "./socket/room/room.constants";
+import { RedisService } from "src/redis/services/redis.service";
+
+const TOKEN_ICON_KEY = (address: string) => `token:icon:${address}`;
+const TOKEN_ICON_TTL = 24 * 60 * 60; // 24 hours
 
 @Injectable()
 export class TokensService {
@@ -26,9 +30,20 @@ export class TokensService {
         private readonly solanaService: SolanaService,
         private readonly jupiterService: JupiterService,
         private readonly coinGeckoService: CoinGeckoService,
-        private readonly ohlcAggregationService: OhlcAggregationService
+        private readonly ohlcAggregationService: OhlcAggregationService,
+        private readonly redisService: RedisService
     ) {
         this.network = this.solanaService.getNetwork();
+    }
+
+    private async cacheIconUri(address: string, logoUri: string | null | undefined): Promise<void> {
+        if (logoUri) {
+            await this.redisService.set(TOKEN_ICON_KEY(address), logoUri, TOKEN_ICON_TTL);
+        }
+    }
+
+    async getTokenIconUri(address: string): Promise<string | null> {
+        return this.redisService.get<string>(TOKEN_ICON_KEY(address));
     }
 
     async findOne(address: string): Promise<TokenResponseDto | null> {
@@ -54,6 +69,8 @@ export class TokensService {
         if (!token) {
             return null;
         }
+
+        await this.cacheIconUri(address, token.logoUri);
 
         return mapTokenEntityToResponseDto(token, this.network);
     }
@@ -268,6 +285,7 @@ export class TokensService {
 
     async updateToken(address: string, data: Partial<Token>) {
         const token = await this.tokenRepository.upsert({ address, ...data }, ["address"]);
+        await this.cacheIconUri(address, data.logoUri);
         return token;
     }
 }
