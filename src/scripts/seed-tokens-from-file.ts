@@ -121,7 +121,7 @@ class SeedTokensFromFileService {
         this.logger.log(`Found ${addresses.length} unique addresses in ${filePath}`);
 
         const tokenList = await this.jupiterService.getTokenList();
-        const tokenByAddress = new Map(tokenList.map((token) => [token.address, token]));
+        const tokenByAddress = new Map(tokenList.map((token) => [token.id, token]));
         let searchTokenByAddress: Map<string, JupiterSearchToken> | null = null;
 
         if (tokenByAddress.size === 0) {
@@ -146,7 +146,7 @@ class SeedTokensFromFileService {
                 symbol: token?.symbol ?? searchToken?.symbol ?? "UNKNOWN",
                 name: token?.name ?? searchToken?.name ?? address,
                 decimals: token?.decimals ?? searchToken?.decimals ?? 0,
-                logoUri: token?.logoURI ?? searchToken?.logoURI,
+                logoUri: token?.icon ?? searchToken?.logoURI,
                 coingeckoId: token?.extensions?.coingeckoId ?? searchToken?.extensions?.coingeckoId,
                 network: "solana",
                 updatedAt: now
