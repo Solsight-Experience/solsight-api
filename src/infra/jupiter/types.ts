@@ -23,7 +23,7 @@ export interface JupiterToken {
 }
 
 export interface JupiterTokenV2 {
-    id: string;
+    id: string; // token pubkey address
     decimals: number;
     name: string;
     symbol: string;

@@ -146,7 +146,7 @@ class SeedTokensFromFileService {
                 symbol: token?.symbol ?? searchToken?.symbol ?? "UNKNOWN",
                 name: token?.name ?? searchToken?.name ?? address,
                 decimals: token?.decimals ?? searchToken?.decimals ?? 0,
-                logoUri: token?.icon ?? searchToken?.logoURI ?? searchToken?.icon,
+                logoUri: token?.icon ?? searchToken?.logoURI,
                 coingeckoId: token?.extensions?.coingeckoId ?? searchToken?.extensions?.coingeckoId,
                 network: "solana",
                 updatedAt: now

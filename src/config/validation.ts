@@ -54,5 +54,13 @@ export const validationSchema = Joi.object({
     // OpenAI (default provider)
     OPENAI_API_KEY: Joi.string().optional(),
     OPENAI_API_URL: Joi.string().uri().optional(),
-    OPENAI_MODEL: Joi.string().default("gpt-4o")
+    OPENAI_MODEL: Joi.string().default("gpt-4o"),
+
+    // Zalo OA Bot
+    ZALO_BOT_TOKEN: Joi.string().optional(),
+
+    // Email (Resend)
+    RESEND_API_KEY: Joi.string().optional(),
+    EMAIL_FROM_ADDRESS: Joi.string().optional(),
+    APP_BASE_URL: Joi.string().optional(),
 });

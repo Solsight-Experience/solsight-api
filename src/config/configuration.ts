@@ -62,5 +62,15 @@ export default () => ({
     api: {
         prefix: process.env.API_PREFIX || "api",
         version: process.env.API_VERSION || "v1"
+    },
+
+    zalo: {
+        botToken: process.env.ZALO_BOT_TOKEN ?? ""
+    },
+
+    email: {
+        resendApiKey: process.env.RESEND_API_KEY ?? "",
+        fromAddress: process.env.EMAIL_FROM_ADDRESS ?? "alerts@solsight.app",
+        verifyBaseUrl: process.env.APP_BASE_URL ?? "http://localhost:3000"
     }
 });
