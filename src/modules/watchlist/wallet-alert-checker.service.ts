@@ -478,16 +478,14 @@ export class WalletAlertCheckerService implements OnModuleInit {
                 return;
         }
 
-        emailHtml = `<div style="font-family:sans-serif;font-size:14px;color:#e2e8f0;background:#0c1018;padding:24px;border-radius:8px">
-      ${zaloText
-          .split("\n")
-          .map((line) =>
-              line.startsWith("- ")
-                  ? `<p style="margin:4px 0;color:#94a3b8">${line}</p>`
-                  : `<p style="margin:0 0 12px;font-weight:600;color:#ffffff">${line}</p>`
-          )
-          .join("")}
-    </div>`;
+        emailHtml = zaloText
+            .split("\n")
+            .map((line) =>
+                line.startsWith("- ")
+                    ? `<p style="margin:4px 0;color:#94a3b8">${line}</p>`
+                    : `<p style="margin:0 0 12px;font-weight:600;color:#ffffff">${line}</p>`
+            )
+            .join("");
 
         await this.notificationsService.notifyUser(alert.userId, {
             type,
@@ -505,6 +503,6 @@ export class WalletAlertCheckerService implements OnModuleInit {
         });
 
         await this.zaloSubscriptionService.sendAlertMessage(alert.userId, zaloText);
-        await this.emailSubscriptionService.sendAlertEmail(alert.userId, title, emailHtml);
+        await this.emailSubscriptionService.sendWalletAlertEmail(alert.userId, title, title, emailHtml, zaloText);
     }
 }

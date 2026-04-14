@@ -1,5 +1,6 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { WebsocketGateway } from "../../../websocket/websocket.gateway";
+import { EmailSubscriptionService } from "../../email/services/email-subscription.service";
 import { Notification, NotificationChannel } from "../entities/notification.entity";
 
 export interface NotificationDeliveryPayload {
@@ -11,7 +12,10 @@ export interface NotificationDeliveryPayload {
 export class NotificationDeliveryService {
     private readonly logger = new Logger(NotificationDeliveryService.name);
 
-    constructor(private readonly gateway: WebsocketGateway) {}
+    constructor(
+        private readonly gateway: WebsocketGateway,
+        private readonly emailSubscription: EmailSubscriptionService
+    ) {}
 
     deliver(payload: NotificationDeliveryPayload): void {
         const { notification, channels } = payload;
@@ -62,8 +66,11 @@ export class NotificationDeliveryService {
         }
     }
 
-    // TODO: integrate email provider (SendGrid, SES, or SMTP) when ready
-    private deliverViaEmail(notification: Notification): void {
-        this.logger.log(`Email delivery requested for notification ${notification.id} to user ${notification.userId} — not yet implemented`);
+    private async deliverViaEmail(notification: Notification): Promise<void> {
+        try {
+            await this.emailSubscription.sendAlertEmail(notification.userId, notification.title, notification.title, notification.message);
+        } catch (error) {
+            this.logger.error(`Failed to deliver notification ${notification.id} via email`, error);
+        }
     }
 }
