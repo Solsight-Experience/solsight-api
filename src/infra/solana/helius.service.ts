@@ -1,9 +1,11 @@
+import { Injectable } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { BaseSolanaRpcService } from "./base-solana-rpc.service";
 import axios, { AxiosInstance } from "axios";
 import { EnhancedTransaction, GetAssetResponse, RpcResponse } from "./constants/types";
 
-class HeliusService extends BaseSolanaRpcService {
+@Injectable()
+export class HeliusService extends BaseSolanaRpcService {
     private readonly apiClient: AxiosInstance;
     private readonly baseRpcPayload = {
         jsonrpc: "2.0",
