@@ -2,7 +2,7 @@ import { Injectable } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { BaseSolanaRpcService } from "./base-solana-rpc.service";
 import axios, { AxiosInstance } from "axios";
-import { EnhancedTransaction, GetAssetResponse, RpcResponse } from "./constants/types";
+import { EnhancedTransaction, GetAssetResponse, GetEnhancedTransactionsByAddressParams, HeliusCommitment, RpcResponse } from "./constants/types";
 
 @Injectable()
 export class HeliusService extends BaseSolanaRpcService {
@@ -52,7 +52,7 @@ export class HeliusService extends BaseSolanaRpcService {
         return data.result;
     }
 
-    async getEnhancedTransactions(transactions: string[], commitment?: "finalized" | "confirmed"): Promise<EnhancedTransaction[]> {
+    async getEnhancedTransactions(transactions: string[], commitment?: HeliusCommitment): Promise<EnhancedTransaction[]> {
         const { data } = await this.apiClient.post<EnhancedTransaction[]>(
             "/v0/transactions",
             { transactions },
@@ -63,6 +63,32 @@ export class HeliusService extends BaseSolanaRpcService {
                 }
             }
         );
+
+        return data;
+    }
+
+    async getEnhancedTransactionsByAddress(address: string, params: GetEnhancedTransactionsByAddressParams = {}): Promise<EnhancedTransaction[]> {
+        const { data } = await this.apiClient.get<EnhancedTransaction[]>(`/v0/addresses/${address}/transactions`, {
+            timeout: 10000,
+            params: {
+                ...(params.beforeSignature && { "before-signature": params.beforeSignature }),
+                ...(params.afterSignature && { "after-signature": params.afterSignature }),
+                ...(params.commitment && { commitment: params.commitment }),
+                ...(params.tokenAccounts && { "token-accounts": params.tokenAccounts }),
+                ...(params.sortOrder && { "sort-order": params.sortOrder }),
+                ...(params.gtSlot !== undefined && { "gt-slot": params.gtSlot }),
+                ...(params.gteSlot !== undefined && { "gte-slot": params.gteSlot }),
+                ...(params.ltSlot !== undefined && { "lt-slot": params.ltSlot }),
+                ...(params.lteSlot !== undefined && { "lte-slot": params.lteSlot }),
+                ...(params.gtTime !== undefined && { "gt-time": params.gtTime }),
+                ...(params.gteTime !== undefined && { "gte-time": params.gteTime }),
+                ...(params.ltTime !== undefined && { "lt-time": params.ltTime }),
+                ...(params.lteTime !== undefined && { "lte-time": params.lteTime }),
+                ...(params.source && { source: params.source }),
+                ...(params.type && { type: params.type }),
+                ...(params.limit !== undefined && { limit: params.limit })
+            }
+        });
 
         return data;
     }

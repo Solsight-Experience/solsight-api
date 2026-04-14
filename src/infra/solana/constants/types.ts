@@ -4,6 +4,31 @@ export type RpcResponse<T> = {
     result: T;
 };
 
+export type HeliusCommitment = "finalized" | "confirmed";
+
+export type HeliusTokenAccountsFilter = "none" | "balanceChanged" | "all";
+
+export type HeliusSortOrder = "asc" | "desc";
+
+export type GetEnhancedTransactionsByAddressParams = {
+    beforeSignature?: string;
+    afterSignature?: string;
+    commitment?: HeliusCommitment;
+    tokenAccounts?: HeliusTokenAccountsFilter;
+    sortOrder?: HeliusSortOrder;
+    gtSlot?: number;
+    gteSlot?: number;
+    ltSlot?: number;
+    lteSlot?: number;
+    gtTime?: number;
+    gteTime?: number;
+    ltTime?: number;
+    lteTime?: number;
+    source?: string;
+    type?: string;
+    limit?: number;
+};
+
 export type GetAssetResponse = {
     last_indexed_slot: number;
     interface: AssetInterface;
