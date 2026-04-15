@@ -22,8 +22,8 @@ export class StatsAggregationService {
         this.logger.log(`[SET] out="${tokenOutMint}" price=${prices.priceUsdTokenOut} | in="${tokenInMint}" price=${prices.priceUsdTokenIn}`);
 
         // Store price for both tokens
-        await this.storePriceData(tokenOutMint, prices.priceUsdTokenOut);
-        await this.storePriceData(tokenInMint, prices.priceUsdTokenIn);
+        await this.storePriceData(tokenOutMint, prices.priceUsdTokenOut, swap.price_native, swap);
+        await this.storePriceData(tokenInMint, prices.priceUsdTokenIn, swap.price_native, swap);
 
         // Store volume and txns for both tokens
         // token_out = user is BUYING this token
@@ -32,7 +32,7 @@ export class StatsAggregationService {
         await this.storeVolumeAndTxns(tokenInMint, prices.volumeUsdTokenIn, "sell", prices.priceUsdTokenIn);
     }
 
-    private async storePriceData(tokenMint: string, priceUsd: number): Promise<void> {
+    private async storePriceData(tokenMint: string, priceUsd: number, priceNative: number, swap: SwapEvent): Promise<void> {
         if (!isValidPrice(priceUsd)) return;
 
         const redis = this.redisService.getClient();
@@ -40,8 +40,11 @@ export class StatsAggregationService {
 
         try {
             // Store latest price
-            await this.redisService.set(`price:${tokenMint}:latest`, {
-                usd: priceUsd
+            await this.redisService.hset(`price:${tokenMint}:latest`, {
+                price_usd: priceUsd,
+                price_native: priceNative,
+                slot: swap.slot,
+                source: "solsight-api"
             });
 
             // Store price in history for 24h change calculation
@@ -90,10 +93,7 @@ export class StatsAggregationService {
 
     async getStats(tokenMint: string): Promise<TokenStats> {
         // Get latest price from Redis (object with native and usd)
-        const latestPriceData = await this.redisService.get<{
-            native: number;
-            usd: number;
-        }>(`price:${tokenMint}:latest`);
+        const latestPriceData = await this.redisService.hgetall(`price:${tokenMint}:latest`);
 
         // Get token from database for other stats
         const token = await this.tokenRepository.findOneBy({ address: tokenMint });
