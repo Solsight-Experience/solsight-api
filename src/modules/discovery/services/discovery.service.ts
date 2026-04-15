@@ -10,8 +10,7 @@ import { GetGainersLosersDto, GainersLosersType, GainersLosersTimeFrame } from "
 import { GetCategoryDto } from "../dtos/get-category.dto";
 import { JupiterService } from "../../../infra/jupiter/jupiter.service";
 import { CoinGeckoService } from "../../../infra/coingecko/coingecko.service";
-import { SolanaService } from "../../../infra/solana/solana.service";
-import { TokenOverview, CategoryOverview, PaginatedCategoriesResponse } from "../dtos/discovery.response.dto";
+import { TokenOverview, PaginatedCategoriesResponse } from "../dtos/discovery.response.dto";
 
 @Injectable()
 export class DiscoveryService {
@@ -23,8 +22,7 @@ export class DiscoveryService {
         @InjectRepository(Category)
         private readonly categoryRepository: Repository<Category>,
         private readonly jupiterService: JupiterService,
-        private readonly coingeckoService: CoinGeckoService,
-        private readonly solanaService: SolanaService
+        private readonly coingeckoService: CoinGeckoService
     ) {}
 
     /**

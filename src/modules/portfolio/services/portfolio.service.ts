@@ -4,6 +4,7 @@ import { Repository } from "typeorm";
 import { WalletsService } from "../../wallets/services/wallets.service";
 import { HeliusService } from "../../../infra/solana/helius.service";
 import { SolanaService } from "../../../infra/solana/solana.service";
+import { CoinGeckoService } from "../../../infra/coingecko/coingecko.service";
 import { CACHE_MANAGER } from "@nestjs/cache-manager";
 import { Cache } from "cache-manager";
 import axios from "axios";
@@ -11,22 +12,9 @@ import { PublicKey, LAMPORTS_PER_SOL } from "@solana/web3.js";
 import { Transaction, TransactionType, TransactionStatus } from "../../transactions/entities/transaction.entity";
 import { WalletSnapshot } from "../entities/wallet-snapshot.entity";
 import { TokensService } from "src/modules/tokens/services/tokens.service";
+import { TokenMetadata } from "src/modules/tokens/dtos/token.response.dto";
 
 const SOL_COINGECKO_ID = "solana";
-const SOL_PRICE_CACHE_KEY = "sol-price-usd";
-const TOKEN_LIST_CACHE_KEY = "solana-token-list";
-const CACHE_TTL_SECONDS = 60 * 5; // 5 minutes
-
-interface TokenInfo {
-    address: string;
-    symbol: string;
-    name: string;
-    logoURI: string;
-    decimals: number;
-    extensions?: {
-        coingeckoId?: string;
-    };
-}
 
 const DEX_SOURCES = ["JUPITER", "RAYDIUM", "ORCA", "METEORA", "PHOENIX", "OPENBOOK", "SOLFI"];
 
@@ -41,6 +29,7 @@ export class PortfolioService {
         private readonly heliusService: HeliusService,
         private readonly solanaService: SolanaService,
         private readonly tokenService: TokensService,
+        private readonly coinGeckoService: CoinGeckoService,
         @Inject(CACHE_MANAGER) private cacheManager: Cache,
         @InjectRepository(Transaction) private transactionRepo: Repository<Transaction>,
         @InjectRepository(WalletSnapshot) private walletSnapshotRepo: Repository<WalletSnapshot>
@@ -77,63 +66,29 @@ export class PortfolioService {
     }
 
     private async getSolPriceUsd(): Promise<number> {
-        const cachedPrice = await this.cacheManager.get<number>(SOL_PRICE_CACHE_KEY);
-        if (cachedPrice) {
-            return cachedPrice;
-        }
-
         try {
-            const response = await axios.get("https://api.coingecko.com/api/v3/simple/price", {
-                params: {
-                    ids: SOL_COINGECKO_ID,
-                    vs_currencies: "usd"
-                }
-            });
-            const price = response.data[SOL_COINGECKO_ID]?.usd;
-            if (price) {
-                await this.cacheManager.set(SOL_PRICE_CACHE_KEY, price, CACHE_TTL_SECONDS * 1000);
-                return price;
-            }
-            return 0;
+            const data = await this.coinGeckoService.getSimplePrice([SOL_COINGECKO_ID]);
+            return data[SOL_COINGECKO_ID]?.usd ?? 0;
         } catch (error) {
-            console.error("Failed to fetch SOL price from CoinGecko", error);
-            return 0; // Return 0 or a fallback price if the API call fails
+            this.logger.error("Failed to fetch SOL price", error);
+            return 0;
         }
     }
 
     private async getSolPriceHistory(fromSec: number, toSec: number): Promise<Map<number, number>> {
         const fromDay = Math.floor(fromSec / 86400) * 86400;
         const toDay = Math.ceil(toSec / 86400) * 86400;
-        const cacheKey = `sol-price-history-${fromDay}-${toDay}`;
 
-        const cached = await this.cacheManager.get<Record<string, number>>(cacheKey);
-        if (cached && typeof cached === "object" && !Array.isArray(cached)) {
-            this.logger.log(`[getSolPriceHistory] cache hit: ${cacheKey}`);
-            return new Map(Object.entries(cached).map(([k, v]) => [Number(k), v]));
-        }
-
-        this.logger.log(`[getSolPriceHistory] cache miss → fetching CoinGecko: ${cacheKey}`);
         try {
-            const response = await axios.get("https://api.coingecko.com/api/v3/coins/solana/market_chart/range", {
-                params: {
-                    vs_currency: "usd",
-                    from: fromDay,
-                    to: toDay
-                }
-            });
-
+            const data = await this.coinGeckoService.getMarketChartRange(SOL_COINGECKO_ID, "usd", fromDay, toDay);
             const priceChart = new Map<number, number>();
-            for (const [tsMs, price] of response.data.prices as [number, number][]) {
+            for (const [tsMs, price] of data.prices) {
                 const dayTs = Math.floor(tsMs / 1000 / 86400) * 86400;
-                priceChart.set(dayTs, price); // overwrites with latest price of the day
+                priceChart.set(dayTs, price);
             }
-
-            const nowSec = Date.now() / 1000;
-            const ttl = toDay < nowSec - 86400 ? 24 * 60 * 60 * 1000 : CACHE_TTL_SECONDS * 1000;
-            await this.cacheManager.set(cacheKey, Object.fromEntries(priceChart), ttl);
             return priceChart;
         } catch (error) {
-            console.error("Failed to fetch SOL price history from CoinGecko");
+            this.logger.error("Failed to fetch SOL price history", error);
             return new Map();
         }
     }
@@ -161,25 +116,7 @@ export class PortfolioService {
         return prices.reduce((a, b) => a + b, 0) / prices.length;
     }
 
-    private async getTokenList(): Promise<Map<string, TokenInfo>> {
-        const cachedList = await this.cacheManager.get<Record<string, TokenInfo>>(TOKEN_LIST_CACHE_KEY);
-        if (cachedList && typeof cachedList === "object" && !Array.isArray(cachedList)) {
-            return new Map(Object.entries(cachedList));
-        }
-
-        try {
-            const response = await axios.get("https://raw.githubusercontent.com/solana-labs/token-list/main/src/tokens/solana.tokenlist.json");
-            const tokenList = response.data.tokens as TokenInfo[];
-            const tokenMap = new Map(tokenList.map((token) => [token.address, token]));
-            await this.cacheManager.set(TOKEN_LIST_CACHE_KEY, Object.fromEntries(tokenMap), CACHE_TTL_SECONDS * 1000);
-            return tokenMap;
-        } catch (error) {
-            console.error("Failed to fetch Solana token list", error);
-            return new Map();
-        }
-    }
-
-    private async getTokenPrices(mintAddresses: string[], tokenMetaMap: Map<string, TokenInfo>): Promise<Map<string, number>> {
+    private async getTokenPrices(mintAddresses: string[], tokenMetaMap: Map<string, TokenMetadata>): Promise<Map<string, number>> {
         if (mintAddresses.length === 0) {
             return new Map();
         }
@@ -188,7 +125,7 @@ export class PortfolioService {
         const coingeckoIds: string[] = [];
 
         for (const mint of mintAddresses) {
-            const coingeckoId = tokenMetaMap.get(mint)?.extensions?.coingeckoId;
+            const coingeckoId = tokenMetaMap.get(mint)?.coingeckoId;
             if (coingeckoId) {
                 coingeckoIds.push(coingeckoId);
                 coingeckoIdToMintMap.set(coingeckoId, mint);
@@ -199,20 +136,8 @@ export class PortfolioService {
             return new Map();
         }
 
-        const cacheKey = `token-prices-${[...coingeckoIds].sort().join(",")}`;
-        const cached = await this.cacheManager.get<Record<string, number>>(cacheKey);
-        if (cached && typeof cached === "object" && !Array.isArray(cached)) {
-            return new Map(Object.entries(cached));
-        }
-
         try {
-            const response = await axios.get("https://api.coingecko.com/api/v3/simple/price", {
-                params: {
-                    ids: coingeckoIds.join(","),
-                    vs_currencies: "usd"
-                }
-            });
-            const prices = response.data;
+            const prices = await this.coinGeckoService.getSimplePrice(coingeckoIds);
             const priceMap = new Map<string, number>();
 
             for (const coingeckoId in prices) {
@@ -223,10 +148,9 @@ export class PortfolioService {
                     }
                 }
             }
-            await this.cacheManager.set(cacheKey, Object.fromEntries(priceMap), CACHE_TTL_SECONDS * 1000);
             return priceMap;
         } catch (error) {
-            console.error("Failed to fetch token prices from CoinGecko", error);
+            this.logger.error("Failed to fetch token prices", error);
             return new Map();
         }
     }
@@ -238,14 +162,15 @@ export class PortfolioService {
             wallets = wallets.filter((w) => walletAddresses.includes(w.address));
         }
 
-        const [solPrice, tokenMetaMap] = await Promise.all([this.getSolPriceUsd(), this.getTokenList()]);
+        const [solPrice, allTokenAccounts] = await Promise.all([
+            this.getSolPriceUsd(),
+            Promise.all(wallets.map((w) => this.solanaService.getParsedTokenAccountsByOwner(new PublicKey(w.address)))).then((r) => r.flat())
+        ]);
 
         const total_balance_sol = wallets.reduce((acc, w) => acc + Number(w.balance || 0), 0);
         let total_balance_usd = total_balance_sol * solPrice;
 
-        const allTokenAccounts = (await Promise.all(wallets.map((w) => this.solanaService.getParsedTokenAccountsByOwner(new PublicKey(w.address))))).flat();
-
-        const aggregatedTokens = new Map<string, { amount: number; info?: TokenInfo }>();
+        const aggregatedTokens = new Map<string, { amount: number; info?: TokenMetadata }>();
 
         for (const acc of allTokenAccounts) {
             const mint = acc.account.data.parsed.info.mint;
@@ -253,13 +178,19 @@ export class PortfolioService {
             if (amount > 0) {
                 const existing = aggregatedTokens.get(mint) || { amount: 0 };
                 aggregatedTokens.set(mint, {
-                    amount: existing.amount + amount,
-                    info: tokenMetaMap.get(mint)
+                    amount: existing.amount + amount
                 });
             }
         }
 
-        const tokenPrices = await this.getTokenPrices(Array.from(aggregatedTokens.keys()), tokenMetaMap);
+        const mintAddresses = Array.from(aggregatedTokens.keys());
+        const tokenMetaMap = await this.tokenService.findMany(mintAddresses);
+
+        for (const [mint, data] of aggregatedTokens) {
+            data.info = tokenMetaMap.get(mint);
+        }
+
+        const tokenPrices = await this.getTokenPrices(mintAddresses, tokenMetaMap);
 
         const positions = Array.from(aggregatedTokens.entries()).map(([mint, data]) => {
             const price = tokenPrices.get(mint) || 0;
@@ -280,7 +211,7 @@ export class PortfolioService {
         const top_tokens = positions.slice(0, 5).map((p) => ({
             name: p.name || "Unknown",
             symbol: p.symbol || "???",
-            logo: p.logoURI || "",
+            logo: p.logoUri || "",
             value_usd: p.valueUsd,
             price: p.price,
             change_24h: 0 // Placeholder
@@ -490,14 +421,15 @@ export class PortfolioService {
             };
         }
 
-        const [solPrice, tokenMetaMap] = await Promise.all([this.getSolPriceUsd(), this.getTokenList()]);
-
-        const walletTokenAccounts = await Promise.all(
-            targetWallets.map(async (w) => ({
-                wallet: w,
-                accounts: await this.solanaService.getParsedTokenAccountsByOwner(new PublicKey(w.address))
-            }))
-        );
+        const [solPrice, walletTokenAccounts] = await Promise.all([
+            this.getSolPriceUsd(),
+            Promise.all(
+                targetWallets.map(async (w) => ({
+                    wallet: w,
+                    accounts: await this.solanaService.getParsedTokenAccountsByOwner(new PublicKey(w.address))
+                }))
+            )
+        ]);
 
         // Save per-wallet balance snapshots (fire-and-forget)
         const snapshotAt = new Date();
@@ -516,7 +448,7 @@ export class PortfolioService {
 
         const allTokenAccounts = walletTokenAccounts.flatMap((w) => w.accounts);
 
-        const aggregatedTokens = new Map<string, { amount: number; info?: TokenInfo }>();
+        const aggregatedTokens = new Map<string, { amount: number; info?: TokenMetadata }>();
 
         for (const acc of allTokenAccounts) {
             const mint = acc.account.data.parsed.info.mint;
@@ -524,13 +456,19 @@ export class PortfolioService {
             if (amount > 0 || showZeroBalance) {
                 const existing = aggregatedTokens.get(mint) || { amount: 0 };
                 aggregatedTokens.set(mint, {
-                    amount: existing.amount + amount,
-                    info: tokenMetaMap.get(mint)
+                    amount: existing.amount + amount
                 });
             }
         }
 
-        const tokenPrices = await this.getTokenPrices(Array.from(aggregatedTokens.keys()), tokenMetaMap);
+        const mintAddresses = Array.from(aggregatedTokens.keys());
+        const tokenMetaMap = await this.tokenService.findMany(mintAddresses);
+
+        for (const [mint, data] of aggregatedTokens) {
+            data.info = tokenMetaMap.get(mint);
+        }
+
+        const tokenPrices = await this.getTokenPrices(mintAddresses, tokenMetaMap);
 
         let positions = Array.from(aggregatedTokens.entries()).map(([mint, data]) => {
             const price = tokenPrices.get(mint) || 0;
@@ -539,7 +477,7 @@ export class PortfolioService {
                 mint,
                 name: data.info?.name || "Unknown Token",
                 symbol: data.info?.symbol || "???",
-                logo: data.info?.logoURI || "",
+                logo: data.info?.logoUri || "",
                 amount: data.amount,
                 price,
                 value_usd: valueUsd,
@@ -557,7 +495,7 @@ export class PortfolioService {
                 mint: "So11111111111111111111111111111111111111112", // Native SOL mint address
                 name: "Solana",
                 symbol: "SOL",
-                logo: tokenMetaMap.get("So11111111111111111111111111111111111111112")?.logoURI || "",
+                logo: tokenMetaMap.get("So11111111111111111111111111111111111111112")?.logoUri || "",
                 amount: totalSolBalance,
                 price: solPrice,
                 value_usd: solValueUsd,
@@ -672,7 +610,7 @@ export class PortfolioService {
         return source.charAt(0) + source.slice(1).toLowerCase().replace(/_/g, " ");
     }
 
-    private async mapToActivity(tx: any, walletAddress: string, solPrice: number, tokenMetaMap: Map<string, TokenInfo>) {
+    private async mapToActivity(tx: any, walletAddress: string, solPrice: number, tokenMetaMap: Map<string, TokenMetadata>) {
         const SOL_MINT = "So11111111111111111111111111111111111111112";
         const network = this.solanaService.getNetwork();
 
@@ -709,7 +647,7 @@ export class PortfolioService {
                     token_in = {
                         address: SOL_MINT,
                         symbol: "SOL",
-                        logo_uri: await this.tokenService.getTokenIconUri(SOL_MINT),
+                        logo_uri: (await this.tokenService.getTokenMetadata(SOL_MINT))?.logoUri ?? "",
                         amount,
                         value_usd: amount * solPrice
                     };
@@ -731,7 +669,7 @@ export class PortfolioService {
                     token_out = {
                         address: SOL_MINT,
                         symbol: "SOL",
-                        logo_uri: await this.tokenService.getTokenIconUri(SOL_MINT),
+                        logo_uri: (await this.tokenService.getTokenMetadata(SOL_MINT))?.logoUri ?? "",
                         amount,
                         value_usd: amount * solPrice
                     };
@@ -840,7 +778,7 @@ export class PortfolioService {
                     token_in = {
                         address: SOL_MINT,
                         symbol: "SOL",
-                        logo_uri: await this.tokenService.getTokenIconUri(SOL_MINT),
+                        logo_uri: (await this.tokenService.getTokenMetadata(SOL_MINT))?.logoUri ?? "",
                         amount: amt,
                         value_usd: amt * solPrice
                     };
@@ -860,7 +798,7 @@ export class PortfolioService {
                     token_out = {
                         address: SOL_MINT,
                         symbol: "SOL",
-                        logo_uri: await this.tokenService.getTokenIconUri(SOL_MINT),
+                        logo_uri: (await this.tokenService.getTokenMetadata(SOL_MINT))?.logoUri ?? "",
                         amount: amt,
                         value_usd: amt * solPrice
                     };
@@ -895,7 +833,7 @@ export class PortfolioService {
                         token = {
                             address: SOL_MINT,
                             symbol: "SOL",
-                            logo_uri: await this.tokenService.getTokenIconUri(SOL_MINT),
+                            logo_uri: (await this.tokenService.getTokenMetadata(SOL_MINT))?.logoUri ?? "",
                             amount,
                             value_usd: amount * solPrice
                         };
@@ -910,7 +848,7 @@ export class PortfolioService {
                 token = {
                     address: SOL_MINT,
                     symbol: "SOL",
-                    logo_uri: await this.tokenService.getTokenIconUri(SOL_MINT),
+                    logo_uri: (await this.tokenService.getTokenMetadata(SOL_MINT))?.logoUri ?? "",
                     amount,
                     value_usd: amount * solPrice
                 };
@@ -923,7 +861,7 @@ export class PortfolioService {
                 token = {
                     address: SOL_MINT,
                     symbol: "SOL",
-                    logo_uri: await this.tokenService.getTokenIconUri(SOL_MINT),
+                    logo_uri: (await this.tokenService.getTokenMetadata(SOL_MINT))?.logoUri ?? "",
                     amount,
                     value_usd: amount * solPrice
                 };
@@ -951,7 +889,7 @@ export class PortfolioService {
     }
 
     async getActivities(userId: string, walletAddress?: string, type: string = "all", limit: number = 20, before?: string, from?: number, to?: number) {
-        const [userWallets, solPrice, tokenMetaMap] = await Promise.all([this.walletsService.findByUserId(userId), this.getSolPriceUsd(), this.getTokenList()]);
+        const [userWallets, solPrice] = await Promise.all([this.walletsService.findByUserId(userId), this.getSolPriceUsd()]);
 
         let targetAddresses: string[];
         if (walletAddress) {
@@ -989,6 +927,15 @@ export class PortfolioService {
         if (to) flat = flat.filter(({ tx }) => (tx.timestamp ?? 0) <= Number(to));
 
         const sliced = flat.slice(0, limit);
+
+        // Collect unique mints from transactions for metadata lookup
+        const uniqueMints = new Set<string>();
+        for (const { tx } of sliced) {
+            for (const transfer of tx.tokenTransfers ?? []) {
+                if (transfer.mint) uniqueMints.add(transfer.mint);
+            }
+        }
+        const tokenMetaMap = await this.tokenService.findMany(Array.from(uniqueMints));
 
         const activities = await Promise.all(
             sliced.map(({ tx, addr }) => this.mapToActivity(tx, addr, solPrice, tokenMetaMap)).filter((a): a is NonNullable<typeof a> => a !== null)
@@ -1420,26 +1367,31 @@ export class PortfolioService {
     // ── Watch endpoints: bypass ownership, use address directly ──────────────
 
     async getOverviewByAddress(walletAddress: string, timeFrame?: string) {
-        const [solPrice, tokenMetaMap] = await Promise.all([this.getSolPriceUsd(), this.getTokenList()]);
-
         const pubkey = new PublicKey(walletAddress);
-        const [total_balance_sol, tokenAccounts] = await Promise.all([
+        const [solPrice, total_balance_sol, tokenAccounts] = await Promise.all([
+            this.getSolPriceUsd(),
             this.solanaService.getBalance(pubkey),
             this.solanaService.getParsedTokenAccountsByOwner(pubkey)
         ]);
         let total_balance_usd = total_balance_sol * solPrice;
 
-        const aggregatedTokens = new Map<string, { amount: number; info?: TokenInfo }>();
+        const aggregatedTokens = new Map<string, { amount: number; info?: TokenMetadata }>();
         for (const acc of tokenAccounts) {
             const mint = acc.account.data.parsed.info.mint;
             const amount = acc.account.data.parsed.info.tokenAmount.uiAmount;
             if (amount > 0) {
                 const existing = aggregatedTokens.get(mint) || { amount: 0 };
-                aggregatedTokens.set(mint, { amount: existing.amount + amount, info: tokenMetaMap.get(mint) });
+                aggregatedTokens.set(mint, { amount: existing.amount + amount });
             }
         }
 
         const mintAddresses = Array.from(aggregatedTokens.keys());
+        const tokenMetaMap = await this.tokenService.findMany(mintAddresses);
+
+        for (const [mint, data] of aggregatedTokens) {
+            data.info = tokenMetaMap.get(mint);
+        }
+
         const tokenPrices = await this.getTokenPrices(mintAddresses, tokenMetaMap);
 
         let tokenTotalUsd = 0;
@@ -1454,7 +1406,7 @@ export class PortfolioService {
                 address: mint,
                 symbol: data.info?.symbol || "???",
                 name: data.info?.name || "Unknown",
-                logo_uri: data.info?.logoURI || "",
+                logo_uri: data.info?.logoUri || "",
                 balance: data.amount,
                 value_usd: valueUsd,
                 percent_of_portfolio: 0,
@@ -1492,24 +1444,30 @@ export class PortfolioService {
 
     async getPositionsByAddress(walletAddress: string, sortBy: string = "value_usd", showZeroBalance: boolean = false) {
         const pubkey = new PublicKey(walletAddress);
-        const [solPrice, tokenMetaMap, totalSolBalance, tokenAccounts] = await Promise.all([
+        const [solPrice, totalSolBalance, tokenAccounts] = await Promise.all([
             this.getSolPriceUsd(),
-            this.getTokenList(),
             this.solanaService.getBalance(pubkey),
             this.solanaService.getParsedTokenAccountsByOwner(pubkey)
         ]);
 
-        const aggregatedTokens = new Map<string, { amount: number; info?: TokenInfo }>();
+        const aggregatedTokens = new Map<string, { amount: number; info?: TokenMetadata }>();
         for (const acc of tokenAccounts) {
             const mint = acc.account.data.parsed.info.mint;
             const amount = acc.account.data.parsed.info.tokenAmount.uiAmount;
             if (amount > 0 || showZeroBalance) {
                 const existing = aggregatedTokens.get(mint) || { amount: 0 };
-                aggregatedTokens.set(mint, { amount: existing.amount + amount, info: tokenMetaMap.get(mint) });
+                aggregatedTokens.set(mint, { amount: existing.amount + amount });
             }
         }
 
-        const tokenPrices = await this.getTokenPrices(Array.from(aggregatedTokens.keys()), tokenMetaMap);
+        const mintAddresses = Array.from(aggregatedTokens.keys());
+        const tokenMetaMap = await this.tokenService.findMany(mintAddresses);
+
+        for (const [mint, data] of aggregatedTokens) {
+            data.info = tokenMetaMap.get(mint);
+        }
+
+        const tokenPrices = await this.getTokenPrices(mintAddresses, tokenMetaMap);
 
         let positions: any[] = Array.from(aggregatedTokens.entries()).map(([mint, data]) => {
             const price = tokenPrices.get(mint) || 0;
@@ -1517,7 +1475,7 @@ export class PortfolioService {
                 mint,
                 name: data.info?.name || "Unknown Token",
                 symbol: data.info?.symbol || "???",
-                logo: data.info?.logoURI || "",
+                logo: data.info?.logoUri || "",
                 amount: data.amount,
                 price,
                 value_usd: data.amount * price,
@@ -1531,7 +1489,7 @@ export class PortfolioService {
                 mint: "So11111111111111111111111111111111111111112",
                 name: "Solana",
                 symbol: "SOL",
-                logo: tokenMetaMap.get("So11111111111111111111111111111111111111112")?.logoURI || "",
+                logo: tokenMetaMap.get("So11111111111111111111111111111111111111112")?.logoUri || "",
                 amount: totalSolBalance,
                 price: solPrice,
                 value_usd: totalSolBalance * solPrice,
@@ -1554,13 +1512,13 @@ export class PortfolioService {
      * fetch the full Helius transaction details and check accountData.tokenBalanceChanges
      * to detect unclassified swaps (e.g. Jupiter multi-hop routes that split across txs).
      */
-    private async enrichActivitiesWithSwapDetails(activities: any[], tokenMetaMap: Map<string, TokenInfo>): Promise<void> {
+    private async enrichActivitiesWithSwapDetails(activities: any[], tokenMetaMap: Map<string, TokenMetadata>): Promise<void> {
         const SOL_MINT_ADDR = "So11111111111111111111111111111111111111112";
         const getSymbol = (mint: string) => (mint === SOL_MINT_ADDR ? "SOL" : (tokenMetaMap.get(mint)?.symbol ?? mint.slice(0, 8)));
         const getLogo = (mint: string) =>
             mint === SOL_MINT_ADDR
                 ? "https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/So11111111111111111111111111111111111111112/logo.png"
-                : (tokenMetaMap.get(mint)?.logoURI ?? "");
+                : (tokenMetaMap.get(mint)?.logoUri ?? "");
 
         const candidates = activities.map((a, i) => ({ a, i })).filter(({ a }) => a.type === "TRANSFER_OUT" && a.token?.address === SOL_MINT_ADDR && !!a.from);
 
@@ -1605,14 +1563,24 @@ export class PortfolioService {
     }
 
     async getActivitiesByAddress(walletAddress: string, type: string = "all", limit: number = 20, before?: string, from?: number, to?: number) {
-        const [solPrice, tokenMetaMap] = await Promise.all([this.getSolPriceUsd(), this.getTokenList()]);
+        const solPrice = await this.getSolPriceUsd();
 
         let txs = await this.fetchWalletActivities(walletAddress, type, limit, before);
         if (from) txs = txs.filter((tx: any) => (tx.timestamp ?? 0) >= Number(from));
         if (to) txs = txs.filter((tx: any) => (tx.timestamp ?? 0) <= Number(to));
 
-        const activities = txs
-            .slice(0, limit)
+        const sliced = txs.slice(0, limit);
+
+        // Collect unique mints from transactions for metadata lookup
+        const uniqueMints = new Set<string>();
+        for (const tx of sliced) {
+            for (const transfer of tx.tokenTransfers ?? []) {
+                if (transfer.mint) uniqueMints.add(transfer.mint);
+            }
+        }
+        const tokenMetaMap = await this.tokenService.findMany(Array.from(uniqueMints));
+
+        const activities = sliced
             .map((tx: any) => this.mapToActivity(tx, walletAddress, solPrice, tokenMetaMap))
             .filter((a): a is NonNullable<typeof a> => a !== null);
 
