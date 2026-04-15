@@ -99,7 +99,7 @@ export class StatsAggregationService {
         const token = await this.tokenRepository.findOneBy({ address: tokenMint });
 
         // Calculate 24h price change (use USD price)
-        const priceUsd = latestPriceData?.usd ?? null;
+        const priceUsd = latestPriceData?.price_usd != null ? parseFloat(latestPriceData.price_usd) : null;
         const priceChange24h = await this.calculatePriceChange24h(tokenMint, priceUsd);
 
         // Get volume and txns from Redis (real-time from swap events)
@@ -151,7 +151,12 @@ export class StatsAggregationService {
     }
 
     async getLatestPrice(tokenMint: string): Promise<{ native: number; usd: number } | null> {
-        return this.redisService.get<{ native: number; usd: number }>(`price:${tokenMint}:latest`);
+        const data = await this.redisService.hgetall(`price:${tokenMint}:latest`);
+        if (!data) return null;
+        return {
+            usd: parseFloat(data.price_usd),
+            native: parseFloat(data.price_native)
+        };
     }
 
     private async getVolume24h(tokenMint: string): Promise<number> {
