@@ -54,19 +54,19 @@ export class Token {
     @Column({ type: "decimal", precision: 30, scale: 9, default: 0 })
     price: number;
 
-    @Column({ type: "decimal", precision: 10, scale: 2, default: 0 })
+    @Column({ type: "decimal", precision: 20, scale: 2, default: 0 })
     priceChange1h: number;
 
-    @Column({ type: "decimal", precision: 10, scale: 2, default: 0 })
+    @Column({ type: "decimal", precision: 20, scale: 2, default: 0 })
     priceChange24h: number;
 
-    @Column({ type: "decimal", precision: 10, scale: 2, default: 0 })
+    @Column({ type: "decimal", precision: 20, scale: 2, default: 0 })
     priceChange7d: number;
 
     @Column({ type: "decimal", precision: 30, scale: 2, default: 0 })
     marketCap: number;
 
-    @Column({ type: "decimal", precision: 10, scale: 2, default: 0 })
+    @Column({ type: "decimal", precision: 30, scale: 2, default: 0 })
     marketCapChange24h: number;
 
     @Column({ type: "decimal", precision: 30, scale: 2, default: 0 })
@@ -75,13 +75,13 @@ export class Token {
     @Column({ type: "decimal", precision: 30, scale: 2, default: 0 })
     liquidity: number;
 
-    @Column({ type: "decimal", precision: 10, scale: 2, default: 0 })
+    @Column({ type: "decimal", precision: 30, scale: 2, default: 0 })
     liquidityChange24h: number;
 
     @Column({ type: "decimal", precision: 30, scale: 2, default: 0 })
     volume24h: number;
 
-    @Column({ type: "decimal", precision: 10, scale: 2, default: 0 })
+    @Column({ type: "decimal", precision: 30, scale: 2, default: 0 })
     volumeChange24h: number;
 
     // Trading Activity
@@ -94,14 +94,14 @@ export class Token {
     @Column({ type: "int", default: 0 })
     txns24hSells: number;
 
-    @Column({ type: "decimal", precision: 10, scale: 2, default: 0 })
+    @Column({ type: "decimal", precision: 20, scale: 2, default: 0 })
     txns24hChange: number;
 
     // Holder Metrics
     @Column({ type: "int", default: 0 })
     holdersCount: number;
 
-    @Column({ type: "int", default: 0 })
+    @Column({ type: "decimal", precision: 20, scale: 2, default: 0 })
     holdersChange24h: number;
 
     @Column({ type: "int", default: 0 })
