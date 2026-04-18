@@ -7,9 +7,10 @@ import { CacheModule } from "@nestjs/cache-manager";
 import { TypeOrmModule } from "@nestjs/typeorm";
 import { Transaction } from "../transactions/entities/transaction.entity";
 import { WalletSnapshot } from "./entities/wallet-snapshot.entity";
+import { Token } from "../tokens/entities/token.entity";
 
 @Module({
-    imports: [WalletsModule, SolanaModule, CacheModule.register(), TypeOrmModule.forFeature([Transaction, WalletSnapshot])],
+    imports: [WalletsModule, SolanaModule, CacheModule.register(), TypeOrmModule.forFeature([Transaction, WalletSnapshot, Token])],
     controllers: [PortfolioController],
     providers: [PortfolioService],
     exports: [PortfolioService]
