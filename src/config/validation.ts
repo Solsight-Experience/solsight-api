@@ -63,4 +63,8 @@ export const validationSchema = Joi.object({
     RESEND_API_KEY: Joi.string().optional(),
     EMAIL_FROM_ADDRESS: Joi.string().optional(),
     APP_BASE_URL: Joi.string().optional(),
+
+    // Helius
+    HELIUS_RPC_URL: Joi.string(),
+    HELIUS_API_KEY: Joi.string()
 });

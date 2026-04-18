@@ -20,9 +20,12 @@ export default () => ({
     },
 
     solana: {
-        rpcUrl: process.env.SOLANA_RPC_URL || "https://api.mainnet-beta.solana.com",
-        network: process.env.SOLANA_NETWORK || "mainnet-beta",
-        commitment: "confirmed"
+        network: process.env.SOLANA_NETWORK || "mainnet-beta"
+    },
+
+    helius: {
+        rpcUrl: process.env.HELIUS_RPC_URL,
+        apiKey: process.env.HELIUS_API_KEY
     },
 
     helius: {

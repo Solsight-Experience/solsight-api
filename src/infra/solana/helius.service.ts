@@ -13,7 +13,7 @@ export class HeliusService extends BaseSolanaRpcService {
     };
 
     constructor(configService: ConfigService) {
-        const [rpcUrl, apiKey] = [configService.get("helius.heliusRpcUrl"), configService.get("helius.heliusApiKey")];
+        const [rpcUrl, apiKey] = [configService.get("helius.rpcUrl"), configService.get("helius.apiKey")];
         super(rpcUrl);
         this.apiClient = axios.create({
             baseURL: rpcUrl,

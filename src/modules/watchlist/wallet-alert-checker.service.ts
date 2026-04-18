@@ -29,7 +29,7 @@ export class WalletAlertCheckerService implements OnModuleInit {
     @Cron("*/10 * * * * *")
     async checkAllAlerts(): Promise<void> {
         const alerts = await this.walletAlertService.getAllActiveAlerts();
-        this.logger.log(`Checking ${alerts.length} active alert(s)`);
+        // this.logger.log(`Checking ${alerts.length} active alert(s)`);
         if (!alerts.length) return;
 
         // Group alerts by wallet address to batch Helius calls
@@ -88,7 +88,7 @@ export class WalletAlertCheckerService implements OnModuleInit {
         try {
             return await this.heliusService.getEnhancedTransactionsByAddress(walletAddress, { limit: 50 });
         } catch (err) {
-            this.logger.warn(`Helius fetch failed for ${walletAddress}: ${err instanceof Error ? err.message : err}`);
+            // this.logger.warn(`Helius fetch failed for ${walletAddress}: ${err instanceof Error ? err.message : err}`);
             return [];
         }
     }

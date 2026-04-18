@@ -14,13 +14,6 @@ export class SolanaService {
         private readonly configService: ConfigService,
         @Inject(SOLANA_RPC_SERVICE) private readonly rpcService: SolanaRpcService
     ) {
-        const rpcUrl = this.configService.get<string>("solana.rpcUrl");
-        if (!rpcUrl) {
-            throw new Error("Solana RPC URL is required");
-        }
-
-        const commitment = this.configService.get<Commitment>("solana.commitment");
-
         const network = this.configService.get<string>("solana.network");
         if (!network) {
             throw new Error("Solana network is required");

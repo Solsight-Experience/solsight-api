@@ -148,6 +148,7 @@ export class HolderAggregationService implements OnModuleInit {
                 slot: event.slot,
                 source: event.source
             });
+            this.logger.log(`Updated price for token: ${event.mint}, price=${event.price_usd}`);
             await redis.expire(priceKey, PRICE_TTL);
 
             // Recalculate unrealized PnL for top 50 holders

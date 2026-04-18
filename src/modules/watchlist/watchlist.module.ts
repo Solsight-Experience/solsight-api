@@ -13,7 +13,7 @@ import { EmailModule } from "../email/email.module";
 import { TokensModule } from "../tokens/tokens.module";
 
 @Module({
-    imports: [TypeOrmModule.forFeature([WatchedWallet, WalletAlert]), NotificationsModule, SolanaModule, TokensModule, ZaloModule, EmailModule],
+    imports: [TypeOrmModule.forFeature([WatchedWallet, WalletAlert]), NotificationsModule, SolanaModule, ZaloModule, EmailModule, TokensModule],
     controllers: [WatchlistController],
     providers: [WatchlistService, WalletAlertService, WalletAlertCheckerService]
 })
