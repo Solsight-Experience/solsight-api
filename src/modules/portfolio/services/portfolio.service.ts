@@ -28,6 +28,12 @@ interface TokenInfo {
 
 const DEX_SOURCES = ["JUPITER", "RAYDIUM", "ORCA", "METEORA", "PHOENIX", "OPENBOOK", "SOLFI"];
 
+const isDexSwapTx = (tx: any) =>
+    tx.type === "SWAP" ||
+    (tx.type === "UNKNOWN" && DEX_SOURCES.includes(tx.source)) ||
+    (tx.type === "INITIALIZE_ACCOUNT" && DEX_SOURCES.includes(tx.source)) ||
+    (tx.type === "INITIALIZE_ACCOUNT" && !!tx.events?.swap);
+
 @Injectable()
 export class PortfolioService {
     private readonly logger = new Logger(PortfolioService.name);
@@ -709,12 +715,12 @@ export class PortfolioService {
 
             if (type === "buy") {
                 transactions = transactions.filter((tx) => {
-                    if (tx.type !== "SWAP" && !(tx.type === "UNKNOWN" && DEX_SOURCES.includes(tx.source))) return false;
+                    if (!isDexSwapTx(tx)) return false;
                     return !tx.tokenTransfers.find((t: any) => t.fromUserAccount === walletAddress);
                 });
             } else if (type === "sell") {
                 transactions = transactions.filter((tx) => {
-                    if (tx.type !== "SWAP" && !(tx.type === "UNKNOWN" && DEX_SOURCES.includes(tx.source))) return false;
+                    if (!isDexSwapTx(tx)) return false;
                     return !!tx.tokenTransfers.find((t: any) => t.fromUserAccount === walletAddress);
                 });
             }
@@ -743,7 +749,7 @@ export class PortfolioService {
 
         const txUrl = network === "devnet" ? `https://solscan.io/tx/${tx.signature}?cluster=devnet` : `https://solscan.io/tx/${tx.signature}`;
 
-        const isDexSwap = tx.type === "SWAP" || (tx.type === "UNKNOWN" && DEX_SOURCES.includes(tx.source));
+        const isDexSwap = isDexSwapTx(tx);
 
         let app = {
             name: this.formatSourceName(tx.source),
@@ -1429,7 +1435,7 @@ export class PortfolioService {
                     stats.last_24h++;
                 }
 
-                if (tx.type === "SWAP" || (tx.type === "UNKNOWN" && DEX_SOURCES.includes(tx.source))) {
+                if (isDexSwapTx(tx)) {
                     const tokenOut = tx.tokenTransfers.find((t: any) => t.fromUserAccount === wallet.address);
                     if (tokenOut) {
                         stats.sells++;
