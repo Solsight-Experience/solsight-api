@@ -28,11 +28,22 @@ interface TokenInfo {
 
 const DEX_SOURCES = ["JUPITER", "RAYDIUM", "ORCA", "METEORA", "PHOENIX", "OPENBOOK", "SOLFI"];
 
-const isDexSwapTx = (tx: any) =>
-    tx.type === "SWAP" ||
-    (tx.type === "UNKNOWN" && DEX_SOURCES.includes(tx.source)) ||
-    (tx.type === "INITIALIZE_ACCOUNT" && DEX_SOURCES.includes(tx.source)) ||
-    (tx.type === "INITIALIZE_ACCOUNT" && !!tx.events?.swap);
+const isDexSwapTx = (tx: any, walletAddress?: string): boolean => {
+    if (tx.type === "SWAP") return true;
+    if (tx.type === "UNKNOWN" && DEX_SOURCES.includes(tx.source)) return true;
+    if (tx.type === "INITIALIZE_ACCOUNT") {
+        if (tx.events?.swap) return true;
+        if (DEX_SOURCES.includes(tx.source)) return true;
+        if (walletAddress) {
+            const hasOut =
+                (tx.tokenTransfers ?? []).some((t: any) => t.fromUserAccount === walletAddress) ||
+                (tx.nativeTransfers ?? []).some((t: any) => t.fromUserAccount === walletAddress && t.amount >= 10_000_000);
+            const hasIn = (tx.tokenTransfers ?? []).some((t: any) => t.toUserAccount === walletAddress);
+            if (hasOut && hasIn) return true;
+        }
+    }
+    return false;
+};
 
 @Injectable()
 export class PortfolioService {
@@ -715,7 +726,7 @@ export class PortfolioService {
 
             if (type === "buy") {
                 transactions = transactions.filter((tx) => {
-                    if (!isDexSwapTx(tx)) return false;
+                    if (!isDexSwapTx(tx, walletAddress)) return false;
                     return !tx.tokenTransfers.find((t: any) => t.fromUserAccount === walletAddress);
                 });
             } else if (type === "sell") {
@@ -749,7 +760,7 @@ export class PortfolioService {
 
         const txUrl = network === "devnet" ? `https://solscan.io/tx/${tx.signature}?cluster=devnet` : `https://solscan.io/tx/${tx.signature}`;
 
-        const isDexSwap = isDexSwapTx(tx);
+        const isDexSwap = isDexSwapTx(tx, walletAddress);
 
         let app = {
             name: this.formatSourceName(tx.source),
@@ -1435,7 +1446,7 @@ export class PortfolioService {
                     stats.last_24h++;
                 }
 
-                if (isDexSwapTx(tx)) {
+                if (isDexSwapTx(tx, wallet.address)) {
                     const tokenOut = tx.tokenTransfers.find((t: any) => t.fromUserAccount === wallet.address);
                     if (tokenOut) {
                         stats.sells++;
