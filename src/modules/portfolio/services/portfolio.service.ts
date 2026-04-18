@@ -523,7 +523,6 @@ export class PortfolioService {
                 const solAmount = isBuy ? tokenOut.tokenAmount : tokenIn.tokenAmount;
                 const tokenAmount = isBuy ? tokenIn.tokenAmount : tokenOut.tokenAmount;
 
-                console.log("DEBUG", isBuy, tokenMint, solAmount, tokenAmount);
                 if (!tokenMint || !solAmount || !tokenAmount) continue;
 
                 const holding = runningHoldings.get(tokenMint) ?? {
@@ -631,12 +630,13 @@ export class PortfolioService {
         const solValueUsd = totalSolBalance * solPrice;
 
         // Add SOL as a position
+        const SolMetadata = await this.getTokenMetaByAddresses(["So11111111111111111111111111111111111111112"]);
         if (totalSolBalance > 0 || showZeroBalance) {
             positions.push({
                 mint: "So11111111111111111111111111111111111111112", // Native SOL mint address
                 name: "Solana",
                 symbol: "SOL",
-                logo: tokenMetaMap.get("So11111111111111111111111111111111111111112")?.logoURI || "",
+                logo: SolMetadata.get("So11111111111111111111111111111111111111112")?.logoURI || "",
                 amount: totalSolBalance,
                 price: solPrice,
                 value_usd: solValueUsd,
@@ -1611,12 +1611,13 @@ export class PortfolioService {
             };
         });
 
+        const SolMetadata = await this.getTokenMetaByAddresses(["So11111111111111111111111111111111111111112"]);
         if (totalSolBalance > 0 || showZeroBalance) {
             positions.push({
                 mint: "So11111111111111111111111111111111111111112",
                 name: "Solana",
                 symbol: "SOL",
-                logo: tokenMetaMap.get("So11111111111111111111111111111111111111112")?.logoURI || "",
+                logo: SolMetadata.get("So11111111111111111111111111111111111111112")?.logoURI || "",
                 amount: totalSolBalance,
                 price: solPrice,
                 value_usd: totalSolBalance * solPrice,
