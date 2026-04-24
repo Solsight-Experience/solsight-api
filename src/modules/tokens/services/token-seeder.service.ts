@@ -2,160 +2,422 @@ import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { In, Repository } from "typeorm";
 import { Token } from "../entities/token.entity";
-import { TokenListProvider, TokenInfo } from "@solana/spl-token-registry";
 import { ConfigService } from "@nestjs/config";
+import * as fs from "fs";
+import * as path from "path";
+import * as readline from "readline";
 
 @Injectable()
 export class TokenSeederService implements OnModuleInit {
     private readonly logger = new Logger(TokenSeederService.name);
-    private coingeckoListUrl: string;
 
     constructor(
         private readonly configService: ConfigService,
         @InjectRepository(Token)
         private readonly tokenRepository: Repository<Token>
-    ) {
-        const coingeckoListUrl = this.configService.get<string>("coingecko.searchTokenId");
-        if (!coingeckoListUrl) {
-            throw new Error("Coingecko search token URL is required");
-        }
-        this.coingeckoListUrl = coingeckoListUrl;
-    }
+    ) {}
 
     async onModuleInit() {
         this.logger.log("Initializing TokenSeederService...");
-        await this.seedTokens();
-        // await this.updateTokenDecimals();
-        // this.updateTokenOnChainData();
+        // Run sequentially so both syncs don't overlap and double the Jupiter request rate
+        // setTimeout(async () => {
+        //     await this.syncProvisionedTokens(true);
+        //     await this.syncDbTokens();
+        // }, 10_000);
     }
 
-    async seedTokens() {
+    async syncProvisionedTokens(force = false, limit?: number) {
         try {
-            this.logger.log("Checking existing token data...");
-            const count = await this.tokenRepository.count();
-            if (count > 0) {
-                this.logger.log("Token data already exists. Skipping seed.");
+            const filePath = path.join(process.cwd(), "src/modules/tokens/services/token-seed/provisioned_tokens.txt");
+            if (!fs.existsSync(filePath)) {
+                this.logger.warn("provisioned_tokens.txt not found, skipping sync.");
                 return;
             }
 
-            this.logger.log("Seeding token data...");
-            await this.seekTokensBasicData();
-        } catch (error) {
-            this.logger.error("Failed to seed tokens", error.stack);
-        }
-    }
+            this.logger.log("Syncing provisioned tokens from file...");
+            const JUPITER_CHUNK_SIZE = 100; // max addresses per Jupiter query
+            const BATCH_SIZE = JUPITER_CHUNK_SIZE * 30; // 3000 addresses per cycle
+            const CHUNK_DELAY_MS = 2100; // 1 request per 2s to respect Jupiter rate limit
+            const DELAY_MS = 2100;
+            const MAX_RETRIES = 3;
+            const UPSERT_CHUNK_SIZE = 1500; // floor(65535 / ~41 fields per token)
+            let buffer: string[] = [];
+            let totalProcessed = 0;
+            let totalInserted = 0;
 
-    async seekTokensBasicData() {
-        try {
-            const tokenListProvider = new TokenListProvider();
+            const jupBaseUrl = this.configService.get<string>("jupiter.apiUrl")
+                ? `${this.configService.get<string>("jupiter.apiUrl")}/tokens/v2/search?query=`
+                : "https://api.jup.ag/tokens/v2/search?query=";
 
-            const [coingeckoId, tokens] = await Promise.all([fetch(this.coingeckoListUrl).then((res) => res.json()), tokenListProvider.resolve()]);
-            const tokenList = tokens
-                .filterByChainId(101)
-                .getList()
-                .map(
-                    (
-                        token: TokenInfo & {
-                            extensions?: TokenInfo["extensions"] & {
-                                telegram?: string | undefined;
-                            };
+            const processBatch = async (addresses: string[]) => {
+                // 1. Filter out addresses already in DB (skip when force=true)
+                let newAddresses: string[];
+                if (force) {
+                    newAddresses = addresses;
+                } else {
+                    const existing = await this.tokenRepository
+                        .createQueryBuilder("t")
+                        .select("t.address")
+                        .where("t.address IN (:...addresses)", { addresses })
+                        .getMany();
+                    const existingSet = new Set(existing.map((t) => t.address));
+                    newAddresses = addresses.filter((a) => !existingSet.has(a));
+                }
+
+                totalProcessed += addresses.length;
+
+                if (newAddresses.length) {
+                    // 2. Fetch full metadata from Jupiter API — sequential, 1 request per 2s
+                    const chunks: string[][] = [];
+                    for (let i = 0; i < newAddresses.length; i += JUPITER_CHUNK_SIZE) {
+                        chunks.push(newAddresses.slice(i, i + JUPITER_CHUNK_SIZE));
+                    }
+
+                    const fetchChunk = async (chunk: string[]): Promise<any[]> => {
+                        const MAX_FETCH_RETRIES = 4;
+                        for (let attempt = 1; attempt <= MAX_FETCH_RETRIES; attempt++) {
+                            try {
+                                const res = await fetch(jupBaseUrl + chunk.join(","));
+                                if (res.status === 429) {
+                                    const backoff = attempt * 5000;
+                                    this.logger.warn(
+                                        `[Provisioned sync] Rate limited (429), waiting ${backoff / 1000}s (attempt ${attempt}/${MAX_FETCH_RETRIES})...`
+                                    );
+                                    await new Promise((r) => setTimeout(r, backoff));
+                                    continue;
+                                }
+                                if (!res.ok) {
+                                    this.logger.warn(`[Provisioned sync] Jupiter chunk failed: HTTP ${res.status} ${res.statusText}`);
+                                    return [];
+                                }
+                                return await res.json();
+                            } catch (err: any) {
+                                this.logger.warn(`[Provisioned sync] Jupiter chunk error: ${err.message}`);
+                                return [];
+                            }
                         }
-                    ) => ({
-                        address: token.address,
-                        symbol: token.symbol,
-                        name: token.name,
-                        decimals: token.decimals,
-                        logoUri: token.logoURI,
-                        coingeckoId: coingeckoId.find((c: any) => c.platforms?.solana == token.address)?.id || null,
-                        description: token.extensions?.description,
-                        website: token.extensions?.website,
-                        socialLinks: {
-                            twitter: token.extensions?.twitter,
-                            telegram: token.extensions?.telegram,
-                            discord: token.extensions?.discord
-                        },
-                        totalSupply: 0,
-                        circulatingSupply: 0,
-                        maxSupply: 0,
-                        price: 0,
-                        priceChange1h: 0,
-                        priceChange24h: 0,
-                        priceChange7d: 0,
-                        marketCap: 0,
-                        marketCapChange24h: 0,
-                        fdv: 0,
-                        liquidity: 0,
-                        liquidityChange24h: 0,
-                        volume24h: 0,
-                        volumeChange24h: 0,
-                        txns24hTotal: 0,
-                        txns24hBuys: 0,
-                        txns24hSells: 0,
-                        txns24hChange: 0,
-                        holdersCount: 0,
-                        holdersChange24h: 0,
-                        uniqueWallets24h: 0,
-                        top10Percent: 0,
-                        insiderPercent: 0,
-                        mintAuthorityDisabled: false,
-                        freezeAuthorityDisabled: false,
-                        lpBurnt: false,
-                        hasSocialLinks: false,
-                        riskScore: 0,
-                        riskFactors: [],
-                        ageSeconds: 0,
-                        priceSparkline: [],
-                        createdAt: new Date(),
-                        updatedAt: new Date()
-                    })
+                        this.logger.warn(`[Provisioned sync] Chunk permanently failed after ${MAX_FETCH_RETRIES} attempts, skipping.`);
+                        return [];
+                    };
+
+                    const allChunkResults: any[][] = [];
+                    for (let ci = 0; ci < chunks.length; ci++) {
+                        allChunkResults.push(await fetchChunk(chunks[ci]));
+                        if (ci < chunks.length - 1) {
+                            await new Promise((r) => setTimeout(r, CHUNK_DELAY_MS));
+                        }
+                    }
+                    const results = allChunkResults;
+                    const jupiterData: any[] = results.flat();
+                    const jupiterMap = new Map<string, any>(jupiterData.map((t: any) => [t.id, t]));
+
+                    // Log addresses Jupiter returned no data for
+                    const notFoundInJupiter = newAddresses.filter((addr) => !jupiterMap.has(addr));
+                    if (notFoundInJupiter.length > 0) {
+                        this.logger.warn(`[Provisioned sync] Jupiter returned no data for ${notFoundInJupiter.length} token(s) in this batch.`);
+                    }
+
+                    // 3. Build rows — enrich with Jupiter data when available, fallback to placeholders
+                    const rows = newAddresses.map((addr) => {
+                        const jup = jupiterMap.get(addr);
+                        const hasSocial = !!(jup?.twitter || jup?.telegram || jup?.discord || jup?.website);
+
+                        // Calculate age from token creation or first pool creation
+                        let ageSeconds = 0;
+                        const createdAtSource = jup?.createdAt || jup?.firstPool?.createdAt;
+                        if (createdAtSource) {
+                            ageSeconds = Math.floor((Date.now() - new Date(createdAtSource).getTime()) / 1000);
+                        }
+
+                        return {
+                            address: addr,
+                            symbol: jup?.symbol ?? addr.substring(0, 8),
+                            name: jup?.name ?? addr.substring(0, 16),
+                            decimals: jup?.decimals ?? 9,
+                            logoUri: jup?.icon ?? null,
+                            description: jup?.description ?? null,
+                            website: jup?.website ?? null,
+                            socialLinks: {
+                                twitter: jup?.twitter ?? null,
+                                telegram: jup?.telegram ?? null,
+                                discord: jup?.discord ?? null
+                            },
+                            totalSupply: this.safeNum(jup?.totalSupply),
+                            circulatingSupply: this.safeNum(jup?.circSupply),
+                            maxSupply: 0,
+                            price: this.safeNum(jup?.usdPrice),
+                            priceChange1h: this.safeNum(jup?.stats1h?.priceChange),
+                            priceChange24h: this.safeNum(jup?.stats24h?.priceChange),
+                            priceChange7d: this.safeNum(jup?.stats7d?.priceChange),
+                            marketCap: this.safeNum(jup?.mcap),
+                            marketCapChange24h: 0,
+                            fdv: this.safeNum(jup?.fdv),
+                            liquidity: this.safeNum(jup?.liquidity),
+                            liquidityChange24h: this.safeNum(jup?.stats24h?.liquidityChange),
+                            volume24h: this.safeNum(jup?.stats24h?.buyVolume) + this.safeNum(jup?.stats24h?.sellVolume),
+                            volumeChange24h: this.safeNum(jup?.stats24h?.volumeChange),
+                            txns24hBuys: this.safeNum(jup?.stats24h?.numBuys),
+                            txns24hSells: this.safeNum(jup?.stats24h?.numSells),
+                            txns24hTotal: this.safeNum(jup?.stats24h?.numBuys) + this.safeNum(jup?.stats24h?.numSells),
+                            txns24hChange: 0,
+                            holdersCount: this.safeNum(jup?.holderCount),
+                            holdersChange24h: this.safeNum(jup?.stats24h?.holderChange),
+                            uniqueWallets24h: this.safeNum(jup?.stats24h?.numTraders),
+                            top10Percent: this.safeNum(jup?.audit?.topHoldersPercentage),
+                            insiderPercent: 0,
+                            mintAuthorityDisabled: jup?.audit?.mintAuthorityDisabled ?? false,
+                            freezeAuthorityDisabled: jup?.audit?.freezeAuthorityDisabled ?? false,
+                            lpBurnt: false,
+                            hasSocialLinks: hasSocial,
+                            riskScore: jup?.organicScore != null ? Math.round(Math.max(0, 100 - jup.organicScore)) : 50,
+                            riskFactors: [],
+                            ageSeconds,
+                            priceSparkline: [],
+                            createdAt: new Date(),
+                            updatedAt: new Date()
+                        };
+                    });
+
+                    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+                        try {
+                            for (let i = 0; i < rows.length; i += UPSERT_CHUNK_SIZE) {
+                                await this.tokenRepository.upsert(rows.slice(i, i + UPSERT_CHUNK_SIZE), {
+                                    conflictPaths: ["address"],
+                                    skipUpdateIfNoValuesChanged: false
+                                });
+                            }
+                            totalInserted += rows.length;
+                            break;
+                        } catch (err: any) {
+                            if (attempt < MAX_RETRIES) {
+                                this.logger.warn(`[Provisioned sync] Upsert failed (attempt ${attempt}/${MAX_RETRIES}), retrying in 5s... ${err.message}`);
+                                await new Promise((r) => setTimeout(r, 5000));
+                            } else {
+                                this.logger.warn(`[Provisioned sync] Batch failed, retrying row-by-row to isolate errors...`);
+                                for (const row of rows) {
+                                    try {
+                                        await this.tokenRepository.upsert(row, { conflictPaths: ["address"], skipUpdateIfNoValuesChanged: false });
+                                        totalInserted++;
+                                    } catch (rowErr: any) {
+                                        this.logger.error(`[Provisioned sync] Failed to upsert token ${row.address}: ${rowErr.message}`);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                this.logger.log(
+                    `[Provisioned sync] Progress: ${totalProcessed.toLocaleString()} processed — inserted ${totalInserted.toLocaleString()} new so far...`
                 );
-            const BATCH_SIZE = 1000;
-            for (let i = 0; i < tokenList.length; i += BATCH_SIZE) {
-                const batch = tokenList.slice(i, i + BATCH_SIZE);
-                await this.tokenRepository.upsert(batch, ["address"]);
+            };
+
+            const rl = readline.createInterface({ input: fs.createReadStream(filePath), crlfDelay: Infinity });
+
+            for await (const line of rl) {
+                const addr = line.trim();
+                if (!addr) continue;
+                buffer.push(addr);
+                if (buffer.length >= BATCH_SIZE) {
+                    await processBatch(buffer);
+                    buffer = [];
+                    await new Promise((resolve) => setTimeout(resolve, DELAY_MS));
+                }
+                if (limit !== undefined && totalProcessed + buffer.length >= limit) break;
             }
-            this.logger.log("Successfully seeded token data.");
-        } catch (error) {
-            this.logger.error("Failed to seed token data", error.stack);
+            if (buffer.length) await processBatch(buffer);
+
+            this.logger.log(
+                `Provisioned token sync complete. Processed ${totalProcessed.toLocaleString()} — inserted ${totalInserted.toLocaleString()} new tokens.`
+            );
+        } catch (error: any) {
+            this.logger.error("Failed to sync provisioned tokens", error.stack);
         }
     }
 
-    async updateTokenDecimals() {
+    /**
+     * Re-fetch and upsert metadata for ALL tokens currently in the DB.
+     * Useful to refresh tokens that were seeded from other sources (discovery, portfolio, etc.)
+     * and may have stale or missing fields.
+     */
+    async syncDbTokens(fromRow?: number, toRow?: number) {
         try {
-            this.logger.debug("updateTokenDecimals called");
-            this.logger.log("Updating token decimals...");
-            const tokenListProvider = new TokenListProvider();
-            const tokens = await tokenListProvider.resolve();
+            const rangeLabel = fromRow != null || toRow != null ? ` (rows ${fromRow ?? 0}–${toRow ?? "end"})` : "";
+            this.logger.log(`[DB sync] Starting metadata refresh for all DB tokens${rangeLabel}...`);
 
-            const decimalsMap = new Map<string, number>(
-                tokens
-                    .filterByChainId(101)
-                    .getList()
-                    .map((token) => [token.address, token.decimals])
-            );
+            const JUPITER_CHUNK_SIZE = 100;
+            const BATCH_SIZE = JUPITER_CHUNK_SIZE * 30; // 3000 addresses per outer loop
+            const CHUNK_DELAY_MS = 2100; // 1 request per 2s to respect Jupiter rate limit
+            const DELAY_MS = 2100;
+            const MAX_RETRIES = 3;
+            const UPSERT_CHUNK_SIZE = 1500;
 
-            const allTokens = await this.tokenRepository.find({
-                select: ["id", "address", "decimals"]
-            });
+            const jupBaseUrl = this.configService.get<string>("jupiter.apiUrl")
+                ? `${this.configService.get<string>("jupiter.apiUrl")}/tokens/v2/search?query=`
+                : "https://api.jup.ag/tokens/v2/search?query=";
 
-            const toUpdate = allTokens
-                .filter((t) => decimalsMap.has(t.address) && decimalsMap.get(t.address) !== t.decimals)
-                .map((t) => ({ ...t, decimals: decimalsMap.get(t.address)! }));
+            // Load all addresses from DB
+            const dbTokens = await this.tokenRepository.createQueryBuilder("t").select("t.address").getMany();
+            const allAddresses = dbTokens.map((t) => t.address).slice(fromRow ?? 0, toRow ?? undefined);
 
-            if (!toUpdate.length) {
-                this.logger.log("All token decimals are already up to date.");
-                return;
+            this.logger.log(`[DB sync] Found ${allAddresses.length.toLocaleString()} tokens to refresh (total in DB: ${dbTokens.length.toLocaleString()}).`);
+
+            let totalProcessed = 0;
+            let totalUpdated = 0;
+
+            for (let i = 0; i < allAddresses.length; i += BATCH_SIZE) {
+                const batchAddresses = allAddresses.slice(i, i + BATCH_SIZE);
+
+                // Fetch from Jupiter in parallel chunks
+                const chunks: string[][] = [];
+                for (let j = 0; j < batchAddresses.length; j += JUPITER_CHUNK_SIZE) {
+                    chunks.push(batchAddresses.slice(j, j + JUPITER_CHUNK_SIZE));
+                }
+
+                const fetchChunk = async (chunk: string[]): Promise<any[]> => {
+                    const MAX_FETCH_RETRIES = 4;
+                    for (let attempt = 1; attempt <= MAX_FETCH_RETRIES; attempt++) {
+                        try {
+                            const res = await fetch(jupBaseUrl + chunk.join(","));
+                            if (res.status === 429) {
+                                const backoff = attempt * 5000;
+                                this.logger.warn(`[DB sync] Rate limited (429), waiting ${backoff / 1000}s (attempt ${attempt}/${MAX_FETCH_RETRIES})...`);
+                                await new Promise((r) => setTimeout(r, backoff));
+                                continue;
+                            }
+                            if (!res.ok) {
+                                this.logger.warn(`[DB sync] Jupiter chunk failed: HTTP ${res.status} ${res.statusText}`);
+                                return [];
+                            }
+                            return await res.json();
+                        } catch (err: any) {
+                            this.logger.warn(`[DB sync] Jupiter chunk error: ${err.message}`);
+                            return [];
+                        }
+                    }
+                    this.logger.warn(`[DB sync] Chunk permanently failed after ${MAX_FETCH_RETRIES} attempts, skipping.`);
+                    return [];
+                };
+
+                // Fetch chunks sequentially — 1 request per 2s to respect Jupiter rate limit
+                const allResults: any[][] = [];
+                for (let j = 0; j < chunks.length; j++) {
+                    allResults.push(await fetchChunk(chunks[j]));
+                    if (j < chunks.length - 1) {
+                        await new Promise((r) => setTimeout(r, CHUNK_DELAY_MS));
+                    }
+                }
+                const results = allResults;
+                const jupiterData: any[] = results.flat();
+                const jupiterMap = new Map<string, any>(jupiterData.map((t: any) => [t.id, t]));
+                // Log addresses Jupiter returned no data for
+                const notFoundInJupiter = batchAddresses.filter((addr) => !jupiterMap.has(addr));
+                if (notFoundInJupiter.length > 0) {
+                    this.logger.warn(`[DB sync] Jupiter returned no data for ${notFoundInJupiter.length} token(s) in this batch.`);
+                }
+
+                // Build rows for all addresses in this batch (use existing DB values as fallback)
+                const rows = batchAddresses.map((addr) => {
+                    const jup = jupiterMap.get(addr);
+                    const hasSocial = !!(jup?.twitter || jup?.telegram || jup?.discord || jup?.website);
+
+                    let ageSeconds = 0;
+                    const createdAtSource = jup?.createdAt || jup?.firstPool?.createdAt;
+                    if (createdAtSource) {
+                        ageSeconds = Math.floor((Date.now() - new Date(createdAtSource).getTime()) / 1000);
+                    }
+
+                    return {
+                        address: addr,
+                        symbol: jup?.symbol ?? addr.substring(0, 8),
+                        name: jup?.name ?? addr.substring(0, 16),
+                        decimals: jup?.decimals ?? 9,
+                        logoUri: jup?.icon ?? null,
+                        description: jup?.description ?? null,
+                        website: jup?.website ?? null,
+                        socialLinks: {
+                            twitter: jup?.twitter ?? null,
+                            telegram: jup?.telegram ?? null,
+                            discord: jup?.discord ?? null
+                        },
+                        totalSupply: this.safeNum(jup?.totalSupply),
+                        circulatingSupply: this.safeNum(jup?.circSupply),
+                        maxSupply: 0,
+                        price: this.safeNum(jup?.usdPrice),
+                        priceChange1h: this.safeNum(jup?.stats1h?.priceChange),
+                        priceChange24h: this.safeNum(jup?.stats24h?.priceChange),
+                        priceChange7d: this.safeNum(jup?.stats7d?.priceChange),
+                        marketCap: this.safeNum(jup?.mcap),
+                        marketCapChange24h: 0,
+                        fdv: this.safeNum(jup?.fdv),
+                        liquidity: this.safeNum(jup?.liquidity),
+                        liquidityChange24h: this.safeNum(jup?.stats24h?.liquidityChange),
+                        volume24h: this.safeNum(jup?.stats24h?.buyVolume) + this.safeNum(jup?.stats24h?.sellVolume),
+                        volumeChange24h: this.safeNum(jup?.stats24h?.volumeChange),
+                        txns24hBuys: this.safeNum(jup?.stats24h?.numBuys),
+                        txns24hSells: this.safeNum(jup?.stats24h?.numSells),
+                        txns24hTotal: this.safeNum(jup?.stats24h?.numBuys) + this.safeNum(jup?.stats24h?.numSells),
+                        txns24hChange: 0,
+                        holdersCount: this.safeNum(jup?.holderCount),
+                        holdersChange24h: this.safeNum(jup?.stats24h?.holderChange),
+                        uniqueWallets24h: this.safeNum(jup?.stats24h?.numTraders),
+                        top10Percent: this.safeNum(jup?.audit?.topHoldersPercentage),
+                        insiderPercent: 0,
+                        mintAuthorityDisabled: jup?.audit?.mintAuthorityDisabled ?? false,
+                        freezeAuthorityDisabled: jup?.audit?.freezeAuthorityDisabled ?? false,
+                        lpBurnt: false,
+                        hasSocialLinks: hasSocial,
+                        riskScore: jup?.organicScore != null ? Math.round(Math.max(0, 100 - jup.organicScore)) : 50,
+                        riskFactors: [],
+                        ageSeconds,
+                        priceSparkline: [],
+                        updatedAt: new Date()
+                    };
+                });
+
+                // Upsert with retries — on permanent failure, bisect to find the offending token
+                for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+                    try {
+                        for (let k = 0; k < rows.length; k += UPSERT_CHUNK_SIZE) {
+                            await this.tokenRepository.upsert(rows.slice(k, k + UPSERT_CHUNK_SIZE), {
+                                conflictPaths: ["address"],
+                                skipUpdateIfNoValuesChanged: false
+                            });
+                        }
+                        totalUpdated += rows.length;
+                        break;
+                    } catch (err: any) {
+                        if (attempt < MAX_RETRIES) {
+                            this.logger.warn(`[DB sync] Upsert failed (attempt ${attempt}/${MAX_RETRIES}), retrying in 5s... ${err.message}`);
+                            await new Promise((r) => setTimeout(r, 5000));
+                        } else {
+                            this.logger.warn(`[DB sync] Batch at offset ${i} failed, retrying row-by-row to isolate errors...`);
+                            // Upsert row-by-row to isolate the problematic token
+                            for (const row of rows) {
+                                try {
+                                    await this.tokenRepository.upsert(row, { conflictPaths: ["address"], skipUpdateIfNoValuesChanged: false });
+                                    totalUpdated++;
+                                } catch (rowErr: any) {
+                                    this.logger.error(`[DB sync] Failed to upsert token ${row.address}: ${rowErr.message}`);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                totalProcessed += batchAddresses.length;
+                this.logger.log(
+                    `[DB sync] Progress: ${totalProcessed.toLocaleString()} / ${allAddresses.length.toLocaleString()} processed, ${totalUpdated.toLocaleString()} updated.`
+                );
+
+                if (i + BATCH_SIZE < allAddresses.length) {
+                    await new Promise((resolve) => setTimeout(resolve, DELAY_MS));
+                }
             }
 
-            const BATCH_SIZE = 1000;
-            for (let i = 0; i < toUpdate.length; i += BATCH_SIZE) {
-                const batch = toUpdate.slice(i, i + BATCH_SIZE);
-                await this.tokenRepository.save(batch);
-            }
-
-            this.logger.log(`Updated decimals for ${toUpdate.length} tokens.`);
-        } catch (error) {
-            this.logger.error("Failed to update token decimals", error.stack);
+            this.logger.log(`[DB sync] Complete. ${totalUpdated.toLocaleString()} tokens refreshed.`);
+        } catch (error: any) {
+            this.logger.error("[DB sync] Failed to sync DB tokens", error.stack);
         }
     }
 
@@ -189,11 +451,16 @@ export class TokenSeederService implements OnModuleInit {
         this.logger.log("Completed updating all on-chain token data.");
     }
 
+    private safeNum(val: any, fallback = 0): number {
+        const n = Number(val);
+        return Number.isFinite(n) ? n : fallback;
+    }
+
     private async updateBatchTokens(addresses: string[]) {
         if (!addresses.length) return;
 
         try {
-            const jupUrl = this.configService.get<string>("solana.jupiterApi.searchToken") + addresses.join(",");
+            const jupUrl = `${this.configService.get<string>("jupiter.apiUrl")}/tokens/v2/search?query=${addresses.join(",")}`;
 
             const tokensInfo: any[] = await fetch(jupUrl).then((res) => res.json());
             if (!tokensInfo?.length) return;
@@ -212,38 +479,46 @@ export class TokenSeederService implements OnModuleInit {
                     return {
                         ...exist,
                         // supply
-                        totalSupply: info.totalSupply ?? exist.totalSupply,
-                        circulatingSupply: info.circSupply ?? exist.circulatingSupply,
+                        totalSupply: info.totalSupply != null ? this.safeNum(info.totalSupply) : exist.totalSupply,
+                        circulatingSupply: info.circSupply != null ? this.safeNum(info.circSupply) : exist.circulatingSupply,
 
                         // price
-                        price: info.usdPrice ?? exist.price,
+                        price: info.usdPrice != null ? this.safeNum(info.usdPrice) : exist.price,
 
-                        priceChange1h: info.stats1h?.priceChange ?? exist.priceChange1h,
+                        priceChange1h: info.stats1h?.priceChange != null ? this.safeNum(info.stats1h.priceChange) : exist.priceChange1h,
 
-                        priceChange24h: info.stats24h?.priceChange ?? exist.priceChange24h,
+                        priceChange24h: info.stats24h?.priceChange != null ? this.safeNum(info.stats24h.priceChange) : exist.priceChange24h,
 
-                        priceChange7d: info.stats7d?.priceChange ?? exist.priceChange7d,
+                        priceChange7d: info.stats7d?.priceChange != null ? this.safeNum(info.stats7d.priceChange) : exist.priceChange7d,
 
                         // market
-                        marketCap: info.mcap ?? exist.marketCap,
+                        marketCap: info.mcap != null ? this.safeNum(info.mcap) : exist.marketCap,
                         marketCapChange24h:
-                            info.stats24h?.priceChange && info.circSupply ? Number(info.stats24h.priceChange.toFixed(2)) : exist.marketCapChange24h,
+                            info.stats24h?.priceChange != null && info.circSupply ? this.safeNum(info.stats24h.priceChange) : exist.marketCapChange24h,
 
-                        fdv: info.fdv ?? exist.fdv,
+                        fdv: info.fdv != null ? this.safeNum(info.fdv) : exist.fdv,
 
-                        // // liquidity
-                        liquidity: info.liquidity ?? exist.liquidity,
-                        liquidityChange24h: info.stats24h?.liquidityChange ?? exist.liquidityChange24h,
+                        // liquidity
+                        liquidity: info.liquidity != null ? this.safeNum(info.liquidity) : exist.liquidity,
+                        liquidityChange24h: info.stats24h?.liquidityChange != null ? this.safeNum(info.stats24h.liquidityChange) : exist.liquidityChange24h,
 
                         // volume
-                        volume24h: info.stats24h?.volumeChange ?? exist.volume24h,
+                        volume24h: this.safeNum(info.stats24h?.buyVolume) + this.safeNum(info.stats24h?.sellVolume) || exist.volume24h,
 
-                        volumeChange24h: info.stats24h?.volumeChange ?? exist.volumeChange24h,
+                        volumeChange24h: info.stats24h?.volumeChange != null ? this.safeNum(info.stats24h.volumeChange) : exist.volumeChange24h,
 
                         // audits
                         mintAuthorityDisabled: info.audit?.mintAuthorityDisabled ?? exist.mintAuthorityDisabled,
 
                         freezeAuthorityDisabled: info.audit?.freezeAuthorityDisabled ?? exist.freezeAuthorityDisabled,
+
+                        // holder metrics
+                        holdersChange24h: info.stats24h?.holderChange != null ? this.safeNum(info.stats24h.holderChange) : exist.holdersChange24h,
+                        uniqueWallets24h: info.stats24h?.numTraders != null ? this.safeNum(info.stats24h.numTraders) : exist.uniqueWallets24h,
+                        top10Percent: info.audit?.topHoldersPercentage != null ? this.safeNum(info.audit.topHoldersPercentage) : exist.top10Percent,
+
+                        // risk
+                        riskScore: info.organicScore != null ? Math.max(0, 100 - info.organicScore) : exist.riskScore,
 
                         updatedAt: new Date()
                     };
@@ -255,7 +530,7 @@ export class TokenSeederService implements OnModuleInit {
                 skipUpdateIfNoValuesChanged: false
             });
             this.logger.log(`Updated batch of ${addresses.length} tokens.`);
-        } catch (error) {
+        } catch (error: any) {
             this.logger.error("Failed to update batch on-chain data", error.stack);
         }
     }
