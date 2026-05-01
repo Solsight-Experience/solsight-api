@@ -12,6 +12,11 @@ import { JupiterService } from "../../../infra/jupiter/jupiter.service";
 import { CoinGeckoService } from "../../../infra/coingecko/coingecko.service";
 import { SolanaService } from "../../../infra/solana/solana.service";
 import { TokenOverview, CategoryOverview, PaginatedCategoriesResponse } from "../dtos/discovery.response.dto";
+import { RedisService } from "../../../redis";
+
+const TRENDING_TTL = 60; // 1 minute
+const CATEGORIES_TTL = 300; // 5 minutes
+const CATEGORY_DETAIL_TTL = 120; // 2 minutes
 
 @Injectable()
 export class DiscoveryService {
@@ -24,7 +29,8 @@ export class DiscoveryService {
         private readonly categoryRepository: Repository<Category>,
         private readonly jupiterService: JupiterService,
         private readonly coingeckoService: CoinGeckoService,
-        private readonly solanaService: SolanaService
+        private readonly solanaService: SolanaService,
+        private readonly redisService: RedisService
     ) {}
 
     /**
@@ -97,6 +103,10 @@ export class DiscoveryService {
 
     async getTrending(dto: GetTrendingDto) {
         const { sort_by, time_frame, limit, offset } = dto;
+        const cacheKey = `discovery:trending:${sort_by}:${time_frame}:${limit}:${offset}`;
+
+        const cached = await this.redisService.get(cacheKey);
+        if (cached) return cached;
 
         // Sync real-time data from external APIs before querying
         await this.syncTrendingTokens();
@@ -132,11 +142,13 @@ export class DiscoveryService {
 
         const transformedTokens = tokens.map((token) => this.transformToTokenOverview(token));
 
-        return {
+        const result = {
             tokens: transformedTokens,
             total,
             updated_at: new Date().toISOString()
         };
+        await this.redisService.set(cacheKey, result, TRENDING_TTL);
+        return result;
     }
 
     /**
@@ -335,6 +347,10 @@ export class DiscoveryService {
 
     async getCategories(dto: GetCategoryDto): Promise<PaginatedCategoriesResponse> {
         const { limit = 10, offset = 0 } = dto;
+        const cacheKey = `discovery:categories:${limit}:${offset}`;
+
+        const cached = await this.redisService.get<PaginatedCategoriesResponse>(cacheKey);
+        if (cached) return cached;
 
         const [categories, total] = await this.categoryRepository.findAndCount({
             order: { marketCap: "DESC" },
@@ -355,12 +371,14 @@ export class DiscoveryService {
 
         const transformedCategories = validCategories.map((category) => this.transformToCategory(category));
 
-        return {
+        const result: PaginatedCategoriesResponse = {
             data: transformedCategories,
             total,
             limit,
             offset
         };
+        await this.redisService.set(cacheKey, result, CATEGORIES_TTL);
+        return result;
     }
 
     /**
@@ -414,6 +432,13 @@ export class DiscoveryService {
             }
 
             this.logger.log(`Synced ${categories.length} categories from CoinGecko`);
+
+            // Invalidate cached category responses so next requests get fresh data
+            const staleKeys = await this.redisService.keys("discovery:categories:*");
+            const staleCategoryKeys = await this.redisService.keys("discovery:category:*");
+            for (const key of [...staleKeys, ...staleCategoryKeys]) {
+                await this.redisService.del(key);
+            }
         } catch (error) {
             this.logger.error("Failed to sync categories", error);
         }
@@ -421,6 +446,10 @@ export class DiscoveryService {
 
     async getCategoryDetail(categorySlug: string, dto: GetCategoryDto) {
         const { sort_by, limit, offset } = dto;
+        const cacheKey = `discovery:category:${categorySlug}:${sort_by}:${limit}:${offset}`;
+
+        const cached = await this.redisService.get(cacheKey);
+        if (cached) return cached;
 
         const category = await this.categoryRepository.findOne({
             where: { slug: categorySlug }
@@ -433,30 +462,8 @@ export class DiscoveryService {
         // Sync tokens for this category
         await this.syncCategoryTokens(categorySlug, category.id);
 
-        // Map snake_case to camelCase for Token entity fields
-        const fieldMap: Record<string, string> = {
-            market_cap: "marketCap",
-            volume_24h: "volume24h",
-            price_change_24h: "priceChange24h",
-            price_change_1h: "priceChange1h",
-            price_change_7d: "priceChange7d"
-        };
-
-        let orderBy: { [key: string]: "DESC" | "ASC" } = { marketCap: "DESC" };
-        if (sort_by) {
-            const mappedField = fieldMap[sort_by] || sort_by;
-            orderBy = { [mappedField]: "DESC" };
-        }
-
-        const [tokens, total] = await this.tokenRepository.findAndCount({
-            where: { categoryId: category.id },
-            order: orderBy,
-            take: limit,
-            skip: offset,
-            relations: ["category"]
-        });
-
         const transformedCategory = this.transformToCategory(category);
+        await this.redisService.set(cacheKey, transformedCategory, CATEGORY_DETAIL_TTL);
         return transformedCategory;
     }
 
