@@ -17,6 +17,7 @@ import { RedisService } from "../../../redis";
 const TRENDING_TTL = 60; // 1 minute
 const CATEGORIES_TTL = 300; // 5 minutes
 const CATEGORY_DETAIL_TTL = 120; // 2 minutes
+const WINDOW_SIZE = 100;
 
 @Injectable()
 export class DiscoveryService {
@@ -101,56 +102,70 @@ export class DiscoveryService {
         };
     }
 
+    private getTrendingOrderBy(sort_by: SortByTrending): { [key: string]: "DESC" | "ASC" } {
+        switch (sort_by) {
+            case SortByTrending.VOLUME_24H:
+                return { volume24h: "DESC" };
+            case SortByTrending.TXNS_24H:
+                return { txns24hTotal: "DESC" };
+            case SortByTrending.PRICE_CHANGE_24H:
+                return { priceChange24h: "DESC" };
+            case SortByTrending.MARKET_CAP:
+                return { marketCap: "DESC" };
+            case SortByTrending.HOLDERS_CHANGE:
+                return { holdersChange24h: "DESC" };
+            default:
+                return { volume24h: "DESC" };
+        }
+    }
+
     async getTrending(dto: GetTrendingDto) {
-        const { sort_by, limit = 20, offset = 0 } = dto;
-        const cacheKey = `discovery:trending:${sort_by}`;
+        const { sort_by = SortByTrending.VOLUME_24H, limit = 20, offset = 0 } = dto;
 
-        let allTokens: TokenOverview[];
-        let total: number;
+        // Example with WINDOW_SIZE = 100:
+        //   limit=100, offset=0   → window 0
+        //   limit=50,  offset=0   → window 0, slice [:50]
+        //   limit=140, offset=0   → window 0 + window 1, slice [:140]
+        //   limit=50,  offset=80  → window 0 (items 80-99) + window 1 (items 0-29)
+        const startWindow = Math.floor(offset / WINDOW_SIZE);
+        const endWindow = Math.floor((offset + limit - 1) / WINDOW_SIZE);
 
-        const cached = await this.redisService.get<{ tokens: TokenOverview[]; total: number; updated_at: string }>(cacheKey);
-        if (cached) {
-            allTokens = cached.tokens;
-            total = cached.total;
-        } else {
-            // Sync real-time data from external APIs before querying
-            await this.syncTrendingTokens();
+        let synced = false;
+        const windowData: TokenOverview[][] = [];
 
-            let orderBy: { [key: string]: "DESC" | "ASC" } = {};
+        for (let w = startWindow; w <= endWindow; w++) {
+            const windowKey = `discovery:trending:${sort_by}:${w}`;
+            let window = await this.redisService.get<TokenOverview[]>(windowKey);
 
-            switch (sort_by) {
-                case SortByTrending.VOLUME_24H:
-                    orderBy = { volume24h: "DESC" };
-                    break;
-                case SortByTrending.TXNS_24H:
-                    orderBy = { txns24hTotal: "DESC" };
-                    break;
-                case SortByTrending.PRICE_CHANGE_24H:
-                    orderBy = { priceChange24h: "DESC" };
-                    break;
-                case SortByTrending.MARKET_CAP:
-                    orderBy = { marketCap: "DESC" };
-                    break;
-                case SortByTrending.HOLDERS_CHANGE:
-                    orderBy = { holdersChange24h: "DESC" };
-                    break;
-                default:
-                    orderBy = { volume24h: "DESC" };
+            if (!window) {
+                if (!synced) {
+                    await this.syncTrendingTokens();
+                    synced = true;
+                }
+                const tokens = await this.tokenRepository.find({
+                    order: this.getTrendingOrderBy(sort_by),
+                    take: WINDOW_SIZE,
+                    skip: w * WINDOW_SIZE,
+                    relations: ["category"]
+                });
+                window = tokens.map((t) => this.transformToTokenOverview(t));
+                await this.redisService.set(windowKey, window, TRENDING_TTL);
             }
-
-            const [tokens, count] = await this.tokenRepository.findAndCount({
-                order: orderBy,
-                relations: ["category"]
-            });
-
-            allTokens = tokens.map((token) => this.transformToTokenOverview(token));
-            total = count;
-
-            await this.redisService.set(cacheKey, { tokens: allTokens, total, updated_at: new Date().toISOString() }, TRENDING_TTL);
+            windowData.push(window);
         }
 
+        const totalKey = `discovery:trending:${sort_by}:total`;
+        let total = await this.redisService.get<number>(totalKey);
+        if (total === null) {
+            total = await this.tokenRepository.count();
+            await this.redisService.set(totalKey, total, TRENDING_TTL);
+        }
+
+        const combined = windowData.flat();
+        const startInCombined = offset - startWindow * WINDOW_SIZE;
+
         return {
-            tokens: allTokens.slice(offset, offset + limit),
+            tokens: combined.slice(startInCombined, startInCombined + limit),
             total,
             updated_at: new Date().toISOString()
         };
@@ -352,36 +367,50 @@ export class DiscoveryService {
 
     async getCategories(dto: GetCategoryDto): Promise<PaginatedCategoriesResponse> {
         const { limit = 10, offset = 0 } = dto;
-        const cacheKey = `discovery:categories`;
 
-        type CategoriesSnapshot = { data: ReturnType<DiscoveryService["transformToCategory"]>[]; total: number };
+        const startWindow = Math.floor(offset / WINDOW_SIZE);
+        const endWindow = Math.floor((offset + limit - 1) / WINDOW_SIZE);
 
-        let snapshot = await this.redisService.get<CategoriesSnapshot>(cacheKey);
-        if (!snapshot) {
-            const [categories, total] = await this.categoryRepository.findAndCount({
-                order: { marketCap: "DESC" }
-            });
+        const windowData: CategoryOverview[][] = [];
 
-            const validCategories = categories.filter(
-                (cat) =>
-                    Number(cat.marketCap) > 0 &&
-                    Number(cat.volume24h) > 0 &&
-                    cat.top3Coins &&
-                    cat.top3Coins.length > 0 &&
-                    cat.top3CoinsId &&
-                    cat.top3CoinsId.length > 0
-            );
+        for (let w = startWindow; w <= endWindow; w++) {
+            const windowKey = `discovery:categories:${w}`;
+            let window = await this.redisService.get<CategoryOverview[]>(windowKey);
 
-            snapshot = { data: validCategories.map((category) => this.transformToCategory(category)), total };
-            await this.redisService.set(cacheKey, snapshot, CATEGORIES_TTL);
+            if (!window) {
+                // Populate all windows at once: fetch + filter + split into chunks
+                await this.populateCategoryWindows();
+                window = (await this.redisService.get<CategoryOverview[]>(windowKey)) ?? [];
+            }
+            windowData.push(window);
         }
 
+        const total = (await this.redisService.get<number>("discovery:categories:total")) ?? 0;
+
+        const combined = windowData.flat();
+        const startInCombined = offset - startWindow * WINDOW_SIZE;
+
         return {
-            data: snapshot.data.slice(offset, offset + limit),
-            total: snapshot.total,
+            data: combined.slice(startInCombined, startInCombined + limit),
+            total,
             limit,
             offset
         };
+    }
+
+    private async populateCategoryWindows(): Promise<void> {
+        const categories = await this.categoryRepository.find({ order: { marketCap: "DESC" } });
+
+        const valid: CategoryOverview[] = categories
+            .filter((cat) => Number(cat.marketCap) > 0 && Number(cat.volume24h) > 0 && cat.top3Coins?.length > 0 && cat.top3CoinsId?.length > 0)
+            .map((cat) => this.transformToCategory(cat));
+
+        await this.redisService.set("discovery:categories:total", valid.length, CATEGORIES_TTL);
+
+        for (let i = 0; i < valid.length; i += WINDOW_SIZE) {
+            const windowIndex = Math.floor(i / WINDOW_SIZE);
+            await this.redisService.set(`discovery:categories:${windowIndex}`, valid.slice(i, i + WINDOW_SIZE), CATEGORIES_TTL);
+        }
     }
 
     /**
@@ -437,8 +466,10 @@ export class DiscoveryService {
             this.logger.log(`Synced ${categories.length} categories from CoinGecko`);
 
             // Invalidate cached category responses so next requests get fresh data
-            const staleCategoryKeys = await this.redisService.keys("discovery:category:*");
-            for (const key of ["discovery:categories", ...staleCategoryKeys]) {
+            // discovery:categories:* matches window keys (e.g. :0, :1) and :total
+            const windowKeys = await this.redisService.keys("discovery:categories:*");
+            const detailKeys = await this.redisService.keys("discovery:category:*");
+            for (const key of [...windowKeys, ...detailKeys]) {
                 await this.redisService.del(key);
             }
         } catch (error) {
