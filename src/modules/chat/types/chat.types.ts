@@ -11,11 +11,17 @@ export interface ChatSession {
     processing: boolean;
 }
 
+export interface PageContext {
+    pathname: string;
+    tokenAddress?: string;
+}
+
 export interface SendMessagePayload {
     message: string;
     sessionId: string;
     userId?: string;
     walletAddress?: string;
+    pageContext?: PageContext;
 }
 
 export interface ChatResponsePayload {
