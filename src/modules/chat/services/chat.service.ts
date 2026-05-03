@@ -5,12 +5,19 @@ import { SortByTrending, TimeFrame } from "../../discovery/dtos/get-trending.dto
 import { DiscoveryService } from "../../discovery/services/discovery.service";
 import { PortfolioService } from "../../portfolio/services/portfolio.service";
 import { TokensService } from "../../tokens/services/tokens.service";
-import { ChatResponsePayload, ChatSession, SendMessagePayload } from "../types/chat.types";
+import { ChatResponsePayload, ChatSession, SendMessagePayload, PageContext } from "../types/chat.types";
+import { COMMON_SYMBOLS } from "src/common/constants/token.constants";
 
-const SYSTEM_PROMPT =
-    "You are Solsight AI, a DeFi assistant for the Solana ecosystem. Help users with token information, portfolio overview, and trade preparation. Always use tools to get real data before answering.";
+const SYSTEM_PROMPT = `You are Solsight AI, a DeFi assistant specialized exclusively in the Solana blockchain ecosystem.
 
-const STATIC_ROUTES = ["/", "/portfolio", "/dashboard", "/dashboard/transfer", "/profile", "/authentication"];
+RULES:
+1. SCOPE: Only answer questions about Solana, DeFi, tokens, wallets, swaps, portfolios, NFTs, and blockchain-related topics. If the user asks about anything outside this scope, politely decline in one short sentence.
+2. CONCISENESS: Keep responses SHORT and to the point. Avoid filler words and long explanations unless the user explicitly asks for detail. Prefer bullet points for lists.
+3. CONTEXT: The user's current page context will be provided. Use it to infer what "this token", "current token", or "here" refers to. Always prioritize page context for ambiguous questions.
+5. ACTIONS: When the user wants to swap tokens, use prepare_swap tool directly.
+6. NO HALLUCINATION: NEVER guess or hallucinate token mint addresses. If you do not know the exact mint address for a token (e.g. USDC, SOL), you MUST pass its SYMBOL (e.g., "USDC") to the tools and let the backend resolve it.`;
+
+const STATIC_ROUTES = ["/", "/token/[tokenAddress]", "/portfolio", "/multi-chart", "/wallet-tracker", "/notifications"];
 
 const TOKEN_ROUTE_REGEX = /^\/token\/[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 const LLM_TIMEOUT_MS = 300000;
@@ -207,7 +214,7 @@ export class ChatService {
         session.processing = true;
 
         try {
-            const response = await this.runLlmLoop(session, payload.walletAddress, payload.userId, onToolProgress);
+            const response = await this.runLlmLoop(session, payload.walletAddress, payload.userId, onToolProgress, payload.pageContext);
             this.logger.log(`Session ${payload.sessionId} completed: responseType=${response.type}`, ChatService.name);
             return {
                 ...response,
@@ -263,14 +270,30 @@ export class ChatService {
         session: ChatSession,
         walletAddress?: string,
         userId?: string,
-        onToolProgress: (label: string) => void = () => {}
+        onToolProgress: (label: string) => void = () => {},
+        pageContext?: PageContext
     ): Promise<ChatResponsePayload> {
         const recentMessages = session.messages.slice(-10);
         const messages: ChatCompletionMessageParam[] = [
             {
                 role: "system",
                 content: SYSTEM_PROMPT
-            },
+            }
+        ];
+
+        // Inject page context as an additional system message so LLM resolves ambiguous references
+        if (pageContext) {
+            const ctx = pageContext;
+            const contextParts: string[] = [`User's current page: "${ctx.pathname}".`];
+            if (ctx.tokenAddress) contextParts.push(`Viewing token with address: ${ctx.tokenAddress}.`);
+            contextParts.push('When the user says "this token", "the token here", or similar vague references, use the token address and symbol above.');
+            messages.push({
+                role: "system",
+                content: contextParts.join(" ")
+            });
+        }
+
+        messages.push(
             ...recentMessages.map((message): ChatCompletionMessageParam => {
                 if (message.role === "tool") {
                     return {
@@ -282,10 +305,10 @@ export class ChatService {
 
                 return {
                     role: message.role,
-                    content: `${message.content} (userId=${message.userId ?? "unknown"})`
+                    content: message.content
                 };
             })
-        ];
+        );
 
         this.logger.debug(`LLM request: messages=${messages.length}`, ChatService.name);
 
@@ -359,7 +382,7 @@ export class ChatService {
                     });
                 }
 
-                return this.runLlmLoop(session, walletAddress, userId, onToolProgress);
+                return this.runLlmLoop(session, walletAddress, userId, onToolProgress, pageContext);
             }
 
             const assistantContent = choice.message.content || "";
@@ -597,22 +620,50 @@ export class ChatService {
                 }
 
                 case "prepare_swap": {
-                    // Wallet guard: ensure a wallet is connected before preparing swap
-                    if (!walletAddress) {
-                        return JSON.stringify({
-                            error: "no_wallet",
-                            message: "No wallet connected. Please connect a wallet to swap tokens."
-                        });
-                    }
-                    const inputMint = String(args.inputMint || "");
-                    const outputMint = String(args.outputMint || "");
+                    let inputMint = String(args.inputMint || "");
+                    let outputMint = String(args.outputMint || "");
                     const amount = Number(args.amount || 0);
+
+                    const isAddress = (str: string) => /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(str);
+
+                    if (inputMint && !isAddress(inputMint)) {
+                        const upper = inputMint.toUpperCase();
+                        if (COMMON_SYMBOLS[upper]) {
+                            inputMint = COMMON_SYMBOLS[upper];
+                        } else {
+                            const searchResult = await this.tokensService.search(inputMint, 1);
+                            if (searchResult && searchResult.length > 0) inputMint = searchResult[0].address;
+                        }
+                    }
+
+                    if (outputMint && !isAddress(outputMint)) {
+                        const upper = outputMint.toUpperCase();
+                        if (COMMON_SYMBOLS[upper]) {
+                            outputMint = COMMON_SYMBOLS[upper];
+                        } else {
+                            const searchResult = await this.tokensService.search(outputMint, 1);
+                            if (searchResult && searchResult.length > 0) outputMint = searchResult[0].address;
+                        }
+                    }
+
+                    let mode: "buy" | "sell" = "buy";
+                    let targetMint = outputMint;
+
+                    if (outputMint === COMMON_SYMBOLS.SOL && inputMint !== COMMON_SYMBOLS.SOL) {
+                        mode = "sell";
+                        targetMint = inputMint;
+                    } else {
+                        mode = "buy";
+                        targetMint = outputMint;
+                    }
 
                     return JSON.stringify({
                         type: "trade_intent",
                         inputMint,
                         outputMint,
+                        targetMint,
                         amount,
+                        mode,
                         confirmed: false
                     });
                 }
@@ -644,7 +695,10 @@ export class ChatService {
     }
 
     private inferTypedResponseFromTools(session: ChatSession): ChatResponsePayload | null {
-        const recentToolMessages = [...session.messages]
+        const lastUserMsgIndex = session.messages.reduce((lastIdx, msg, idx) => (msg.role === "user" ? idx : lastIdx), -1);
+        const currentTurnMessages = lastUserMsgIndex >= 0 ? session.messages.slice(lastUserMsgIndex) : session.messages;
+
+        const recentToolMessages = [...currentTurnMessages]
             .reverse()
             .filter((message) => message.role === "tool")
             .slice(0, 5);
@@ -662,10 +716,12 @@ export class ChatService {
             if (toolMessage.toolName === "prepare_swap") {
                 const inputMint = typeof parsedToolOutput.inputMint === "string" ? parsedToolOutput.inputMint : "";
                 const outputMint = typeof parsedToolOutput.outputMint === "string" ? parsedToolOutput.outputMint : "";
+                const targetMint = typeof parsedToolOutput.targetMint === "string" ? parsedToolOutput.targetMint : outputMint;
+                const mode = (parsedToolOutput.mode as "buy" | "sell") || "buy";
                 const amountRaw = parsedToolOutput.amount;
                 const amount = typeof amountRaw === "number" ? amountRaw : typeof amountRaw === "string" ? Number(amountRaw) : 0;
 
-                this.logger.log("parseResponse fallback: inferred trade_intent from prepare_swap", ChatService.name);
+                this.logger.log(`parseResponse fallback: inferred trade_intent from prepare_swap (mode=${mode})`, ChatService.name);
 
                 return {
                     sessionId: "",
@@ -673,6 +729,8 @@ export class ChatService {
                     data: {
                         inputMint,
                         outputMint,
+                        targetMint,
+                        mode,
                         amount: Number.isFinite(amount) ? String(amount) : "0"
                     }
                 };

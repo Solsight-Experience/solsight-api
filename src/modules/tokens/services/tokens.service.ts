@@ -226,6 +226,11 @@ export class TokensService {
     async search(query: string, limit: number = 10): Promise<TokenDetailsResponseDto[]> {
         const tokens = await this.tokenRepository.find({
             where: [{ name: ILike(`%${query}%`) }, { symbol: ILike(`%${query}%`) }, { address: ILike(`%${query}%`) }],
+            order: {
+                volume24h: "DESC",
+                marketCap: "DESC",
+                liquidity: "DESC"
+            },
             take: limit
         });
 
