@@ -14,8 +14,17 @@ RULES:
 1. SCOPE: Only answer questions about Solana, DeFi, tokens, wallets, swaps, portfolios, NFTs, and blockchain-related topics. If the user asks about anything outside this scope, politely decline in one short sentence.
 2. CONCISENESS: Keep responses SHORT and to the point. Avoid filler words and long explanations unless the user explicitly asks for detail. Prefer bullet points for lists.
 3. CONTEXT: The user's current page context will be provided. Use it to infer what "this token", "current token", or "here" refers to. Always prioritize page context for ambiguous questions.
+4. LANGUAGE: Always reply in the same language the user is writing in. If the user writes in Vietnamese, reply in Vietnamese. If in English, reply in English. Detect language from the user's latest message.
 5. ACTIONS: When the user wants to swap tokens, use prepare_swap tool directly.
-6. NO HALLUCINATION: NEVER guess or hallucinate token mint addresses. If you do not know the exact mint address for a token (e.g. USDC, SOL), you MUST pass its SYMBOL (e.g., "USDC") to the tools and let the backend resolve it.`;
+6. NAVIGATION: Use navigate_to tool when the user wants to go to a page. Available routes:
+   - "/" — Home / Discovery page (trending tokens, hot tokens, new listings). Use this for any request about trending, hot, discovery, explore.
+   - "/token/[tokenAddress]" — Token detail page (replace [tokenAddress] with the actual mint address).
+   - "/portfolio" — Portfolio overview page.
+   - "/multi-chart" — Multi-chart comparison page.
+   - "/wallet-tracker" — Wallet tracker page.
+   - "/notifications" — Notifications page.
+   NEVER use routes like "/discover", "/trending", "/explore" — they do not exist.
+7. NO HALLUCINATION: NEVER guess or hallucinate token mint addresses. If you do not know the exact mint address for a token (e.g. USDC, SOL), you MUST pass its SYMBOL (e.g., "USDC") to the tools and let the backend resolve it.`;
 
 const STATIC_ROUTES = ["/", "/token/[tokenAddress]", "/portfolio", "/multi-chart", "/wallet-tracker", "/notifications"];
 
@@ -669,7 +678,21 @@ export class ChatService {
                 }
 
                 case "navigate_to": {
-                    const route = String(args.route || "");
+                    let route = String(args.route || "");
+
+                    // Normalize common aliases to their actual routes
+                    const ROUTE_ALIASES: Record<string, string> = {
+                        "/discover": "/",
+                        "/discovery": "/",
+                        "/trending": "/",
+                        "/explore": "/",
+                        "/home": "/"
+                    };
+                    if (ROUTE_ALIASES[route]) {
+                        this.logger.log(`navigate_to: aliased "${route}" \u2192 "${ROUTE_ALIASES[route]}"`, ChatService.name);
+                        route = ROUTE_ALIASES[route];
+                    }
+
                     const isAllowed = STATIC_ROUTES.includes(route) || TOKEN_ROUTE_REGEX.test(route);
 
                     if (!isAllowed) {
