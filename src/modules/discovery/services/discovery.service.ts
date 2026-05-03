@@ -102,53 +102,58 @@ export class DiscoveryService {
     }
 
     async getTrending(dto: GetTrendingDto) {
-        const { sort_by, time_frame, limit, offset } = dto;
-        const cacheKey = `discovery:trending:${sort_by}:${time_frame}:${limit}:${offset}`;
+        const { sort_by, limit = 20, offset = 0 } = dto;
+        const cacheKey = `discovery:trending:${sort_by}`;
 
-        const cached = await this.redisService.get(cacheKey);
-        if (cached) return cached;
+        let allTokens: TokenOverview[];
+        let total: number;
 
-        // Sync real-time data from external APIs before querying
-        await this.syncTrendingTokens();
+        const cached = await this.redisService.get<{ tokens: TokenOverview[]; total: number; updated_at: string }>(cacheKey);
+        if (cached) {
+            allTokens = cached.tokens;
+            total = cached.total;
+        } else {
+            // Sync real-time data from external APIs before querying
+            await this.syncTrendingTokens();
 
-        let orderBy: { [key: string]: "DESC" | "ASC" } = {};
+            let orderBy: { [key: string]: "DESC" | "ASC" } = {};
 
-        switch (sort_by) {
-            case SortByTrending.VOLUME_24H:
-                orderBy = { volume24h: "DESC" };
-                break;
-            case SortByTrending.TXNS_24H:
-                orderBy = { txns24hTotal: "DESC" };
-                break;
-            case SortByTrending.PRICE_CHANGE_24H:
-                orderBy = { priceChange24h: "DESC" };
-                break;
-            case SortByTrending.MARKET_CAP:
-                orderBy = { marketCap: "DESC" };
-                break;
-            case SortByTrending.HOLDERS_CHANGE:
-                orderBy = { holdersChange24h: "DESC" };
-                break;
-            default:
-                orderBy = { volume24h: "DESC" };
+            switch (sort_by) {
+                case SortByTrending.VOLUME_24H:
+                    orderBy = { volume24h: "DESC" };
+                    break;
+                case SortByTrending.TXNS_24H:
+                    orderBy = { txns24hTotal: "DESC" };
+                    break;
+                case SortByTrending.PRICE_CHANGE_24H:
+                    orderBy = { priceChange24h: "DESC" };
+                    break;
+                case SortByTrending.MARKET_CAP:
+                    orderBy = { marketCap: "DESC" };
+                    break;
+                case SortByTrending.HOLDERS_CHANGE:
+                    orderBy = { holdersChange24h: "DESC" };
+                    break;
+                default:
+                    orderBy = { volume24h: "DESC" };
+            }
+
+            const [tokens, count] = await this.tokenRepository.findAndCount({
+                order: orderBy,
+                relations: ["category"]
+            });
+
+            allTokens = tokens.map((token) => this.transformToTokenOverview(token));
+            total = count;
+
+            await this.redisService.set(cacheKey, { tokens: allTokens, total, updated_at: new Date().toISOString() }, TRENDING_TTL);
         }
 
-        const [tokens, total] = await this.tokenRepository.findAndCount({
-            order: orderBy,
-            take: limit,
-            skip: offset,
-            relations: ["category"]
-        });
-
-        const transformedTokens = tokens.map((token) => this.transformToTokenOverview(token));
-
-        const result = {
-            tokens: transformedTokens,
+        return {
+            tokens: allTokens.slice(offset, offset + limit),
             total,
             updated_at: new Date().toISOString()
         };
-        await this.redisService.set(cacheKey, result, TRENDING_TTL);
-        return result;
     }
 
     /**
@@ -347,38 +352,36 @@ export class DiscoveryService {
 
     async getCategories(dto: GetCategoryDto): Promise<PaginatedCategoriesResponse> {
         const { limit = 10, offset = 0 } = dto;
-        const cacheKey = `discovery:categories:${limit}:${offset}`;
+        const cacheKey = `discovery:categories`;
 
-        const cached = await this.redisService.get<PaginatedCategoriesResponse>(cacheKey);
-        if (cached) return cached;
+        type CategoriesSnapshot = { data: ReturnType<DiscoveryService["transformToCategory"]>[]; total: number };
 
-        const [categories, total] = await this.categoryRepository.findAndCount({
-            order: { marketCap: "DESC" },
-            take: limit,
-            skip: offset
-        });
+        let snapshot = await this.redisService.get<CategoriesSnapshot>(cacheKey);
+        if (!snapshot) {
+            const [categories, total] = await this.categoryRepository.findAndCount({
+                order: { marketCap: "DESC" }
+            });
 
-        // Filter out categories with missing or zero data
-        const validCategories = categories.filter(
-            (cat) =>
-                Number(cat.marketCap) > 0 &&
-                Number(cat.volume24h) > 0 &&
-                cat.top3Coins &&
-                cat.top3Coins.length > 0 &&
-                cat.top3CoinsId &&
-                cat.top3CoinsId.length > 0
-        );
+            const validCategories = categories.filter(
+                (cat) =>
+                    Number(cat.marketCap) > 0 &&
+                    Number(cat.volume24h) > 0 &&
+                    cat.top3Coins &&
+                    cat.top3Coins.length > 0 &&
+                    cat.top3CoinsId &&
+                    cat.top3CoinsId.length > 0
+            );
 
-        const transformedCategories = validCategories.map((category) => this.transformToCategory(category));
+            snapshot = { data: validCategories.map((category) => this.transformToCategory(category)), total };
+            await this.redisService.set(cacheKey, snapshot, CATEGORIES_TTL);
+        }
 
-        const result: PaginatedCategoriesResponse = {
-            data: transformedCategories,
-            total,
+        return {
+            data: snapshot.data.slice(offset, offset + limit),
+            total: snapshot.total,
             limit,
             offset
         };
-        await this.redisService.set(cacheKey, result, CATEGORIES_TTL);
-        return result;
     }
 
     /**
@@ -434,9 +437,8 @@ export class DiscoveryService {
             this.logger.log(`Synced ${categories.length} categories from CoinGecko`);
 
             // Invalidate cached category responses so next requests get fresh data
-            const staleKeys = await this.redisService.keys("discovery:categories:*");
             const staleCategoryKeys = await this.redisService.keys("discovery:category:*");
-            for (const key of [...staleKeys, ...staleCategoryKeys]) {
+            for (const key of ["discovery:categories", ...staleCategoryKeys]) {
                 await this.redisService.del(key);
             }
         } catch (error) {
@@ -444,9 +446,8 @@ export class DiscoveryService {
         }
     }
 
-    async getCategoryDetail(categorySlug: string, dto: GetCategoryDto) {
-        const { sort_by, limit, offset } = dto;
-        const cacheKey = `discovery:category:${categorySlug}:${sort_by}:${limit}:${offset}`;
+    async getCategoryDetail(categorySlug: string, _dto: GetCategoryDto) {
+        const cacheKey = `discovery:category:${categorySlug}`;
 
         const cached = await this.redisService.get(cacheKey);
         if (cached) return cached;
