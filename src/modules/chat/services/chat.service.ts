@@ -24,14 +24,33 @@ RULES:
    - "/wallet-tracker" — Wallet tracker page.
    - "/notifications" — Notifications page.
    NEVER use routes like "/discover", "/trending", "/explore" — they do not exist.
-7. NO HALLUCINATION: NEVER guess or hallucinate token mint addresses. If you do not know the exact mint address for a token (e.g. USDC, SOL), you MUST pass its SYMBOL (e.g., "USDC") to the tools and let the backend resolve it.`;
+7. PORTFOLIO ANALYSIS: Use these tools for deeper portfolio insights:
+   - fetch_portfolio_activities: for questions about recent transactions, activity history, "what happened recently", "tóm tắt hoạt động". Activity types you may encounter:
+     * SWAP — token swap/trade on a DEX (e.g. Jupiter, Raydium)
+     * TRANSFER_IN / TRANSFER_OUT — SOL or token received/sent
+     * STAKE / UNSTAKE — SOL staking/unstaking
+     * TOKEN_MINT — new tokens minted to the wallet (e.g. LP tokens, reward tokens, NFT mints)
+     * BURN / Token Burn — tokens permanently burned/destroyed
+     * UNKNOWN — unrecognized on-chain instruction
+     When summarizing activities, group by type and highlight notable ones (large swaps, mints, burns). Keep it concise.
+   - fetch_portfolio_performance: for questions about profit/loss, PnL, ROI, win rate, best/worst trades, "tôi lời lỗ bao nhiêu".
+   - fetch_portfolio: for general overview (balance, top tokens, allocation).
+8. NO HALLUCINATION: NEVER guess or hallucinate token mint addresses. If you do not know the exact mint address for a token (e.g. USDC, SOL), you MUST pass its SYMBOL (e.g., "USDC") to the tools and let the backend resolve it.`;
 
 const STATIC_ROUTES = ["/", "/token/[tokenAddress]", "/portfolio", "/multi-chart", "/wallet-tracker", "/notifications"];
 
 const TOKEN_ROUTE_REGEX = /^\/token\/[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 const LLM_TIMEOUT_MS = 300000;
 
-const RESPONSE_TYPES: ChatResponsePayload["type"][] = ["text", "token_brief", "portfolio_summary", "navigation", "trade_intent"];
+const RESPONSE_TYPES: ChatResponsePayload["type"][] = [
+    "text",
+    "token_brief",
+    "portfolio_summary",
+    "portfolio_activities",
+    "portfolio_performance",
+    "navigation",
+    "trade_intent"
+];
 
 function toolLabel(toolName: string, args: Record<string, unknown>): string {
     switch (toolName) {
@@ -47,6 +66,10 @@ function toolLabel(toolName: string, args: Record<string, unknown>): string {
             return "Fetching discovery list…";
         case "fetch_portfolio":
             return "Fetching portfolio overview…";
+        case "fetch_portfolio_activities":
+            return "Fetching recent activities…";
+        case "fetch_portfolio_performance":
+            return "Analyzing portfolio performance…";
         case "prepare_swap":
             return "Preparing swap quote…";
         case "navigate_to": {
@@ -136,6 +159,65 @@ export const TOOL_DEFINITIONS: ChatCompletionTool[] = [
                         type: "array",
                         items: { type: "string" },
                         description: "Optional wallet addresses filter"
+                    }
+                },
+                required: ["userId"],
+                additionalProperties: false
+            }
+        }
+    },
+    {
+        type: "function",
+        function: {
+            name: "fetch_portfolio_activities",
+            description:
+                "Fetch recent on-chain activities (swaps, transfers, stakes) across the user's wallets. Use this when the user asks about recent transactions, recent activity, or a summary of what happened recently.",
+            parameters: {
+                type: "object",
+                properties: {
+                    userId: {
+                        type: "string",
+                        description: "Application user id"
+                    },
+                    walletAddress: {
+                        type: "string",
+                        description: "Optional specific wallet address to filter by"
+                    },
+                    type: {
+                        type: "string",
+                        description: "Activity type filter: all, swap, transfer, stake, unstake, token_mint, burn"
+                    },
+                    limit: {
+                        type: "number",
+                        description: "Max number of activities to return (default 10)"
+                    }
+                },
+                required: ["userId"],
+                additionalProperties: false
+            }
+        }
+    },
+    {
+        type: "function",
+        function: {
+            name: "fetch_portfolio_performance",
+            description:
+                "Fetch trading performance metrics: PnL (profit/loss), ROI, win rate, best and worst trades. Use this when user asks about profit, loss, performance, PnL, ROI, or how well their trading is going.",
+            parameters: {
+                type: "object",
+                properties: {
+                    userId: {
+                        type: "string",
+                        description: "Application user id"
+                    },
+                    walletAddresses: {
+                        type: "array",
+                        items: { type: "string" },
+                        description: "Optional wallet addresses filter"
+                    },
+                    timeFrame: {
+                        type: "string",
+                        description: "Time frame: 7d, 30d, 90d, 1y, all (default 30d)"
                     }
                 },
                 required: ["userId"],
@@ -628,6 +710,29 @@ export class ChatService {
                     return JSON.stringify(data);
                 }
 
+                case "fetch_portfolio_activities": {
+                    const resolvedUserId = userId || String(args.userId || "");
+                    if (!resolvedUserId) {
+                        return JSON.stringify({ error: "User ID required — please log in" });
+                    }
+                    const walletAddr = typeof args.walletAddress === "string" ? args.walletAddress : undefined;
+                    const actType = typeof args.type === "string" ? args.type : "all";
+                    const limit = typeof args.limit === "number" && Number.isFinite(args.limit) ? Math.min(args.limit, 20) : 10;
+                    const data = await this.portfolioService.getActivities(resolvedUserId, walletAddr, actType, limit);
+                    return JSON.stringify(data);
+                }
+
+                case "fetch_portfolio_performance": {
+                    const resolvedUserId = userId || String(args.userId || "");
+                    if (!resolvedUserId) {
+                        return JSON.stringify({ error: "User ID required — please log in" });
+                    }
+                    const walletAddresses = Array.isArray(args.walletAddresses) ? args.walletAddresses.filter((v): v is string => typeof v === "string") : [];
+                    const timeFrame = typeof args.timeFrame === "string" ? args.timeFrame : "30d";
+                    const data = await this.portfolioService.getPerformance(resolvedUserId, walletAddresses, timeFrame);
+                    return JSON.stringify(data);
+                }
+
                 case "prepare_swap": {
                     let inputMint = String(args.inputMint || "");
                     let outputMint = String(args.outputMint || "");
@@ -771,6 +876,32 @@ export class ChatService {
                         route,
                         label: route
                     }
+                };
+            }
+
+            if (toolMessage.toolName === "fetch_portfolio_activities") {
+                const activitiesRaw = Array.isArray(parsedToolOutput.activities) ? parsedToolOutput.activities : [];
+                this.logger.log("parseResponse fallback: inferred portfolio_activities from fetch_portfolio_activities", ChatService.name);
+                return {
+                    sessionId: "",
+                    type: "portfolio_activities",
+                    data: {
+                        activities: activitiesRaw,
+                        total: typeof parsedToolOutput.total === "number" ? parsedToolOutput.total : activitiesRaw.length,
+                        summary: typeof parsedToolOutput.summary === "object" && parsedToolOutput.summary !== null ? parsedToolOutput.summary : {}
+                    }
+                };
+            }
+
+            if (toolMessage.toolName === "fetch_portfolio_performance") {
+                this.logger.log("parseResponse fallback: inferred portfolio_performance from fetch_portfolio_performance", ChatService.name);
+                return {
+                    sessionId: "",
+                    type: "portfolio_performance",
+                    data:
+                        typeof parsedToolOutput.performance === "object" && parsedToolOutput.performance !== null
+                            ? (parsedToolOutput.performance as Record<string, unknown>)
+                            : parsedToolOutput
                 };
             }
 
