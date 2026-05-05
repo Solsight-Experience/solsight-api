@@ -26,7 +26,7 @@ export interface SendMessagePayload {
 
 export interface ChatResponsePayload {
     sessionId: string;
-    type: "text" | "token_brief" | "portfolio_summary" | "navigation" | "trade_intent";
+    type: "text" | "token_brief" | "portfolio_summary" | "portfolio_activities" | "portfolio_performance" | "navigation" | "trade_intent";
     content?: string;
     data?: Record<string, unknown>;
 }
