@@ -28,14 +28,10 @@ export default () => ({
         apiKey: process.env.HELIUS_API_KEY
     },
 
-    helius: {
-        heliusRpcUrl: process.env.HELIUS_RPC_URL,
-        heliusApiKey: process.env.HELIUS_API_KEY
-    },
-
     jupiter: {
         apiUrl: process.env.JUPITER_API_URL,
-        apiKey: process.env.JUPITER_API_KEY
+        apiKey: process.env.JUPITER_API_KEY,
+        quoteApiUrl: process.env.JUPITER_QUOTE_API_URL || "https://api.jup.ag/swap/v1/quote"
     },
 
     coingecko: {
@@ -88,9 +84,9 @@ export default () => ({
     },
 
     embedding: {
-        // "openai" (text-embedding-3-small, 1536 dims) or "gemini" (text-embedding-004, 768 dims)
-        provider: process.env.EMBEDDING_PROVIDER ?? "gemini",
-        geminiApiKey: process.env.GEMINI_API_KEY ?? "",
-        openaiDirectApiKey: process.env.OPENAI_DIRECT_API_KEY ?? process.env.OPENAI_API_KEY ?? ""
+        provider: process.env.EMBEDDING_PROVIDER,
+        apiKey: process.env.EMBEDDING_API_KEY,
+        model: process.env.EMBEDDING_MODEL,
+        apiUrl: process.env.EMBEDDING_API_URL
     }
 });

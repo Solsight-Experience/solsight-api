@@ -1,5 +1,5 @@
 /**
- * RAG Ingest Script — embed JSON documents and store in MongoDB Atlas Vector Search.
+ * RAG Ingest Script: embed JSON documents and store in MongoDB Atlas Vector Search.
  *
  * Usage:
  *   pnpm rag:ingest                              — ingest docs/knowledge-base.json
@@ -16,35 +16,22 @@
 import { readFileSync } from "fs";
 import { resolve } from "path";
 import { MongoClient } from "mongodb";
-import { GoogleGenerativeAI } from "@google/generative-ai";
-
-// .env is loaded via --env-file=.env flag in the npm script (Node 20+)
-
-// ─── Config ───────────────────────────────────────────────────────────────────
+import OpenAI from "openai";
 
 const MONGODB_URI = process.env.MONGODB_URI ?? "";
 const MONGODB_DB = process.env.MONGODB_DB ?? "solsight_rag";
 const MONGODB_VECTOR_COLLECTION = process.env.MONGODB_VECTOR_COLLECTION ?? "rag_documents";
-// Embedding provider: "gemini" (default, free) or "openai"
-// Gemini: text-embedding-004, 768 dims — dùng GEMINI_API_KEY (native REST, không qua OpenAI SDK)
-// OpenAI: text-embedding-3-small, 1536 dims — dùng OPENAI_DIRECT_API_KEY hoặc OPENAI_API_KEY
-const EMBEDDING_PROVIDER = (process.env.EMBEDDING_PROVIDER ?? "gemini") as "gemini" | "openai";
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY ?? "";
-const OPENAI_API_KEY = process.env.OPENAI_DIRECT_API_KEY ?? process.env.OPENAI_API_KEY ?? "";
-const EMBEDDING_MODEL = EMBEDDING_PROVIDER === "gemini" ? "gemini-embedding-001" : "text-embedding-3-small";
+
+const EMBEDDING_API_KEY = process.env.EMBEDDING_API_KEY ?? "";
+const EMBEDDING_API_URL = process.env.EMBEDDING_API_URL ?? "";
+const EMBEDDING_MODEL = process.env.EMBEDDING_MODEL ?? "";
 const EMBED_BATCH_SIZE = 20;
-
-// Default knowledge base file — edit docs/knowledge-base.json để thêm/sửa tài liệu
 const DEFAULT_KB_FILE = resolve(__dirname, "../../docs/knowledge-base.json");
-
-// ─── Types ────────────────────────────────────────────────────────────────────
 
 interface RawDoc {
     content: string;
     metadata?: Record<string, unknown>;
 }
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function chunks<T>(arr: T[], size: number): T[][] {
     const out: T[][] = [];
@@ -53,20 +40,16 @@ function chunks<T>(arr: T[], size: number): T[][] {
 }
 
 async function embedBatch(texts: string[]): Promise<number[][]> {
-    if (EMBEDDING_PROVIDER === "gemini") {
-        const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-        const model = genAI.getGenerativeModel({ model: EMBEDDING_MODEL });
-        const results = await Promise.all(texts.map((t) => model.embedContent(t.replace(/\n/g, " "))));
-        return results.map((r) => r.embedding.values);
-    }
+    const client = new OpenAI({
+        apiKey: EMBEDDING_API_KEY,
+        baseURL: EMBEDDING_API_URL || undefined
+    });
 
-    // OpenAI direct
-    const { default: OpenAI } = await import("openai");
-    const client = new OpenAI({ apiKey: OPENAI_API_KEY });
     const result = await client.embeddings.create({
         model: EMBEDDING_MODEL,
         input: texts.map((t) => t.replace(/\n/g, " "))
     });
+
     return result.data.map((d) => d.embedding);
 }
 
@@ -74,23 +57,21 @@ function loadJsonFile(filePath: string): RawDoc[] {
     const abs = resolve(filePath);
     const raw = readFileSync(abs, "utf-8");
     const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) throw new Error(`${filePath}: phải là JSON array`);
+    if (!Array.isArray(parsed)) throw new Error(`${filePath}: must be a JSON array`);
     return parsed as RawDoc[];
 }
 
-// ─── Main ─────────────────────────────────────────────────────────────────────
-
 async function main() {
     if (!MONGODB_URI) {
-        console.error("❌  MONGODB_URI chưa được set trong .env");
+        console.error("MONGODB_URI is not set in .env");
         process.exit(1);
     }
-    if (EMBEDDING_PROVIDER === "gemini" && !GEMINI_API_KEY) {
-        console.error("❌  GEMINI_API_KEY chưa được set trong .env");
+    if (!EMBEDDING_API_KEY) {
+        console.error("EMBEDDING_API_KEY is not set in .env");
         process.exit(1);
     }
-    if (EMBEDDING_PROVIDER === "openai" && !OPENAI_API_KEY) {
-        console.error("❌  OPENAI_API_KEY (hoặc OPENAI_DIRECT_API_KEY) chưa được set trong .env");
+    if (!EMBEDDING_MODEL) {
+        console.error("EMBEDDING_MODEL is not set in .env");
         process.exit(1);
     }
 
@@ -99,31 +80,29 @@ async function main() {
     const shouldClear = args.includes("--clear");
     const extraFile = fileIdx >= 0 ? args[fileIdx + 1] : null;
 
-    // Load knowledge base chính
     const docs: RawDoc[] = loadJsonFile(DEFAULT_KB_FILE);
-    console.log(`📚  Loaded ${docs.length} docs từ knowledge-base.json`);
+    console.log(`Loaded ${docs.length} docs from knowledge-base.json`);
 
-    // Merge thêm file tùy chỉnh nếu có
     if (extraFile) {
         const extra = loadJsonFile(extraFile);
-        console.log(`📄  Merge thêm ${extra.length} docs từ ${extraFile}`);
+        console.log(`Merged ${extra.length} extra docs from ${extraFile}`);
         docs.push(...extra);
     }
 
-    console.log(`📦  Tổng số documents sẽ ingest: ${docs.length}`);
+    console.log(`Total documents to ingest: ${docs.length}`);
 
-    console.log(`🔧  Embedding provider: ${EMBEDDING_PROVIDER} (model: ${EMBEDDING_MODEL})`);
+    console.log(`Embedding model: ${EMBEDDING_MODEL}${EMBEDDING_API_URL ? ` (URL: ${EMBEDDING_API_URL})` : ""}`);
 
     const client = new MongoClient(MONGODB_URI);
     await client.connect();
-    console.log("✅  Kết nối MongoDB Atlas thành công");
+    console.log("Successfully connected to MongoDB Atlas");
 
     try {
         const col = client.db(MONGODB_DB).collection(MONGODB_VECTOR_COLLECTION);
 
         if (shouldClear) {
             const { deletedCount } = await col.deleteMany({});
-            console.log(`🗑️   Đã xóa ${deletedCount} documents cũ`);
+            console.log(`Deleted ${deletedCount} old documents`);
         }
 
         let inserted = 0;
@@ -138,16 +117,16 @@ async function main() {
                 }))
             );
             inserted += batch.length;
-            console.log(`  ↑ ${inserted}/${docs.length}`);
+            console.log(`  Progress: ${inserted}/${docs.length}`);
         }
 
-        console.log(`\n✅  Xong! ${inserted} documents → ${MONGODB_DB}/${MONGODB_VECTOR_COLLECTION}`);
+        console.log(`\nDone! ${inserted} documents -> ${MONGODB_DB}/${MONGODB_VECTOR_COLLECTION}`);
     } finally {
         await client.close();
     }
 }
 
 main().catch((err) => {
-    console.error("❌  Ingest thất bại:", err);
+    console.error("Ingest failed:", err);
     process.exit(1);
 });

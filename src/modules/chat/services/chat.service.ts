@@ -1,12 +1,13 @@
 import { HttpException, Injectable, Logger } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
 import type { ChatCompletionMessageParam, ChatCompletionTool } from "openai/resources/chat/completions";
 import { OpenAIService } from "src/infra/openai/openai.service";
 import { SortByTrending, TimeFrame } from "../../discovery/dtos/get-trending.dto";
 import { DiscoveryService } from "../../discovery/services/discovery.service";
 import { PortfolioService } from "../../portfolio/services/portfolio.service";
 import { TokensService } from "../../tokens/services/tokens.service";
-import { ChatResponsePayload, ChatSession, SendMessagePayload, PageContext } from "../types/chat.types";
-import { COMMON_SYMBOLS } from "src/common/constants/token.constants";
+import { ChatResponsePayload, SendMessagePayload, PageContext } from "../types/chat.types";
+import { COMMON_SYMBOLS, COMMON_DECIMALS } from "src/common/constants/token.constants";
 import { RagService } from "./rag.service";
 
 const SYSTEM_PROMPT = `You are Solsight AI, a DeFi assistant specialized exclusively in the Solana blockchain ecosystem.
@@ -17,7 +18,8 @@ RULES:
 3. CONTEXT: The user's current page context will be provided. Use it to infer what "this token", "current token", or "here" refers to. Always prioritize page context for ambiguous questions.
 4. LANGUAGE: Always reply in the same language the user is writing in. If the user writes in Vietnamese, reply in Vietnamese. If in English, reply in English. Detect language from the user's latest message.
 5. ACTIONS: When the user wants to swap tokens, use prepare_swap tool directly.
-6. NAVIGATION: Use navigate_to tool when the user wants to go to a page. Available routes:
+6. SLIPPAGE: When the user asks to set, change, or check slippage, use set_slippage tool. Convert percentages: 1% = 100 bps, 0.5% = 50 bps. If the user does not specify, use warnOnly=true to warn about high slippage. If the slippage (set or requested) is GREATER THAN 1% (100 bps), you MUST explicitly warn the user in your text response about potential high slippage and loss of value. When using prepare_swap, pass the slippageBps if the user specified it.
+7. NAVIGATION: Use navigate_to tool when the user wants to go to a page. Available routes:
    - "/" — Home / Discovery page (trending tokens, hot tokens, new listings). Use this for any request about trending, hot, discovery, explore.
    - "/token/[tokenAddress]" — Token detail page (replace [tokenAddress] with the actual mint address).
    - "/portfolio" — Portfolio overview page.
@@ -25,18 +27,20 @@ RULES:
    - "/wallet-tracker" — Wallet tracker page.
    - "/notifications" — Notifications page.
    NEVER use routes like "/discover", "/trending", "/explore" — they do not exist.
-7. PORTFOLIO ANALYSIS: Use these tools for deeper portfolio insights:
-   - fetch_portfolio_activities: for questions about recent transactions, activity history, "what happened recently", "tóm tắt hoạt động". Activity types you may encounter:
+8. PORTFOLIO ANALYSIS: Use these tools for deeper portfolio insights:
+   - fetch_portfolio_activities: for questions about recent transactions, activity history, "what happened recently", "summary activities". Activity types you may encounter:
      * SWAP — token swap/trade on a DEX (e.g. Jupiter, Raydium)
      * TRANSFER_IN / TRANSFER_OUT — SOL or token received/sent
      * STAKE / UNSTAKE — SOL staking/unstaking
      * TOKEN_MINT — new tokens minted to the wallet (e.g. LP tokens, reward tokens, NFT mints)
      * BURN / Token Burn — tokens permanently burned/destroyed
      * UNKNOWN — unrecognized on-chain instruction
-     When summarizing activities, group by type and highlight notable ones (large swaps, mints, burns). Keep it concise.
-   - fetch_portfolio_performance: for questions about profit/loss, PnL, ROI, win rate, best/worst trades, "tôi lời lỗ bao nhiêu".
+    When summarizing activities, group by type and highlight notable ones (large swaps, mints, burns). Keep it concise.
+   - fetch_portfolio_performance: for questions about profit/loss, PnL, ROI, win rate, best/worst trades.
    - fetch_portfolio: for general overview (balance, top tokens, allocation).
-8. NO HALLUCINATION: NEVER guess or hallucinate token mint addresses. If you do not know the exact mint address for a token (e.g. USDC, SOL), you MUST pass its SYMBOL (e.g., "USDC") to the tools and let the backend resolve it.`;
+9. NO HALLUCINATION: NEVER guess or hallucinate token mint addresses. If you do not know the exact mint address for a token (e.g. USDC, SOL), you MUST pass its SYMBOL (e.g., "USDC", "SOL") to the tools and let the backend resolve it.
+10. NO INTRUSIVE BEHAVIOR: If user asks for information (data, trends, prices), provide it in text. Do not use navigation or other tools unless user explicitly asks to navigate, search, or perform an action. Do not wrap data in cards, buttons, or any UI components automatically. Let the frontend handle UI presentation.
+11. PRICE IMPACT: When using prepare_swap, the tool will return priceImpactPct and priceImpactSeverity. If the severity is "warning", "danger", or "critical", you MUST explicitly warn the user in your text response about the high price impact and potential loss of value before they proceed to confirm the swap.`;
 
 const STATIC_ROUTES = ["/", "/token/[tokenAddress]", "/portfolio", "/multi-chart", "/wallet-tracker", "/notifications"];
 
@@ -50,8 +54,22 @@ const RESPONSE_TYPES: ChatResponsePayload["type"][] = [
     "portfolio_activities",
     "portfolio_performance",
     "navigation",
-    "trade_intent"
+    "trade_intent",
+    "slippage_action"
 ];
+
+/**
+ * Classify price impact percentage (decimal fraction, e.g. 0.05 = 5%) into a severity level.
+ * Thresholds follow Uniswap / major DEX conventions.
+ */
+function getPriceImpactSeverity(pct: number | null): "safe" | "warning" | "danger" | "critical" {
+    if (pct === null || !Number.isFinite(pct)) return "safe";
+    const pctPercent = pct * 100;
+    if (pctPercent > 15) return "critical";
+    if (pctPercent > 10) return "danger";
+    if (pctPercent > 3) return "warning";
+    return "safe";
+}
 
 function toolLabel(toolName: string, args: Record<string, unknown>): string {
     switch (toolName) {
@@ -73,6 +91,11 @@ function toolLabel(toolName: string, args: Record<string, unknown>): string {
             return "Analyzing portfolio performance…";
         case "prepare_swap":
             return "Preparing swap quote…";
+        case "set_slippage": {
+            const bps = typeof args.slippageBps === "number" ? args.slippageBps : "…";
+            const warnOnly = args.warnOnly === true;
+            return warnOnly ? "Checking slippage…" : `Setting slippage to ${bps} bps…`;
+        }
         case "navigate_to": {
             const route = typeof args.route === "string" ? args.route : "…";
             return `Navigating to ${route}`;
@@ -245,9 +268,38 @@ export const TOOL_DEFINITIONS: ChatCompletionTool[] = [
                     amount: {
                         type: "number",
                         description: "Token amount to swap"
+                    },
+                    slippageBps: {
+                        type: "number",
+                        description: "Optional slippage in basis points (e.g. 100 for 1%, 50 for 0.5%). Default 50."
                     }
                 },
                 required: ["inputMint", "outputMint", "amount"],
+                additionalProperties: false
+            }
+        }
+    },
+    {
+        type: "function",
+        function: {
+            name: "set_slippage",
+            description:
+                "Set or warn about the slippage tolerance (in basis points) for the trading panel. " +
+                "Use when the user asks to change slippage, e.g. 'set slippage to 1%', 'đặt trượt giá 0.5%'. " +
+                "1% = 100 bps, 0.5% = 50 bps. Pass warnOnly=true only if the user asks to check or be warned about slippage without changing it.",
+            parameters: {
+                type: "object",
+                properties: {
+                    slippageBps: {
+                        type: "number",
+                        description: "Slippage in basis points. 100 = 1%, 50 = 0.5%, 500 = 5%. Must be between 1 and 5000."
+                    },
+                    warnOnly: {
+                        type: "boolean",
+                        description: "If true, only warn the user about slippage level without changing it. Default false."
+                    }
+                },
+                required: ["slippageBps"],
                 additionalProperties: false
             }
         }
@@ -272,9 +324,15 @@ export const TOOL_DEFINITIONS: ChatCompletionTool[] = [
     }
 ];
 
+import { InjectRepository } from "@nestjs/typeorm";
+import { Repository } from "typeorm";
+import { ChatSession as ChatSessionEntity } from "../entities/chat-session.entity";
+import { ChatMessage as ChatMessageEntity } from "../entities/chat-message.entity";
+import { Wallet } from "../../wallets/entities/wallet.entity";
+
 @Injectable()
 export class ChatService {
-    private readonly sessions = new Map<string, ChatSession>();
+    private readonly activeProcessingSessions = new Set<string>();
     private readonly logger = new Logger(ChatService.name);
 
     constructor(
@@ -282,13 +340,107 @@ export class ChatService {
         private readonly discoveryService: DiscoveryService,
         private readonly portfolioService: PortfolioService,
         private readonly openaiService: OpenAIService,
-        private readonly ragService: RagService
+        private readonly ragService: RagService,
+        @InjectRepository(ChatSessionEntity)
+        private readonly sessionRepo: Repository<ChatSessionEntity>,
+        @InjectRepository(ChatMessageEntity)
+        private readonly messageRepo: Repository<ChatMessageEntity>,
+        @InjectRepository(Wallet)
+        private readonly walletRepo: Repository<Wallet>,
+        private readonly configService: ConfigService
     ) {}
 
-    async sendMessage(payload: SendMessagePayload, onToolProgress: (label: string) => void = () => {}): Promise<ChatResponsePayload> {
-        const session = this.getOrCreateSession(payload.sessionId);
+    /**
+     * Fetch price impact from Jupiter Quote API for a given swap pair.
+     * Returns the raw decimal fraction (e.g. 0.05 for 5%), or null if the quote fails.
+     * Never throws — errors are swallowed so prepare_swap continues regardless.
+     */
+    private async fetchPriceImpact(inputMint: string, outputMint: string, amount: number): Promise<number | null> {
+        try {
+            if (!inputMint || !outputMint || amount <= 0) return null;
+            let inputDecimals = COMMON_DECIMALS[inputMint];
+            if (inputDecimals === undefined) {
+                const meta = await this.tokensService.getTokenMetadata(inputMint);
+                inputDecimals = meta?.decimals ?? 6;
+            }
 
-        if (session.processing) {
+            const amountBaseUnits = Math.round(amount * Math.pow(10, inputDecimals));
+            if (amountBaseUnits <= 0) return null;
+
+            const params = new URLSearchParams({
+                inputMint,
+                outputMint,
+                amount: String(amountBaseUnits),
+                swapMode: "ExactIn",
+                slippageBps: "50"
+            });
+
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+            try {
+                const quoteUrl = this.configService.get<string>("jupiter.quoteApiUrl") || "https://api.jup.ag/swap/v1/quote";
+                const response = await fetch(`${quoteUrl}?${params.toString()}`, {
+                    signal: controller.signal
+                });
+                if (!response.ok) return null;
+                const data = (await response.json()) as Record<string, unknown>;
+                const raw = data.priceImpactPct;
+                const pct = typeof raw === "number" ? raw : typeof raw === "string" ? Number(raw) : null;
+                return pct !== null && Number.isFinite(pct) ? pct : null;
+            } finally {
+                clearTimeout(timeoutId);
+            }
+        } catch {
+            return null;
+        }
+    }
+
+    private async getOrCreateSession(sessionId: string, userId?: string, walletAddress?: string): Promise<ChatSessionEntity> {
+        let session = await this.sessionRepo.findOne({ where: { id: sessionId } });
+
+        if (session) {
+            // Security check: If session has a userId, it must match the current user
+            if (session.userId && userId && session.userId !== userId) {
+                this.logger.warn(`User ${userId} tried to access session ${sessionId} belonging to ${session.userId}`);
+                throw new HttpException("Session access denied", 403);
+            }
+
+            // If session was anonymous but now we have a user, attach it (optional, but good for continuity)
+            if (!session.userId && userId) {
+                session.userId = userId;
+                if (!session.walletAddress && walletAddress) {
+                    session.walletAddress = walletAddress;
+                }
+                await this.sessionRepo.save(session);
+            }
+
+            return session;
+        }
+
+        let resolvedWallet = walletAddress;
+        if (!resolvedWallet && userId) {
+            const wallet = await this.walletRepo.findOne({
+                where: { userId },
+                order: { isDefault: "DESC", createdAt: "ASC" }
+            });
+            if (wallet) {
+                resolvedWallet = wallet.address;
+            }
+        }
+
+        session = this.sessionRepo.create({
+            id: sessionId,
+            userId: userId || undefined,
+            walletAddress: resolvedWallet || undefined
+        });
+        await this.sessionRepo.save(session);
+
+        return session;
+    }
+
+    async sendMessage(payload: SendMessagePayload, onToolProgress: (label: string) => void = () => {}): Promise<ChatResponsePayload> {
+        if (this.activeProcessingSessions.has(payload.sessionId)) {
             this.logger.warn(`Session ${payload.sessionId} is already processing a message, rejecting`, ChatService.name);
             throw new HttpException("Already processing a message", 429);
         }
@@ -298,16 +450,20 @@ export class ChatService {
             ChatService.name
         );
 
-        session.messages.push({
-            role: "user",
-            content: payload.message,
-            userId: payload.userId
-        });
+        this.activeProcessingSessions.add(payload.sessionId);
 
-        session.processing = true;
+        await this.getOrCreateSession(payload.sessionId, payload.userId, payload.walletAddress);
+
+        await this.messageRepo.save(
+            this.messageRepo.create({
+                sessionId: payload.sessionId,
+                role: "user",
+                content: payload.message
+            })
+        );
 
         try {
-            const response = await this.runLlmLoop(session, payload.walletAddress, payload.userId, onToolProgress, payload.pageContext);
+            const response = await this.runLlmLoop(payload.sessionId, payload.walletAddress, payload.userId, onToolProgress, payload.pageContext);
             this.logger.log(`Session ${payload.sessionId} completed: responseType=${response.type}`, ChatService.name);
             return {
                 ...response,
@@ -323,14 +479,12 @@ export class ChatService {
                 content: "I encountered an issue while processing your request. Please try again in a moment."
             };
         } finally {
-            session.processing = false;
+            this.activeProcessingSessions.delete(payload.sessionId);
         }
     }
 
     async *sendMessageStream(payload: SendMessagePayload): AsyncGenerator<string, void, unknown> {
-        const session = this.getOrCreateSession(payload.sessionId);
-
-        if (session.processing) {
+        if (this.activeProcessingSessions.has(payload.sessionId)) {
             this.logger.warn(`Session ${payload.sessionId} is already processing a message, rejecting`, ChatService.name);
             throw new HttpException("Already processing a message", 429);
         }
@@ -340,33 +494,44 @@ export class ChatService {
             ChatService.name
         );
 
-        session.messages.push({
-            role: "user",
-            content: payload.message
-        });
+        this.activeProcessingSessions.add(payload.sessionId);
 
-        session.processing = true;
+        await this.getOrCreateSession(payload.sessionId, payload.userId, payload.walletAddress);
+
+        await this.messageRepo.save(
+            this.messageRepo.create({
+                sessionId: payload.sessionId,
+                role: "user",
+                content: payload.message
+            })
+        );
 
         try {
-            yield* this.runLlmLoopStream(session, payload.walletAddress, payload.userId);
+            yield* this.runLlmLoopStream(payload.sessionId, payload.walletAddress, payload.userId);
             this.logger.log(`Session ${payload.sessionId} stream completed`, ChatService.name);
         } catch (error) {
             const message = error instanceof Error ? error.message : "Unknown LLM error";
             this.logger.error(`Failed to process stream message: ${message}`, error instanceof Error ? error.stack : undefined, ChatService.name);
             throw error;
         } finally {
-            session.processing = false;
+            this.activeProcessingSessions.delete(payload.sessionId);
         }
     }
 
     async runLlmLoop(
-        session: ChatSession,
+        sessionId: string,
         walletAddress?: string,
         userId?: string,
         onToolProgress: (label: string) => void = () => {},
         pageContext?: PageContext
     ): Promise<ChatResponsePayload> {
-        const recentMessages = session.messages.slice(-10);
+        const recentMessages = await this.messageRepo.find({
+            where: { sessionId },
+            order: { createdAt: "DESC" },
+            take: 10
+        });
+        recentMessages.reverse();
+
         const messages: ChatCompletionMessageParam[] = [
             {
                 role: "system",
@@ -374,7 +539,7 @@ export class ChatService {
             }
         ];
 
-        // Inject page context as an additional system message so LLM resolves ambiguous references
+        // Inject page context
         if (pageContext) {
             const ctx = pageContext;
             const contextParts: string[] = [`User's current page: "${ctx.pathname}".`];
@@ -383,6 +548,17 @@ export class ChatService {
             messages.push({
                 role: "system",
                 content: contextParts.join(" ")
+            });
+        }
+
+        // Inject user context (userId and walletAddress)
+        const userContextParts: string[] = [];
+        if (userId) userContextParts.push(`Current User ID: ${userId}.`);
+        if (walletAddress) userContextParts.push(`User's connected wallet: ${walletAddress}.`);
+        if (userContextParts.length > 0) {
+            messages.push({
+                role: "system",
+                content: userContextParts.join(" ")
             });
         }
 
@@ -449,10 +625,13 @@ export class ChatService {
 
             if (choice.finish_reason === "tool_calls") {
                 const assistantMessage = choice.message;
-                session.messages.push({
-                    role: "assistant",
-                    content: assistantMessage.content || ""
-                });
+                await this.messageRepo.save(
+                    this.messageRepo.create({
+                        sessionId,
+                        role: "assistant",
+                        content: assistantMessage.content || ""
+                    })
+                );
 
                 const toolCalls = assistantMessage.tool_calls || [];
                 for (const toolCall of toolCalls) {
@@ -477,26 +656,34 @@ export class ChatService {
 
                     this.logger.debug(`Tool ${toolName} result length=${result.length}`, ChatService.name);
 
-                    session.messages.push({
-                        role: "tool",
-                        content: result,
-                        toolCallId: toolCall.id,
-                        toolName
-                    });
+                    await this.messageRepo.save(
+                        this.messageRepo.create({
+                            sessionId,
+                            role: "tool",
+                            content: result,
+                            toolCallId: toolCall.id,
+                            toolName
+                        })
+                    );
                 }
 
-                return this.runLlmLoop(session, walletAddress, userId, onToolProgress, pageContext);
+                return this.runLlmLoop(sessionId, walletAddress, userId, onToolProgress, pageContext);
             }
 
             const assistantContent = choice.message.content || "";
-            session.messages.push({
-                role: "assistant",
-                content: assistantContent
-            });
+            const parsedResponse = this.parseResponse(assistantContent, recentMessages);
+
+            await this.messageRepo.save(
+                this.messageRepo.create({
+                    sessionId,
+                    role: "assistant",
+                    content: assistantContent,
+                    type: parsedResponse.type,
+                    data: parsedResponse.data
+                })
+            );
 
             this.logger.debug(`LLM assistant raw content preview=${assistantContent.slice(0, 200)}`, ChatService.name);
-
-            const parsedResponse = this.parseResponse(assistantContent, session);
             this.logger.log(`LLM response parsed as type=${parsedResponse.type}`, ChatService.name);
 
             return parsedResponse;
@@ -509,13 +696,28 @@ export class ChatService {
         }
     }
 
-    async *runLlmLoopStream(session: ChatSession, walletAddress?: string, userId?: string): AsyncGenerator<string, void, unknown> {
-        const recentMessages = session.messages.slice(-10);
+    async *runLlmLoopStream(sessionId: string, walletAddress?: string, userId?: string): AsyncGenerator<string, void, unknown> {
+        const recentMessages = await this.messageRepo.find({
+            where: { sessionId },
+            order: { createdAt: "DESC" },
+            take: 20
+        });
+        recentMessages.reverse();
+
         const messages: ChatCompletionMessageParam[] = [
             {
                 role: "system",
                 content: SYSTEM_PROMPT
             },
+            // Inject user context (userId and walletAddress)
+            ...(userId || walletAddress
+                ? [
+                      {
+                          role: "system" as const,
+                          content: `${userId ? `Current User ID: ${userId}. ` : ""}${walletAddress ? `User's connected wallet: ${walletAddress}.` : ""}`
+                      }
+                  ]
+                : []),
             ...recentMessages.map((message): ChatCompletionMessageParam => {
                 if (message.role === "tool") {
                     return {
@@ -540,7 +742,7 @@ export class ChatService {
             controller.abort();
         }, LLM_TIMEOUT_MS);
 
-        let fullContent = "";
+        let finalContent = "";
         const toolCallMap: Record<string, { function: { name: string; arguments: string } }> = {};
 
         try {
@@ -559,87 +761,58 @@ export class ChatService {
 
             for await (const chunk of stream) {
                 const choice = chunk.choices[0];
-                if (!choice) {
-                    continue;
-                }
-
+                if (!choice) continue;
                 const delta = choice.delta;
-
                 if (delta.content) {
-                    fullContent += delta.content;
+                    finalContent += delta.content;
                     yield delta.content;
                 }
-
                 if (delta.tool_calls) {
                     for (const toolCall of delta.tool_calls) {
                         const id = toolCall.id;
-                        if (!id) {
-                            continue;
-                        }
-
-                        if (!toolCallMap[id]) {
-                            toolCallMap[id] = {
-                                function: {
-                                    name: toolCall.function?.name || "",
-                                    arguments: ""
-                                }
-                            };
-                        }
-
-                        if (toolCall.function?.name) {
-                            toolCallMap[id].function.name = toolCall.function.name;
-                        }
-
-                        if (toolCall.function?.arguments) {
-                            toolCallMap[id].function.arguments += toolCall.function.arguments;
+                        if (id) {
+                            if (!toolCallMap[id]) toolCallMap[id] = { function: { name: toolCall.function?.name || "", arguments: "" } };
+                            if (toolCall.function?.name) toolCallMap[id].function.name = toolCall.function.name;
+                            if (toolCall.function?.arguments) toolCallMap[id].function.arguments += toolCall.function.arguments;
                         }
                     }
                 }
-
                 if (choice.finish_reason === "tool_calls") {
-                    this.logger.debug(`Stream finish reason: tool_calls, accumulated content length=${fullContent.length}`, ChatService.name);
-
-                    session.messages.push({
-                        role: "assistant",
-                        content: fullContent
-                    });
-
+                    await this.messageRepo.save(
+                        this.messageRepo.create({
+                            sessionId,
+                            role: "assistant",
+                            content: ""
+                        })
+                    );
                     for (const [toolCallId, toolCall] of Object.entries(toolCallMap)) {
                         const toolName = toolCall.function.name;
                         let args: Record<string, unknown> = {};
-
                         try {
-                            args = JSON.parse(toolCall.function.arguments || "{}") as Record<string, unknown>;
-                        } catch (error) {
-                            this.logger.warn(`Invalid tool arguments for ${toolName}: ${toolCall.function.arguments}`, ChatService.name);
-                        }
-
-                        this.logger.log(`Executing tool (stream): ${toolName} args=${JSON.stringify(args)}`, ChatService.name);
-
+                            args = JSON.parse(toolCall.function.arguments || "{}");
+                        } catch {}
                         const result = await this.executeTool(toolName, args, walletAddress, userId);
-
-                        this.logger.debug(`Tool ${toolName} result length=${result.length}`, ChatService.name);
-
-                        session.messages.push({
-                            role: "tool",
-                            content: result,
-                            toolCallId,
-                            toolName
-                        });
+                        await this.messageRepo.save(
+                            this.messageRepo.create({
+                                sessionId,
+                                role: "tool",
+                                content: result,
+                                toolCallId,
+                                toolName
+                            })
+                        );
                     }
-
-                    yield* this.runLlmLoopStream(session, walletAddress, userId);
+                    yield* this.runLlmLoopStream(sessionId, walletAddress, userId);
                     return;
                 }
-
                 if (choice.finish_reason === "stop") {
-                    this.logger.debug(`Stream finish reason: stop, total content length=${fullContent.length}`, ChatService.name);
-
-                    session.messages.push({
-                        role: "assistant",
-                        content: fullContent
-                    });
-
+                    await this.messageRepo.save(
+                        this.messageRepo.create({
+                            sessionId,
+                            role: "assistant",
+                            content: finalContent
+                        })
+                    );
                     return;
                 }
             }
@@ -783,6 +956,16 @@ export class ChatService {
                         targetMint = outputMint;
                     }
 
+                    // Fetch price impact from Jupiter (best-effort, won't block if it fails)
+                    const priceImpactPct = await this.fetchPriceImpact(inputMint, outputMint, amount);
+                    const priceImpactSeverity = getPriceImpactSeverity(priceImpactPct);
+
+                    if (priceImpactPct !== null) {
+                        this.logger.log(`prepare_swap: priceImpact=${(priceImpactPct * 100).toFixed(2)}% severity=${priceImpactSeverity}`, ChatService.name);
+                    }
+
+                    const slippageBps = typeof args.slippageBps === "number" ? args.slippageBps : undefined;
+
                     return JSON.stringify({
                         type: "trade_intent",
                         inputMint,
@@ -790,7 +973,30 @@ export class ChatService {
                         targetMint,
                         amount,
                         mode,
-                        confirmed: false
+                        confirmed: false,
+                        priceImpactPct,
+                        priceImpactSeverity,
+                        slippageBps
+                    });
+                }
+
+                case "set_slippage": {
+                    const rawBps = typeof args.slippageBps === "number" ? args.slippageBps : Number(args.slippageBps);
+                    const warnOnly = args.warnOnly === true;
+
+                    if (!Number.isFinite(rawBps) || rawBps <= 0) {
+                        return JSON.stringify({ error: "Invalid slippageBps value" });
+                    }
+
+                    // Clamp to safe range [1, 5000]
+                    const slippageBps = Math.min(5000, Math.max(1, Math.round(rawBps)));
+                    const isHigh = slippageBps > 100;
+
+                    return JSON.stringify({
+                        type: "slippage_action",
+                        slippageBps,
+                        warnOnly,
+                        isHigh
                     });
                 }
 
@@ -834,9 +1040,9 @@ export class ChatService {
         }
     }
 
-    private inferTypedResponseFromTools(session: ChatSession): ChatResponsePayload | null {
-        const lastUserMsgIndex = session.messages.reduce((lastIdx, msg, idx) => (msg.role === "user" ? idx : lastIdx), -1);
-        const currentTurnMessages = lastUserMsgIndex >= 0 ? session.messages.slice(lastUserMsgIndex) : session.messages;
+    private inferTypedResponseFromTools(recentMessages: ChatMessageEntity[]): ChatResponsePayload | null {
+        const lastUserMsgIndex = recentMessages.reduce((lastIdx, msg, idx) => (msg.role === "user" ? idx : lastIdx), -1);
+        const currentTurnMessages = lastUserMsgIndex >= 0 ? recentMessages.slice(lastUserMsgIndex) : recentMessages;
 
         const recentToolMessages = [...currentTurnMessages]
             .reverse()
@@ -853,6 +1059,24 @@ export class ChatService {
                 continue;
             }
 
+            if (toolMessage.toolName === "set_slippage") {
+                const slippageBps = typeof parsedToolOutput.slippageBps === "number" ? parsedToolOutput.slippageBps : Number(parsedToolOutput.slippageBps);
+                const warnOnly = parsedToolOutput.warnOnly === true;
+                const isHigh = typeof parsedToolOutput.isHigh === "boolean" ? parsedToolOutput.isHigh : slippageBps > 100;
+
+                this.logger.log(`parseResponse fallback: inferred slippage_action slippageBps=${slippageBps} warnOnly=${warnOnly}`, ChatService.name);
+
+                return {
+                    sessionId: "",
+                    type: "slippage_action",
+                    data: {
+                        slippageBps: Number.isFinite(slippageBps) ? slippageBps : 50,
+                        warnOnly,
+                        isHigh
+                    }
+                };
+            }
+
             if (toolMessage.toolName === "prepare_swap") {
                 const inputMint = typeof parsedToolOutput.inputMint === "string" ? parsedToolOutput.inputMint : "";
                 const outputMint = typeof parsedToolOutput.outputMint === "string" ? parsedToolOutput.outputMint : "";
@@ -860,6 +1084,11 @@ export class ChatService {
                 const mode = (parsedToolOutput.mode as "buy" | "sell") || "buy";
                 const amountRaw = parsedToolOutput.amount;
                 const amount = typeof amountRaw === "number" ? amountRaw : typeof amountRaw === "string" ? Number(amountRaw) : 0;
+                const priceImpactPct = typeof parsedToolOutput.priceImpactPct === "number" ? parsedToolOutput.priceImpactPct : null;
+                const priceImpactSeverity =
+                    typeof parsedToolOutput.priceImpactSeverity === "string"
+                        ? (parsedToolOutput.priceImpactSeverity as "safe" | "warning" | "danger" | "critical")
+                        : getPriceImpactSeverity(priceImpactPct);
 
                 this.logger.log(`parseResponse fallback: inferred trade_intent from prepare_swap (mode=${mode})`, ChatService.name);
 
@@ -871,7 +1100,10 @@ export class ChatService {
                         outputMint,
                         targetMint,
                         mode,
-                        amount: Number.isFinite(amount) ? String(amount) : "0"
+                        amount: Number.isFinite(amount) ? String(amount) : "0",
+                        priceImpactPct,
+                        priceImpactSeverity,
+                        slippageBps: typeof parsedToolOutput.slippageBps === "number" ? parsedToolOutput.slippageBps : undefined
                     }
                 };
             }
@@ -955,10 +1187,13 @@ export class ChatService {
             }
 
             if (toolMessage.toolName === "fetch_token_data") {
-                const priceChange24hRaw = parsedToolOutput.price_change_24h;
+                const priceRaw = parsedToolOutput.price;
+                const priceChange24hRaw = parsedToolOutput.price_change?.["24h"] ?? parsedToolOutput.price_change_24h;
                 const marketCapRaw = parsedToolOutput.market_cap;
 
                 this.logger.log("parseResponse fallback: inferred token_brief from fetch_token_data", ChatService.name);
+
+                const safeNum = (val: any) => (val != null && !isNaN(Number(val)) ? Number(val) : undefined);
 
                 return {
                     sessionId: "",
@@ -967,9 +1202,9 @@ export class ChatService {
                         address: typeof parsedToolOutput.address === "string" ? parsedToolOutput.address : "",
                         symbol: typeof parsedToolOutput.symbol === "string" ? parsedToolOutput.symbol : "",
                         name: typeof parsedToolOutput.name === "string" ? parsedToolOutput.name : "",
-                        price: typeof parsedToolOutput.price === "number" ? parsedToolOutput.price : undefined,
-                        priceChange24h: typeof priceChange24hRaw === "number" ? priceChange24hRaw : undefined,
-                        marketCap: typeof marketCapRaw === "number" ? marketCapRaw : undefined,
+                        price: safeNum(priceRaw),
+                        priceChange24h: safeNum(priceChange24hRaw),
+                        marketCap: safeNum(marketCapRaw),
                         logoUri: typeof parsedToolOutput.logo_uri === "string" ? parsedToolOutput.logo_uri : undefined
                     }
                 };
@@ -979,7 +1214,7 @@ export class ChatService {
         return null;
     }
 
-    parseResponse(content: string, session?: ChatSession): ChatResponsePayload {
+    parseResponse(content: string, recentMessages?: ChatMessageEntity[]): ChatResponsePayload {
         try {
             const parsed = JSON.parse(content) as Partial<ChatResponsePayload> & Record<string, unknown>;
 
@@ -1004,8 +1239,8 @@ export class ChatService {
             this.logger.debug("parseResponse: content is not JSON, returning plain text", ChatService.name);
         }
 
-        if (session) {
-            const inferredResponse = this.inferTypedResponseFromTools(session);
+        if (recentMessages) {
+            const inferredResponse = this.inferTypedResponseFromTools(recentMessages);
             if (inferredResponse) {
                 this.logger.log(`parseResponse: using inferred typed fallback type=${inferredResponse.type}`, ChatService.name);
 
@@ -1025,20 +1260,19 @@ export class ChatService {
         };
     }
 
-    getOrCreateSession(sessionId: string): ChatSession {
-        const existing = this.sessions.get(sessionId);
-        if (existing) {
-            this.logger.debug(`Resumed session=${sessionId} messages=${existing.messages.length}`, ChatService.name);
-            return existing;
+    async getSessionMessages(sessionId: string, cursor?: string, limit: number = 20): Promise<ChatMessageEntity[]> {
+        const query = this.messageRepo
+            .createQueryBuilder("message")
+            .where("message.sessionId = :sessionId", { sessionId })
+            .orderBy("message.createdAt", "DESC")
+            .take(limit);
+
+        if (cursor) {
+            query.andWhere("message.createdAt < :cursor", { cursor: new Date(cursor) });
         }
 
-        const session: ChatSession = {
-            messages: [],
-            processing: false
-        };
-
-        this.sessions.set(sessionId, session);
-        this.logger.log(`Created new session=${sessionId}`, ChatService.name);
-        return session;
+        const messages = await query.getMany();
+        messages.reverse();
+        return messages;
     }
 }

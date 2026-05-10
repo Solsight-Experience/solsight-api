@@ -1,4 +1,4 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Cron, CronExpression } from "@nestjs/schedule";
 import { Repository } from "typeorm";
@@ -13,7 +13,7 @@ import { CoinGeckoService } from "../../../infra/coingecko/coingecko.service";
 import { TokenOverview, PaginatedCategoriesResponse } from "../dtos/discovery.response.dto";
 
 @Injectable()
-export class DiscoveryService {
+export class DiscoveryService implements OnModuleInit {
     private readonly logger = new Logger(DiscoveryService.name);
 
     constructor(
@@ -24,6 +24,12 @@ export class DiscoveryService {
         private readonly jupiterService: JupiterService,
         private readonly coingeckoService: CoinGeckoService
     ) {}
+    async onModuleInit() {
+        this.logger.log("DiscoveryService initialized. Checking if categories need sync...");
+        this.syncCategories().catch((err) => {
+            this.logger.error("Failed to sync categories on startup", err);
+        });
+    }
 
     /**
      * Transform Category entity to match CoinGecko format
