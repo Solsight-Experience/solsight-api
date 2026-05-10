@@ -1,6 +1,7 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import OpenAI from "openai";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 import { APIPromise, RequestOptions } from "openai/core";
 import {
     ChatCompletion,
@@ -62,5 +63,35 @@ export class OpenAIService {
             },
             options
         );
+    }
+
+    /**
+     * Generate a text embedding vector.
+     * Provider is controlled by EMBEDDING_PROVIDER env var:
+     *   "gemini"  → Google text-embedding-004 (768 dims) via native REST API
+     *   "openai"  → OpenAI text-embedding-3-small (1536 dims)
+     */
+    async createEmbedding(text: string): Promise<number[]> {
+        const provider = this.configService.get<string>("embedding.provider") ?? "gemini";
+        const input = text.replace(/\n/g, " ");
+
+        if (provider === "gemini") {
+            const apiKey = this.configService.get<string>("embedding.geminiApiKey") ?? "";
+            if (!apiKey) throw new Error("GEMINI_API_KEY is not set");
+            const genAI = new GoogleGenerativeAI(apiKey);
+            const model = genAI.getGenerativeModel({ model: "gemini-embedding-001" });
+            const result = await model.embedContent(input);
+            return result.embedding.values;
+        }
+
+        // default: openai direct
+        const apiKey = this.configService.get<string>("embedding.openaiDirectApiKey") ?? "";
+        if (!apiKey) throw new Error("OPENAI_API_KEY is not set for embeddings");
+        const openai = new OpenAI({ apiKey });
+        const result = await openai.embeddings.create({
+            model: "text-embedding-3-small",
+            input
+        });
+        return result.data[0].embedding;
     }
 }

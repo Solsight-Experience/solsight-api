@@ -7,6 +7,7 @@ import { PortfolioService } from "../../portfolio/services/portfolio.service";
 import { TokensService } from "../../tokens/services/tokens.service";
 import { ChatResponsePayload, ChatSession, SendMessagePayload, PageContext } from "../types/chat.types";
 import { COMMON_SYMBOLS } from "src/common/constants/token.constants";
+import { RagService } from "./rag.service";
 
 const SYSTEM_PROMPT = `You are Solsight AI, a DeFi assistant specialized exclusively in the Solana blockchain ecosystem.
 
@@ -280,7 +281,8 @@ export class ChatService {
         private readonly tokensService: TokensService,
         private readonly discoveryService: DiscoveryService,
         private readonly portfolioService: PortfolioService,
-        private readonly openaiService: OpenAIService
+        private readonly openaiService: OpenAIService,
+        private readonly ragService: RagService
     ) {}
 
     async sendMessage(payload: SendMessagePayload, onToolProgress: (label: string) => void = () => {}): Promise<ChatResponsePayload> {
@@ -382,6 +384,16 @@ export class ChatService {
                 role: "system",
                 content: contextParts.join(" ")
             });
+        }
+
+        // Inject RAG context from vector store if available
+        const userQuery = recentMessages.findLast((m) => m.role === "user")?.content ?? "";
+        if (userQuery) {
+            const ragPrompt = await this.ragService.buildContextPrompt(userQuery);
+            if (ragPrompt) {
+                messages.push({ role: "system", content: ragPrompt });
+                this.logger.debug("RAG context injected into prompt", ChatService.name);
+            }
         }
 
         messages.push(

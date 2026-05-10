@@ -3,10 +3,12 @@ import { ConfigModule, ConfigService } from "@nestjs/config";
 import { JwtModule } from "@nestjs/jwt";
 import { LoggerModule } from "src/common/logger/logger.module";
 import { OpenAIModule } from "src/infra/openai/openai.module";
+import { VectorStoreModule } from "src/infra/vectorstore/vectorstore.module";
 import { DiscoveryModule } from "../discovery/discovery.module";
 import { PortfolioModule } from "../portfolio/portfolio.module";
 import { TokensModule } from "../tokens/tokens.module";
 import { ChatService } from "./services/chat.service";
+import { RagService } from "./services/rag.service";
 import { WebsocketModule } from "src/websocket/websocket.module";
 import { ChatGateway } from "./gateways/chat.gateway";
 import { ChatController } from "./controllers/chat.controller";
@@ -26,10 +28,11 @@ import { ChatController } from "./controllers/chat.controller";
         DiscoveryModule,
         LoggerModule,
         WebsocketModule,
-        OpenAIModule
+        OpenAIModule,
+        VectorStoreModule
     ],
-    providers: [ChatService, ChatGateway],
+    providers: [ChatService, RagService, ChatGateway],
     controllers: [ChatController],
-    exports: [ChatService]
+    exports: [ChatService, RagService]
 })
 export class ChatModule {}

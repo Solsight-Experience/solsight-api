@@ -18,9 +18,12 @@
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
+    "rag:ingest": "node --env-file=.env -r ts-node/register -r tsconfig-paths/register src/scripts/ingest-rag-docs.ts",
+    "rag:ingest:clear": "node --env-file=.env -r ts-node/register -r tsconfig-paths/register src/scripts/ingest-rag-docs.ts --clear",
     "prepare": "husky"
   },
   "dependencies": {
+    "@google/generative-ai": "^0.24.1",
     "@liaoliaots/nestjs-redis": "^10.0.0",
     "@nestjs-modules/ioredis": "^2.0.2",
     "@nestjs/axios": "^4.0.1",
@@ -48,6 +51,7 @@
     "cookie-parser": "^1.4.7",
     "ioredis": "^5.8.2",
     "joi": "^18.0.1",
+    "mongodb": "^7.2.0",
     "openai": "^4",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
