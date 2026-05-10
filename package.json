@@ -23,7 +23,6 @@
     "prepare": "husky"
   },
   "dependencies": {
-    "@google/generative-ai": "^0.24.1",
     "@liaoliaots/nestjs-redis": "^10.0.0",
     "@nestjs-modules/ioredis": "^2.0.2",
     "@nestjs/axios": "^4.0.1",

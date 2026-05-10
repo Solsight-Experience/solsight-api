@@ -16,21 +16,19 @@ export interface SearchResult {
     score: number;
 }
 
-/**
- * VectorStoreService — MongoDB Atlas Vector Search (free tier M0).
- *
- * Atlas Search index must be created manually in the Atlas UI:
- *   Collection: <MONGODB_VECTOR_COLLECTION>  (default: "rag_documents")
- *   Index name: <MONGODB_VECTOR_INDEX>        (default: "vector_index")
- *   Index definition (JSON):
- *   {
- *     "fields": [{
- *       "type": "vector",
- *       "path": "embedding",
- *       "numDimensions": 1536,
- *       "similarity": "cosine"
- *     }]
- *   }
+/*
+Atlas Search index must be created manually in the Atlas UI:
+- Collection: <MONGODB_VECTOR_COLLECTION>  (default: "rag_documents")
+- Index name: <MONGODB_VECTOR_INDEX>        (default: "vector_index")
+- Index definition (JSON):
+    {
+        "fields": [{
+            "type": "vector",
+            "path": "embedding",
+            "numDimensions": 1536,
+            "similarity": "cosine"
+        }]
+    }
  */
 @Injectable()
 export class VectorStoreService implements OnModuleInit, OnModuleDestroy {
@@ -75,7 +73,6 @@ export class VectorStoreService implements OnModuleInit, OnModuleDestroy {
         return this.collection !== null;
     }
 
-    /** Upsert a single document with its embedding. */
     async upsert(doc: Omit<VectorDocument, "_id" | "createdAt">): Promise<void> {
         if (!this.collection) {
             this.logger.warn("upsert skipped — VectorStore not ready");
@@ -84,17 +81,12 @@ export class VectorStoreService implements OnModuleInit, OnModuleDestroy {
         await this.collection.insertOne({ ...doc, createdAt: new Date() } as VectorDocument);
     }
 
-    /** Upsert many documents in bulk. */
     async upsertMany(docs: Omit<VectorDocument, "_id" | "createdAt">[]): Promise<void> {
         if (!this.collection || docs.length === 0) return;
         const now = new Date();
         await this.collection.insertMany(docs.map((d) => ({ ...d, createdAt: now }) as VectorDocument));
     }
 
-    /**
-     * Vector similarity search using Atlas $vectorSearch aggregation stage.
-     * Returns the top-k most relevant documents.
-     */
     async search(embedding: number[], topK = 5, filter?: Document): Promise<SearchResult[]> {
         if (!this.collection) {
             this.logger.warn("search skipped — VectorStore not ready");
@@ -134,7 +126,6 @@ export class VectorStoreService implements OnModuleInit, OnModuleDestroy {
         return results;
     }
 
-    /** Delete documents matching a metadata filter. */
     async deleteByFilter(filter: Document): Promise<number> {
         if (!this.collection) return 0;
         const result = await this.collection.deleteMany(filter as Parameters<typeof this.collection.deleteMany>[0]);

@@ -12,3 +12,11 @@ export const COMMON_SYMBOLS: Record<string, string> = {
     BONK: BONK_ADDRESS,
     JUP: JUP_ADDRESS
 };
+
+export const COMMON_DECIMALS: Record<string, number> = {
+    [SOL_ADDRESS]: 9,
+    [USDC_ADDRESS]: 6,
+    [USDT_ADDRESS]: 6,
+    [BONK_ADDRESS]: 5,
+    [JUP_ADDRESS]: 6
+};

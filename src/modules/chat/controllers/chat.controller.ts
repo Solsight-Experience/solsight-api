@@ -1,4 +1,4 @@
-import { Controller, Post, Body, UseGuards, Request, HttpException, Logger } from "@nestjs/common";
+import { Controller, Post, Body, UseGuards, Request, HttpException, Logger, Get, Param, Query } from "@nestjs/common";
 import { JwtAuthGuard } from "../../auth/guards/jwt-auth.guard";
 import { ChatService } from "../services/chat.service";
 import { SendMessageDto } from "../dtos/send-message.dto";
@@ -48,5 +48,21 @@ export class ChatController {
             userId: userId,
             walletAddress: dto.walletAddress ?? req.user?.walletAddress
         });
+    }
+
+    @Get("sessions/:sessionId/messages")
+    async getSessionMessages(@Param("sessionId") sessionId: string, @Query("cursor") cursor?: string, @Query("limit") limit?: string) {
+        const limitNum = limit ? parseInt(limit, 10) : 20;
+        const messages = await this.chatService.getSessionMessages(sessionId, cursor, limitNum);
+
+        let nextCursor: string | null = null;
+        if (messages.length > 0) {
+            nextCursor = messages[0].createdAt.toISOString();
+        }
+
+        return {
+            messages,
+            nextCursor
+        };
     }
 }

@@ -1,4 +1,4 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Cron, CronExpression } from "@nestjs/schedule";
 import { Repository } from "typeorm";
@@ -20,7 +20,7 @@ const CATEGORY_DETAIL_TTL = 120; // 2 minutes
 const WINDOW_SIZE = 100;
 
 @Injectable()
-export class DiscoveryService {
+export class DiscoveryService implements OnModuleInit {
     private readonly logger = new Logger(DiscoveryService.name);
 
     constructor(
@@ -33,6 +33,12 @@ export class DiscoveryService {
         private readonly solanaService: SolanaService,
         private readonly redisService: RedisService
     ) {}
+    async onModuleInit() {
+        this.logger.log("DiscoveryService initialized. Checking if categories need sync...");
+        this.syncCategories().catch((err) => {
+            this.logger.error("Failed to sync categories on startup", err);
+        });
+    }
 
     /**
      * Transform Category entity to match CoinGecko format

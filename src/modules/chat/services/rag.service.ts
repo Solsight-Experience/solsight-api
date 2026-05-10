@@ -8,24 +8,10 @@ export interface RagDocument {
 }
 
 export interface RagContext {
-    /** Retrieved passages joined as a single context string. */
     context: string;
-    /** Raw search results with scores (for debugging / logging). */
     sources: SearchResult[];
 }
 
-/**
- * RagService — Retrieval-Augmented Generation helpers.
- *
- * Workflow:
- *   1. Ingest: embed documents → store in Atlas Vector Search.
- *   2. Retrieve: embed a query → vector search → return top-k passages.
- *   3. Augment: caller appends the retrieved context to the LLM prompt.
- *
- * Usage in ChatService:
- *   const { context } = await this.ragService.retrieve(userMessage);
- *   // prepend context to the system prompt before calling the LLM
- */
 @Injectable()
 export class RagService {
     private readonly logger = new Logger(RagService.name);
@@ -35,7 +21,6 @@ export class RagService {
         private readonly vectorStore: VectorStoreService
     ) {}
 
-    /** Embed and store a single document. */
     async ingest(doc: RagDocument): Promise<void> {
         if (!this.vectorStore.isReady) {
             this.logger.warn("ingest skipped — VectorStore not ready");
@@ -50,7 +35,6 @@ export class RagService {
         this.logger.debug(`Ingested document: ${doc.content.slice(0, 60)}…`);
     }
 
-    /** Embed and store many documents in one batch. */
     async ingestMany(docs: RagDocument[]): Promise<void> {
         if (!this.vectorStore.isReady || docs.length === 0) return;
 
@@ -66,10 +50,6 @@ export class RagService {
         this.logger.log(`Ingested ${docs.length} documents into vector store`);
     }
 
-    /**
-     * Retrieve the top-k most relevant passages for a query.
-     * Returns a formatted context string ready to inject into the LLM prompt.
-     */
     async retrieve(query: string, topK = 4): Promise<RagContext> {
         if (!this.vectorStore.isReady) {
             return { context: "", sources: [] };
@@ -89,10 +69,6 @@ export class RagService {
         return { context, sources };
     }
 
-    /**
-     * Build a system prompt snippet from retrieved context.
-     * Returns an empty string if nothing relevant was found.
-     */
     async buildContextPrompt(query: string, topK = 4): Promise<string> {
         const { context } = await this.retrieve(query, topK);
         if (!context) return "";
@@ -104,7 +80,6 @@ export class RagService {
         );
     }
 
-    /** Remove all documents matching a metadata filter. */
     async deleteByMetadata(filter: Record<string, unknown>): Promise<number> {
         return this.vectorStore.deleteByFilter(filter);
     }

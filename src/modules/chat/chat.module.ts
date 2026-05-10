@@ -13,8 +13,14 @@ import { WebsocketModule } from "src/websocket/websocket.module";
 import { ChatGateway } from "./gateways/chat.gateway";
 import { ChatController } from "./controllers/chat.controller";
 
+import { TypeOrmModule } from "@nestjs/typeorm";
+import { ChatSession } from "./entities/chat-session.entity";
+import { ChatMessage } from "./entities/chat-message.entity";
+import { Wallet } from "../wallets/entities/wallet.entity";
+
 @Module({
     imports: [
+        TypeOrmModule.forFeature([ChatSession, ChatMessage, Wallet]),
         ConfigModule,
         JwtModule.registerAsync({
             imports: [ConfigModule],
