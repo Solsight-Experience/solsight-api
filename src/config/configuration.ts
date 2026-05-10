@@ -73,5 +73,19 @@ export default () => ({
         resendApiKey: process.env.RESEND_API_KEY ?? "",
         fromAddress: process.env.EMAIL_FROM_ADDRESS ?? "alerts@solsight.app",
         verifyBaseUrl: process.env.APP_BASE_URL ?? "http://localhost:3000"
+    },
+
+    mongodb: {
+        uri: process.env.MONGODB_URI ?? "",
+        db: process.env.MONGODB_DB ?? "solsight_rag",
+        vectorCollection: process.env.MONGODB_VECTOR_COLLECTION ?? "rag_documents",
+        vectorIndex: process.env.MONGODB_VECTOR_INDEX ?? "vector_index"
+    },
+
+    embedding: {
+        // "openai" (text-embedding-3-small, 1536 dims) or "gemini" (text-embedding-004, 768 dims)
+        provider: process.env.EMBEDDING_PROVIDER ?? "gemini",
+        geminiApiKey: process.env.GEMINI_API_KEY ?? "",
+        openaiDirectApiKey: process.env.OPENAI_DIRECT_API_KEY ?? process.env.OPENAI_API_KEY ?? ""
     }
 });
