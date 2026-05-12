@@ -11,8 +11,10 @@ import { TokenFilterConditionDto, TokenFilterResponseDto } from "../dtos/token.f
 import { mapJupiterTokenToEntity, mapTokenEntityToResponseDto, mapTokenEntityToOverviewDto } from "../mapper/token.mapper";
 import { ChartQueryDto, ChartResponseDto } from "../dtos/token.chart.dto";
 import { OhlcAggregationService } from "./aggregation/ohlc-aggregation.service";
+import { StatsAggregationService } from "./aggregation/stats-aggregation.service";
 import { OhlcInterval } from "./socket/room/room.constants";
 import { RedisService } from "src/redis/services/redis.service";
+import { TradeData } from "../types/swap-event.type";
 
 const TOKEN_META_KEY = (address: string) => `token:meta:${address}`;
 const TOKEN_META_TTL = 24 * 60 * 60; // 24 hours
@@ -31,6 +33,7 @@ export class TokensService {
         private readonly jupiterService: JupiterService,
         private readonly coinGeckoService: CoinGeckoService,
         private readonly ohlcAggregationService: OhlcAggregationService,
+        private readonly statsAggregationService: StatsAggregationService,
         private readonly redisService: RedisService
     ) {
         this.network = this.solanaService.getNetwork();
@@ -383,6 +386,10 @@ export class TokensService {
         }
 
         return points;
+    }
+
+    async getTrades(address: string, limit = 50): Promise<{ trades: TradeData[]; total: number }> {
+        return this.statsAggregationService.getTrades(address, limit);
     }
 
     async updateToken(address: string, data: Partial<Token>) {

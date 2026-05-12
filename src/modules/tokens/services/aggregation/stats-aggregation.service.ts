@@ -3,7 +3,10 @@ import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
 import { RedisService } from "../../../../redis/services/redis.service";
 import { Token } from "../../entities/token.entity";
-import { SwapEvent, TokenStats, SwapPriceResult, isValidPrice } from "../../types/swap-event.type";
+import { SwapEvent, TokenStats, SwapPriceResult, TradeData, isValidPrice } from "../../types/swap-event.type";
+
+const TRADES_MAX_SIZE = 500;
+const TRADES_TTL = 25 * 60 * 60;
 
 @Injectable()
 export class StatsAggregationService {
@@ -206,6 +209,47 @@ export class StatsAggregationService {
         } catch (error) {
             this.logger.error(`Redis error in getTxns24h for "${tokenMint}":`, error);
             return { total: 0, buys: 0, sells: 0 };
+        }
+    }
+
+    async storeTradeData(tokenMint: string, tradeData: TradeData): Promise<void> {
+        const redis = this.redisService.getClient();
+        if (!redis) return;
+
+        try {
+            const tradesKey = `trades:${tokenMint}`;
+            await redis.zadd(tradesKey, tradeData.timestamp, JSON.stringify(tradeData));
+            await redis.zremrangebyrank(tradesKey, 0, -(TRADES_MAX_SIZE + 1));
+            await redis.expire(tradesKey, TRADES_TTL);
+        } catch (error) {
+            this.logger.error(`Redis error in storeTradeData for "${tokenMint}":`, error);
+        }
+    }
+
+    async getTrades(tokenMint: string, limit = 50): Promise<{ trades: TradeData[]; total: number }> {
+        const redis = this.redisService.getClient();
+        if (!redis) return { trades: [], total: 0 };
+
+        try {
+            const tradesKey = `trades:${tokenMint}`;
+            const [entries, total] = await Promise.all([redis.zrevrange(tradesKey, 0, limit - 1), redis.zcard(tradesKey)]);
+
+            if (!entries || entries.length === 0) return { trades: [], total: 0 };
+
+            const seen = new Set<string>();
+            const trades: TradeData[] = [];
+            for (const entry of entries) {
+                const trade = JSON.parse(entry) as TradeData;
+                if (!seen.has(trade.tx_hash)) {
+                    seen.add(trade.tx_hash);
+                    trades.push(trade);
+                }
+            }
+
+            return { trades, total };
+        } catch (error) {
+            this.logger.error(`Redis error in getTrades for "${tokenMint}":`, error);
+            return { trades: [], total: 0 };
         }
     }
 
