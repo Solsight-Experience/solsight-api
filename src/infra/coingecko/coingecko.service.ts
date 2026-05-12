@@ -5,7 +5,15 @@ import { Cache } from "cache-manager";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore
 import axios, { AxiosInstance } from "axios";
-import { CoinGeckoMarketData, CoinGeckoCategory, CoinGeckoTrending, CoinGeckoSearchResult, CoinGeckoSearchCoin } from "./types";
+import {
+    CoinGeckoMarketData,
+    CoinGeckoCategory,
+    CoinGeckoTrending,
+    CoinGeckoSearchResult,
+    CoinGeckoSearchCoin,
+    CoinGeckoSimplePriceResponse,
+    CoinGeckoMarketChartRangeResponse
+} from "./types";
 
 const CG_TTL = 5 * 60 * 1000; // 5 minutes
 
@@ -288,6 +296,108 @@ export class CoinGeckoService {
         } catch (error) {
             this.logger.error("Failed to fetch price change data", error);
             return new Map();
+        }
+    }
+
+    /**
+     * Get simple price for one or more coins by their CoinGecko IDs
+     * @param ids - CoinGecko coin IDs
+     * @param vsCurrency - Target currency (default: "usd")
+     * @param options - Optional flags to include extra data
+     */
+    async getSimplePrice(
+        ids: string[],
+        vsCurrency = "usd",
+        options?: {
+            includeMarketCap?: boolean;
+            include24hrVol?: boolean;
+            include24hrChange?: boolean;
+            includeLastUpdatedAt?: boolean;
+            precision?: string;
+        }
+    ): Promise<CoinGeckoSimplePriceResponse> {
+        const sortedIds = [...ids].sort().join(",");
+        const cacheKey = `cg-simple-price-${vsCurrency}-${sortedIds}`;
+        const cached = await this.cacheManager.get<CoinGeckoSimplePriceResponse>(cacheKey);
+        if (cached) return cached;
+        try {
+            const data = await this.cgGet<CoinGeckoSimplePriceResponse>("/simple/price", {
+                ids: sortedIds,
+                vs_currencies: vsCurrency,
+                ...(options?.includeMarketCap && { include_market_cap: true }),
+                ...(options?.include24hrVol && { include_24hr_vol: true }),
+                ...(options?.include24hrChange && { include_24hr_change: true }),
+                ...(options?.includeLastUpdatedAt && { include_last_updated_at: true }),
+                ...(options?.precision && { precision: options.precision })
+            });
+
+            this.logger.log(`Fetched simple price for ${ids.length} coin(s) from CoinGecko`);
+            await this.cacheManager.set(cacheKey, data, CG_TTL);
+            return data;
+        } catch (error) {
+            this.logger.error(`Failed to fetch simple price for [${ids.join(", ")}] from CoinGecko`, error);
+            return {};
+        }
+    }
+
+    /**
+     * Get historical chart data of a coin within a time range
+     * @param coinId - CoinGecko coin ID
+     * @param vsCurrency - Target currency (default: "usd")
+     * @param from - Start date in UNIX timestamp (seconds)
+     * @param to - End date in UNIX timestamp (seconds)
+     * @param precision - Decimal place for currency price value
+     */
+    async getMarketChartRange(coinId: string, vsCurrency = "usd", from: number, to: number, precision?: string): Promise<CoinGeckoMarketChartRangeResponse> {
+        const cacheKey = `cg-chart-range-${coinId}-${vsCurrency}-${from}-${to}`;
+        const cached = await this.cacheManager.get<CoinGeckoMarketChartRangeResponse>(cacheKey);
+        if (cached) return cached;
+        try {
+            const data = await this.cgGet<CoinGeckoMarketChartRangeResponse>(`/coins/${coinId}/market_chart/range`, {
+                vs_currency: vsCurrency,
+                from,
+                to,
+                ...(precision && { precision })
+            });
+
+            // Historical data fully in the past can be cached longer (24h), otherwise use default TTL
+            const nowSec = Date.now() / 1000;
+            const ttl = to < nowSec - 86400 ? 24 * 60 * 60 * 1000 : CG_TTL;
+
+            this.logger.log(`Fetched market chart range for ${coinId} (${data.prices.length} price points)`);
+            await this.cacheManager.set(cacheKey, data, ttl);
+            return data;
+        } catch (error) {
+            this.logger.error(`Failed to fetch market chart range for ${coinId}`, error);
+            return { prices: [], market_caps: [], total_volumes: [] };
+        }
+    }
+
+    /**
+     * Get OHLC chart data of a coin
+     * @param coinId - CoinGecko coin ID
+     * @param vsCurrency - Target currency (default: "usd")
+     * @param days - Data up to number of days ago (1, 7, 14, 30, 90, 180, 365)
+     * @param precision - Decimal place for currency price value
+     * @returns Array of [timestamp, open, high, low, close] tuples
+     */
+    async getOhlc(coinId: string, vsCurrency = "usd", days: number, precision?: string): Promise<number[][]> {
+        const cacheKey = `cg-ohlc-${coinId}-${vsCurrency}-${days}`;
+        const cached = await this.cacheManager.get<number[][]>(cacheKey);
+        if (cached) return cached;
+        try {
+            const data = await this.cgGet<number[][]>(`/coins/${coinId}/ohlc`, {
+                vs_currency: vsCurrency,
+                days: String(days),
+                ...(precision && { precision })
+            });
+
+            this.logger.log(`Fetched OHLC for ${coinId} (${data.length} candles, ${days}d)`);
+            await this.cacheManager.set(cacheKey, data, CG_TTL);
+            return data;
+        } catch (error) {
+            this.logger.error(`Failed to fetch OHLC for ${coinId}`, error);
+            return [];
         }
     }
 }

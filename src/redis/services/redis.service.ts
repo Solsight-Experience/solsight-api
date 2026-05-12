@@ -102,6 +102,36 @@ export class RedisService implements OnModuleDestroy {
         }
     }
 
+    async hset(key: string, data: Record<string, string | number>): Promise<void> {
+        if (!this.redis) return;
+        try {
+            await this.redis.hset(key, data);
+        } catch (error) {
+            this.logger.error(`Redis hset error for key "${key}":`, error);
+        }
+    }
+
+    async hget(key: string, field: string): Promise<string | null> {
+        if (!this.redis) return null;
+        try {
+            return await this.redis.hget(key, field);
+        } catch (error) {
+            this.logger.error(`Redis hget error for key "${key}" field "${field}":`, error);
+            return null;
+        }
+    }
+
+    async hgetall(key: string): Promise<Record<string, string> | null> {
+        if (!this.redis) return null;
+        try {
+            const result = await this.redis.hgetall(key);
+            return Object.keys(result).length > 0 ? result : null;
+        } catch (error) {
+            this.logger.error(`Redis hgetall error for key "${key}":`, error);
+            return null;
+        }
+    }
+
     async flushdb(): Promise<void> {
         if (!this.redis) return;
         try {

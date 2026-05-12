@@ -1,131 +1,35 @@
 import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
 import { Cron } from "@nestjs/schedule";
-import axios from "axios";
 import { WalletAlertService } from "./wallet-alert.service";
 import { WalletAlert, WalletAlertType, WalletAlertCondition } from "./entities/wallet-alert.entity";
 import { NotificationsService } from "../notifications/services/notifications.service";
 import { NotificationEventType } from "../notifications/entities/notification.entity";
-import { SolanaService } from "../../infra/solana/solana.service";
+import { HeliusService } from "../../infra/solana/helius.service";
 import { ZaloSubscriptionService } from "../zalo/services/zalo-subscription.service";
 import { EmailSubscriptionService } from "../email/services/email-subscription.service";
+import { TokensService } from "../tokens/services/tokens.service";
 
 const SOL_MINT = "So11111111111111111111111111111111111111112";
-const SOLANA_TOKEN_LIST_URL = "https://raw.githubusercontent.com/solana-labs/token-list/main/src/tokens/solana.tokenlist.json";
-
-interface TokenMeta {
-    symbol: string;
-    name: string;
-    logoURI?: string;
-}
 
 @Injectable()
 export class WalletAlertCheckerService implements OnModuleInit {
     private readonly logger = new Logger(WalletAlertCheckerService.name);
-    /** In-memory token metadata cache: mint → { symbol, name, logoURI } */
-    private readonly tokenCache = new Map<string, TokenMeta>([
-        [
-            SOL_MINT,
-            {
-                symbol: "SOL",
-                name: "Solana",
-                logoURI: "https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/So11111111111111111111111111111111111111112/logo.png"
-            }
-        ]
-    ]);
 
-    async onModuleInit(): Promise<void> {
-        try {
-            const { data } = await axios.get(SOLANA_TOKEN_LIST_URL, { timeout: 10000 });
-            const tokens: Array<{ address: string; symbol: string; name: string; logoURI?: string }> = data?.tokens ?? [];
-            for (const t of tokens) {
-                if (t.address && t.symbol && !this.tokenCache.has(t.address)) {
-                    this.tokenCache.set(t.address, { symbol: t.symbol, name: t.name ?? t.symbol, logoURI: t.logoURI });
-                }
-            }
-            this.logger.log(`Token list pre-loaded: ${this.tokenCache.size} tokens`);
-        } catch (err) {
-            this.logger.warn("Failed to pre-load Solana token list for alert checker", err);
-        }
-    }
+    async onModuleInit(): Promise<void> {}
 
     constructor(
         private readonly walletAlertService: WalletAlertService,
         private readonly notificationsService: NotificationsService,
-        private readonly solanaService: SolanaService,
+        private readonly tokenService: TokensService,
+        private readonly heliusService: HeliusService,
         private readonly zaloSubscriptionService: ZaloSubscriptionService,
         private readonly emailSubscriptionService: EmailSubscriptionService
     ) {}
 
-    /** Resolve a mint address to token metadata. Tries Jupiter first, then Helius DAS. */
-    private async resolveToken(mint: string): Promise<TokenMeta> {
-        if (this.tokenCache.has(mint)) return this.tokenCache.get(mint)!;
-
-        // 1. Jupiter token list (covers verified/tradeable tokens)
-        try {
-            const { data } = await axios.get(`https://tokens.jup.ag/token/${mint}`, { timeout: 3000 });
-            if (data?.symbol) {
-                const meta: TokenMeta = { symbol: data.symbol, name: data.name ?? data.symbol, logoURI: data.icon ?? data.logoURI };
-                this.tokenCache.set(mint, meta);
-                return meta;
-            }
-        } catch {
-            /* fall through */
-        }
-
-        // 2. Helius DAS getAsset (covers any on-chain token, including meme coins)
-        try {
-            const heliusApiKey = this.solanaService.getHeliusApiKey();
-            const baseUrl = this.solanaService.getHeliusBaseUrl();
-            if (heliusApiKey) {
-                const { data } = await axios.post(
-                    `${baseUrl}/?api-key=${heliusApiKey}`,
-                    { jsonrpc: "2.0", id: "resolve", method: "getAsset", params: { id: mint } },
-                    { timeout: 4000 }
-                );
-                const result = data?.result;
-                // Fungible SPL tokens store symbol under token_info; NFTs use content.metadata
-                const symbol: string | undefined = result?.token_info?.symbol || result?.content?.metadata?.symbol;
-                const name: string | undefined = result?.content?.metadata?.name || result?.token_info?.symbol;
-                const logoURI: string | undefined = result?.content?.links?.image || result?.content?.files?.[0]?.uri;
-                if (symbol) {
-                    const meta: TokenMeta = { symbol, name: name ?? symbol, logoURI };
-                    this.tokenCache.set(mint, meta);
-                    return meta;
-                }
-            }
-        } catch {
-            /* fall through */
-        }
-
-        // 3. DexScreener (covers pump.fun and brand-new meme coins missed by Jupiter/Helius)
-        try {
-            const { data } = await axios.get(`https://api.dexscreener.com/tokens/v1/solana/${mint}`, { timeout: 4000 });
-            const pair = Array.isArray(data) ? data[0] : data?.pairs?.[0];
-            const baseToken = pair?.baseToken;
-            if (baseToken?.symbol && baseToken.address?.toLowerCase() === mint.toLowerCase()) {
-                const meta: TokenMeta = { symbol: baseToken.symbol, name: baseToken.name ?? baseToken.symbol, logoURI: pair?.info?.imageUrl };
-                this.tokenCache.set(mint, meta);
-                return meta;
-            }
-        } catch {
-            /* fall through */
-        }
-
-        const meta: TokenMeta = { symbol: mint.slice(0, 6), name: mint.slice(0, 10) };
-        this.tokenCache.set(mint, meta);
-        return meta;
-    }
-
     @Cron("*/10 * * * * *")
     async checkAllAlerts(): Promise<void> {
-        const heliusApiKey = this.solanaService.getHeliusApiKey();
-        if (!heliusApiKey) {
-            this.logger.warn("Helius API key not configured — skipping alert check");
-            return;
-        }
-
         const alerts = await this.walletAlertService.getAllActiveAlerts();
-        this.logger.log(`Checking ${alerts.length} active alert(s)`);
+        // this.logger.log(`Checking ${alerts.length} active alert(s)`);
         if (!alerts.length) return;
 
         // Group alerts by wallet address to batch Helius calls
@@ -138,15 +42,15 @@ export class WalletAlertCheckerService implements OnModuleInit {
 
         for (const [walletAddress, walletAlerts] of alertsByWallet) {
             try {
-                await this.processWallet(walletAddress, walletAlerts, heliusApiKey);
+                await this.processWallet(walletAddress, walletAlerts);
             } catch (err) {
                 this.logger.error(`Failed to process alerts for ${walletAddress}`, err);
             }
         }
     }
 
-    private async processWallet(walletAddress: string, alerts: WalletAlert[], heliusApiKey: string): Promise<void> {
-        const txs = await this.fetchRecentTxs(walletAddress, heliusApiKey);
+    private async processWallet(walletAddress: string, alerts: WalletAlert[]): Promise<void> {
+        const txs = await this.fetchRecentTxs(walletAddress);
         if (!txs.length) return;
 
         const latestSig: string = txs[0].signature;
@@ -180,13 +84,11 @@ export class WalletAlertCheckerService implements OnModuleInit {
         return idx === -1 ? txs : txs.slice(0, idx);
     }
 
-    private async fetchRecentTxs(walletAddress: string, heliusApiKey: string): Promise<any[]> {
+    private async fetchRecentTxs(walletAddress: string): Promise<any[]> {
         try {
-            const baseUrl = this.solanaService.getHeliusBaseUrl();
-            const { data } = await axios.get(`${baseUrl}/v0/addresses/${walletAddress}/transactions`, { params: { "api-key": heliusApiKey, limit: 50 } });
-            return data ?? [];
+            return await this.heliusService.getEnhancedTransactionsByAddress(walletAddress, { limit: 50 });
         } catch (err) {
-            this.logger.warn(`Helius fetch failed for ${walletAddress}: ${err instanceof Error ? err.message : err}`);
+            // this.logger.warn(`Helius fetch failed for ${walletAddress}: ${err instanceof Error ? err.message : err}`);
             return [];
         }
     }
@@ -360,16 +262,16 @@ export class WalletAlertCheckerService implements OnModuleInit {
                 const { mintIn, mintOut, amountIn, amountOut, dex } = this.extractSwapMints(tx, alert.walletAddress);
 
                 const [metaIn, metaOut] = await Promise.all([
-                    mintIn ? this.resolveToken(mintIn) : Promise.resolve(undefined),
-                    mintOut ? this.resolveToken(mintOut) : Promise.resolve(undefined)
+                    mintIn ? this.tokenService.findOne(mintIn) : Promise.resolve(undefined),
+                    mintOut ? this.tokenService.findOne(mintOut) : Promise.resolve(undefined)
                 ]);
 
                 const symbolIn = metaIn?.symbol;
                 const symbolOut = metaOut?.symbol;
                 const nameIn = metaIn?.name;
                 const nameOut = metaOut?.name;
-                const logoIn = metaIn?.logoURI;
-                const logoOut = metaOut?.logoURI;
+                const logoIn = metaIn?.logo_uri;
+                const logoOut = metaOut?.logo_uri;
 
                 type = NotificationEventType.SWAP_EXECUTED;
 
@@ -415,7 +317,7 @@ export class WalletAlertCheckerService implements OnModuleInit {
             }
             case WalletAlertType.TOKEN_BALANCE_CHANGE: {
                 const mint = alert.condition?.tokenMint;
-                const meta = mint ? await this.resolveToken(mint) : undefined;
+                const meta = mint ? await this.tokenService.findOne(mint) : undefined;
                 const sym = meta?.symbol ?? alert.condition?.tokenSymbol ?? "Token";
                 const cond = alert.condition;
                 type = NotificationEventType.PRICE_ALERT_TRIGGERED;
@@ -435,7 +337,7 @@ export class WalletAlertCheckerService implements OnModuleInit {
                 extraMeta = {
                     tokenSymbol: sym,
                     tokenMint: mint,
-                    tokenLogo: meta?.logoURI,
+                    tokenLogo: meta?.logo_uri,
                     walletLabel,
                     walletTrackerUrl
                 };
@@ -447,7 +349,7 @@ export class WalletAlertCheckerService implements OnModuleInit {
                 const from: string | undefined = nativeTransfers[0]?.fromUserAccount;
                 const to: string | undefined = nativeTransfers[0]?.toUserAccount;
                 const direction = to === alert.walletAddress ? "Received" : "Sent";
-                const solMeta = await this.resolveToken(SOL_MINT);
+                const solMeta = await this.tokenService.findOne(SOL_MINT);
                 type = NotificationEventType.TRANSACTION_CONFIRMED;
                 title = `${direction} ${this.fmt(totalSol)} SOL`;
                 message = `${direction} ${this.fmt(totalSol)} SOL · ${walletLabel}`;
@@ -468,7 +370,7 @@ export class WalletAlertCheckerService implements OnModuleInit {
                     direction,
                     from,
                     to,
-                    tokenLogo: solMeta.logoURI,
+                    tokenLogo: solMeta?.logo_uri,
                     walletLabel,
                     walletTrackerUrl
                 };
@@ -478,16 +380,14 @@ export class WalletAlertCheckerService implements OnModuleInit {
                 return;
         }
 
-        emailHtml = `<div style="font-family:sans-serif;font-size:14px;color:#e2e8f0;background:#0c1018;padding:24px;border-radius:8px">
-      ${zaloText
-          .split("\n")
-          .map((line) =>
-              line.startsWith("- ")
-                  ? `<p style="margin:4px 0;color:#94a3b8">${line}</p>`
-                  : `<p style="margin:0 0 12px;font-weight:600;color:#ffffff">${line}</p>`
-          )
-          .join("")}
-    </div>`;
+        emailHtml = zaloText
+            .split("\n")
+            .map((line) =>
+                line.startsWith("- ")
+                    ? `<p style="margin:4px 0;color:#94a3b8">${line}</p>`
+                    : `<p style="margin:0 0 12px;font-weight:600;color:#ffffff">${line}</p>`
+            )
+            .join("");
 
         await this.notificationsService.notifyUser(alert.userId, {
             type,
@@ -505,6 +405,6 @@ export class WalletAlertCheckerService implements OnModuleInit {
         });
 
         await this.zaloSubscriptionService.sendAlertMessage(alert.userId, zaloText);
-        await this.emailSubscriptionService.sendAlertEmail(alert.userId, title, emailHtml);
+        await this.emailSubscriptionService.sendWalletAlertEmail(alert.userId, title, title, emailHtml, zaloText);
     }
 }

@@ -97,3 +97,20 @@ export interface CoinGeckoSearchResult {
     categories: CoinGeckoSearchCategory[];
     nfts: CoinGeckoSearchNft[];
 }
+
+export interface CoinGeckoSimplePriceData {
+    usd?: number;
+    usd_market_cap?: number;
+    usd_24h_vol?: number;
+    usd_24h_change?: number;
+    last_updated_at?: number;
+    [key: string]: number | undefined;
+}
+
+export type CoinGeckoSimplePriceResponse = Record<string, CoinGeckoSimplePriceData>;
+
+export interface CoinGeckoMarketChartRangeResponse {
+    prices: [number, number][];
+    market_caps: [number, number][];
+    total_volumes: [number, number][];
+}

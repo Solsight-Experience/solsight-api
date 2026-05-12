@@ -1,9 +1,9 @@
-import { Injectable } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, MoreThan } from 'typeorm';
-import { ConfigService } from '@nestjs/config';
-import { EmailSubscription } from '../entities/email-subscription.entity';
-import { EmailApiService } from './email-api.service';
+import { Injectable } from "@nestjs/common";
+import { InjectRepository } from "@nestjs/typeorm";
+import { Repository, MoreThan } from "typeorm";
+import { ConfigService } from "@nestjs/config";
+import { EmailSubscription } from "../entities/email-subscription.entity";
+import { EmailApiService } from "./email-api.service";
 
 @Injectable()
 export class EmailSubscriptionService {
@@ -13,9 +13,9 @@ export class EmailSubscriptionService {
         @InjectRepository(EmailSubscription)
         private readonly repo: Repository<EmailSubscription>,
         private readonly emailApi: EmailApiService,
-        config: ConfigService,
+        config: ConfigService
     ) {
-        this.verifyBaseUrl = config.get<string>('email.verifyBaseUrl') ?? 'http://localhost:3000';
+        this.verifyBaseUrl = config.get<string>("email.verifyBaseUrl") ?? "http://localhost:3000";
     }
 
     async getSubscription(userId: string): Promise<EmailSubscription | null> {
@@ -36,13 +36,11 @@ export class EmailSubscriptionService {
             existing.verifiedAt = null;
             sub = await this.repo.save(existing);
         } else {
-            sub = await this.repo.save(
-                this.repo.create({ userId, email, verificationToken: token, tokenExpiresAt: expiresAt }),
-            );
+            sub = await this.repo.save(this.repo.create({ userId, email, verificationToken: token, tokenExpiresAt: expiresAt }));
         }
 
         const verificationUrl = `${this.verifyBaseUrl}/api/email/verify?token=${token}`;
-        await this.emailApi.sendVerification(email, verificationUrl);
+        await this.emailApi.sendVerification({ toEmail: email, verificationUrl });
         return sub;
     }
 
@@ -50,7 +48,7 @@ export class EmailSubscriptionService {
         const sub = await this.repo.findOneBy({
             verificationToken: token,
             isVerified: false,
-            tokenExpiresAt: MoreThan(new Date()),
+            tokenExpiresAt: MoreThan(new Date())
         });
         if (!sub) return null;
 
@@ -58,29 +56,39 @@ export class EmailSubscriptionService {
             isVerified: true,
             verifiedAt: new Date(),
             verificationToken: null,
-            tokenExpiresAt: null,
+            tokenExpiresAt: null
         });
         return sub.userId;
     }
 
-    async sendAlertEmail(userId: string, subject: string, html: string): Promise<void> {
+    async sendAlertEmail(userId: string, subject: string, title: string, message: string): Promise<void> {
         if (!this.emailApi.hasKey) return;
         const sub = await this.repo.findOneBy({ userId, isVerified: true });
         if (!sub?.email) return;
-        await this.emailApi.sendAlert(sub.email, subject, html);
+        await this.emailApi.sendAlert({ toEmail: sub.email, subject, title, message });
+    }
+
+    async sendWalletAlertEmail(userId: string, subject: string, title: string, bodyHtml: string, bodyText: string): Promise<void> {
+        if (!this.emailApi.hasKey) return;
+        const sub = await this.repo.findOneBy({ userId, isVerified: true });
+        if (!sub?.email) return;
+        await this.emailApi.sendWalletAlert({ toEmail: sub.email, subject, title, bodyHtml, bodyText });
     }
 
     async disconnect(userId: string): Promise<void> {
-        await this.repo.update({ userId }, {
-            isVerified: false,
-            email: null,
-            verifiedAt: null,
-            verificationToken: null,
-            tokenExpiresAt: null,
-        });
+        await this.repo.update(
+            { userId },
+            {
+                isVerified: false,
+                email: null,
+                verifiedAt: null,
+                verificationToken: null,
+                tokenExpiresAt: null
+            }
+        );
     }
 
     private makeToken(): string {
-        return require('crypto').randomBytes(16).toString('hex');
+        return require("crypto").randomBytes(16).toString("hex");
     }
 }
