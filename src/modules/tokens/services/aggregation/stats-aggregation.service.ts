@@ -3,7 +3,10 @@ import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
 import { RedisService } from "../../../../redis/services/redis.service";
 import { Token } from "../../entities/token.entity";
-import { SwapEvent, TokenStats, SwapPriceResult, isValidPrice } from "../../types/swap-event.type";
+import { SwapEvent, TokenStats, SwapPriceResult, TradeData, isValidPrice } from "../../types/swap-event.type";
+
+const TRADES_MAX_SIZE = 500;
+const TRADES_TTL = 25 * 60 * 60;
 
 @Injectable()
 export class StatsAggregationService {
@@ -22,8 +25,8 @@ export class StatsAggregationService {
         this.logger.log(`[SET] out="${tokenOutMint}" price=${prices.priceUsdTokenOut} | in="${tokenInMint}" price=${prices.priceUsdTokenIn}`);
 
         // Store price for both tokens
-        await this.storePriceData(tokenOutMint, prices.priceUsdTokenOut);
-        await this.storePriceData(tokenInMint, prices.priceUsdTokenIn);
+        await this.storePriceData(tokenOutMint, prices.priceUsdTokenOut, swap.price_native, swap);
+        await this.storePriceData(tokenInMint, prices.priceUsdTokenIn, swap.price_native, swap);
 
         // Store volume and txns for both tokens
         // token_out = user is BUYING this token
@@ -32,7 +35,7 @@ export class StatsAggregationService {
         await this.storeVolumeAndTxns(tokenInMint, prices.volumeUsdTokenIn, "sell", prices.priceUsdTokenIn);
     }
 
-    private async storePriceData(tokenMint: string, priceUsd: number): Promise<void> {
+    private async storePriceData(tokenMint: string, priceUsd: number, priceNative: number, swap: SwapEvent): Promise<void> {
         if (!isValidPrice(priceUsd)) return;
 
         const redis = this.redisService.getClient();
@@ -40,8 +43,11 @@ export class StatsAggregationService {
 
         try {
             // Store latest price
-            await this.redisService.set(`price:${tokenMint}:latest`, {
-                usd: priceUsd
+            await this.redisService.hset(`price:${tokenMint}:latest`, {
+                price_usd: priceUsd,
+                price_native: priceNative,
+                slot: swap.slot,
+                source: "solsight-api"
             });
 
             // Store price in history for 24h change calculation
@@ -90,16 +96,13 @@ export class StatsAggregationService {
 
     async getStats(tokenMint: string): Promise<TokenStats> {
         // Get latest price from Redis (object with native and usd)
-        const latestPriceData = await this.redisService.get<{
-            native: number;
-            usd: number;
-        }>(`price:${tokenMint}:latest`);
+        const latestPriceData = await this.redisService.hgetall(`price:${tokenMint}:latest`);
 
         // Get token from database for other stats
         const token = await this.tokenRepository.findOneBy({ address: tokenMint });
 
         // Calculate 24h price change (use USD price)
-        const priceUsd = latestPriceData?.usd ?? null;
+        const priceUsd = latestPriceData?.price_usd != null ? parseFloat(latestPriceData.price_usd) : null;
         const priceChange24h = await this.calculatePriceChange24h(tokenMint, priceUsd);
 
         // Get volume and txns from Redis (real-time from swap events)
@@ -151,7 +154,12 @@ export class StatsAggregationService {
     }
 
     async getLatestPrice(tokenMint: string): Promise<{ native: number; usd: number } | null> {
-        return this.redisService.get<{ native: number; usd: number }>(`price:${tokenMint}:latest`);
+        const data = await this.redisService.hgetall(`price:${tokenMint}:latest`);
+        if (!data) return null;
+        return {
+            usd: parseFloat(data.price_usd),
+            native: parseFloat(data.price_native)
+        };
     }
 
     private async getVolume24h(tokenMint: string): Promise<number> {
@@ -201,6 +209,47 @@ export class StatsAggregationService {
         } catch (error) {
             this.logger.error(`Redis error in getTxns24h for "${tokenMint}":`, error);
             return { total: 0, buys: 0, sells: 0 };
+        }
+    }
+
+    async storeTradeData(tokenMint: string, tradeData: TradeData): Promise<void> {
+        const redis = this.redisService.getClient();
+        if (!redis) return;
+
+        try {
+            const tradesKey = `trades:${tokenMint}`;
+            await redis.zadd(tradesKey, tradeData.timestamp, JSON.stringify(tradeData));
+            await redis.zremrangebyrank(tradesKey, 0, -(TRADES_MAX_SIZE + 1));
+            await redis.expire(tradesKey, TRADES_TTL);
+        } catch (error) {
+            this.logger.error(`Redis error in storeTradeData for "${tokenMint}":`, error);
+        }
+    }
+
+    async getTrades(tokenMint: string, limit = 50): Promise<{ trades: TradeData[]; total: number }> {
+        const redis = this.redisService.getClient();
+        if (!redis) return { trades: [], total: 0 };
+
+        try {
+            const tradesKey = `trades:${tokenMint}`;
+            const [entries, total] = await Promise.all([redis.zrevrange(tradesKey, 0, limit - 1), redis.zcard(tradesKey)]);
+
+            if (!entries || entries.length === 0) return { trades: [], total: 0 };
+
+            const seen = new Set<string>();
+            const trades: TradeData[] = [];
+            for (const entry of entries) {
+                const trade = JSON.parse(entry) as TradeData;
+                if (!seen.has(trade.tx_hash)) {
+                    seen.add(trade.tx_hash);
+                    trades.push(trade);
+                }
+            }
+
+            return { trades, total };
+        } catch (error) {
+            this.logger.error(`Redis error in getTrades for "${tokenMint}":`, error);
+            return { trades: [], total: 0 };
         }
     }
 

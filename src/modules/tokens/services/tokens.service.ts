@@ -1,9 +1,9 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { Between, FindOptionsOrderValue, ILike, Repository } from "typeorm";
+import { Between, FindOptionsOrderValue, ILike, In, Repository } from "typeorm";
 import { Token } from "../entities/token.entity";
 import { OhlcCandle } from "../entities/ohlc-candle.entity";
-import { TokenResponseDto, TokenDetailsResponseDto } from "../dtos/token.response.dto";
+import { TokenResponseDto, TokenDetailsResponseDto, TokenMetadata } from "../dtos/token.response.dto";
 import { SolanaService } from "src/infra/solana/solana.service";
 import { JupiterService } from "src/infra/jupiter/jupiter.service";
 import { CoinGeckoService } from "src/infra/coingecko/coingecko.service";
@@ -11,11 +11,13 @@ import { TokenFilterConditionDto, TokenFilterResponseDto } from "../dtos/token.f
 import { mapJupiterTokenToEntity, mapTokenEntityToResponseDto, mapTokenEntityToOverviewDto } from "../mapper/token.mapper";
 import { ChartQueryDto, ChartResponseDto } from "../dtos/token.chart.dto";
 import { OhlcAggregationService } from "./aggregation/ohlc-aggregation.service";
+import { StatsAggregationService } from "./aggregation/stats-aggregation.service";
 import { OhlcInterval } from "./socket/room/room.constants";
 import { RedisService } from "src/redis/services/redis.service";
+import { TradeData } from "../types/swap-event.type";
 
-const TOKEN_ICON_KEY = (address: string) => `token:icon:${address}`;
-const TOKEN_ICON_TTL = 24 * 60 * 60; // 24 hours
+const TOKEN_META_KEY = (address: string) => `token:meta:${address}`;
+const TOKEN_META_TTL = 24 * 60 * 60; // 24 hours
 
 @Injectable()
 export class TokensService {
@@ -31,19 +33,58 @@ export class TokensService {
         private readonly jupiterService: JupiterService,
         private readonly coinGeckoService: CoinGeckoService,
         private readonly ohlcAggregationService: OhlcAggregationService,
+        private readonly statsAggregationService: StatsAggregationService,
         private readonly redisService: RedisService
     ) {
         this.network = this.solanaService.getNetwork();
     }
 
-    private async cacheIconUri(address: string, logoUri: string | null | undefined): Promise<void> {
-        if (logoUri) {
-            await this.redisService.set(TOKEN_ICON_KEY(address), logoUri, TOKEN_ICON_TTL);
-        }
+    private async cacheTokenMetadata(token: {
+        address: string;
+        symbol: string;
+        name: string;
+        logoUri?: string | null;
+        decimals: number;
+        coingeckoId?: string | null;
+    }): Promise<void> {
+        const meta: TokenMetadata = {
+            address: token.address,
+            symbol: token.symbol,
+            name: token.name,
+            logoUri: token.logoUri ?? null,
+            decimals: token.decimals,
+            coingeckoId: token.coingeckoId ?? null
+        };
+        await this.redisService.set(TOKEN_META_KEY(token.address), JSON.stringify(meta), TOKEN_META_TTL);
     }
 
-    async getTokenIconUri(address: string): Promise<string | null> {
-        return this.redisService.get<string>(TOKEN_ICON_KEY(address));
+    async getTokenMetadata(address: string): Promise<TokenMetadata | null> {
+        const cached = await this.redisService.get<string>(TOKEN_META_KEY(address));
+        if (cached) {
+            try {
+                return JSON.parse(cached) as TokenMetadata;
+            } catch {
+                // corrupted cache, fall through to DB
+            }
+        }
+
+        const token = await this.tokenRepository.findOne({
+            where: { address },
+            select: ["address", "symbol", "name", "logoUri", "decimals", "coingeckoId"]
+        });
+
+        if (!token) return null;
+
+        const meta: TokenMetadata = {
+            address: token.address,
+            symbol: token.symbol,
+            name: token.name,
+            logoUri: token.logoUri ?? null,
+            decimals: token.decimals,
+            coingeckoId: token.coingeckoId ?? null
+        };
+        await this.redisService.set(TOKEN_META_KEY(address), JSON.stringify(meta), TOKEN_META_TTL);
+        return meta;
     }
 
     async findOne(address: string): Promise<TokenResponseDto | null> {
@@ -70,9 +111,76 @@ export class TokensService {
             return null;
         }
 
-        await this.cacheIconUri(address, token.logoUri);
+        await this.cacheTokenMetadata(token);
 
         return mapTokenEntityToResponseDto(token, this.network);
+    }
+
+    async findMany(addresses: string[]): Promise<Map<string, TokenMetadata>> {
+        const result = new Map<string, TokenMetadata>();
+        if (addresses.length === 0) return result;
+
+        // 1. Check Redis cache first
+        const uncached: string[] = [];
+        for (const addr of addresses) {
+            const cached = await this.redisService.get<string>(TOKEN_META_KEY(addr));
+            if (cached) {
+                try {
+                    result.set(addr, JSON.parse(cached) as TokenMetadata);
+                    continue;
+                } catch {
+                    // corrupted cache, fall through
+                }
+            }
+            uncached.push(addr);
+        }
+
+        if (uncached.length === 0) return result;
+
+        // 2. Query DB for uncached addresses
+        const tokens = await this.tokenRepository.find({
+            where: { address: In(uncached) },
+            select: ["address", "symbol", "name", "logoUri", "decimals", "coingeckoId"]
+        });
+
+        for (const t of tokens) {
+            const meta: TokenMetadata = {
+                address: t.address,
+                symbol: t.symbol,
+                name: t.name,
+                logoUri: t.logoUri ?? null,
+                decimals: t.decimals,
+                coingeckoId: t.coingeckoId ?? null
+            };
+            result.set(t.address, meta);
+            this.cacheTokenMetadata(t).catch(() => {});
+        }
+
+        // 3. For addresses not found in DB, try Jupiter fallback
+        const missing = uncached.filter((a) => !result.has(a));
+        for (const addr of missing) {
+            try {
+                await this.findOne(addr);
+                const token = await this.tokenRepository.findOne({
+                    where: { address: addr },
+                    select: ["address", "symbol", "name", "logoUri", "decimals", "coingeckoId"]
+                });
+                if (token) {
+                    result.set(addr, {
+                        address: token.address,
+                        symbol: token.symbol,
+                        name: token.name,
+                        logoUri: token.logoUri ?? null,
+                        decimals: token.decimals,
+                        coingeckoId: token.coingeckoId ?? null
+                    });
+                }
+            } catch {
+                // Skip tokens that can't be resolved
+            }
+        }
+
+        return result;
     }
 
     async search(query: string, limit: number = 10): Promise<TokenDetailsResponseDto[]> {
@@ -232,13 +340,10 @@ export class TokensService {
 
         // 3. Fetch from CoinGecko để bổ sung
         try {
-            const url = `https://api.coingecko.com/api/v3/coins/${token.coingeckoId}/ohlc?vs_currency=usd&days=${days}`;
-            const response = await fetch(url);
-            if (!response.ok) {
-                this.logger.warn(`CoinGecko API error ${response.status} for ${token.coingeckoId}`);
+            const raw = await this.coinGeckoService.getOhlc(token.coingeckoId, "usd", days);
+            if (raw.length === 0) {
                 return { interval, points: this.mapCandles(cached) };
             }
-            const raw: number[][] = await response.json();
 
             // 4. Upsert vào DB (ignore duplicates)
             const candles = raw.map(([timestamp, open, high, low, close]) => ({
@@ -283,9 +388,14 @@ export class TokensService {
         return points;
     }
 
+    async getTrades(address: string, limit = 50): Promise<{ trades: TradeData[]; total: number }> {
+        return this.statsAggregationService.getTrades(address, limit);
+    }
+
     async updateToken(address: string, data: Partial<Token>) {
         const token = await this.tokenRepository.upsert({ address, ...data }, ["address"]);
-        await this.cacheIconUri(address, data.logoUri);
+        // Invalidate metadata cache so next read picks up fresh data
+        await this.redisService.del(TOKEN_META_KEY(address));
         return token;
     }
 }

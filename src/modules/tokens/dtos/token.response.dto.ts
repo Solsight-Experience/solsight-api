@@ -1,6 +1,15 @@
 export type TokenResponseDto = TokenResponseMetadata & TokenResponseOnchainData;
 export type TokenDetailsResponseDto = TokenResponseMetadata & TokenResponseOnchainData;
 
+export type TokenMetadata = {
+    address: string;
+    symbol: string;
+    name: string;
+    logoUri: string | null;
+    decimals: number;
+    coingeckoId: string | null;
+};
+
 export type TokenResponseMetadata = {
     address: string;
     symbol: string;

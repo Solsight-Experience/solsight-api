@@ -81,9 +81,11 @@ export class TokenSocketService implements OnModuleInit {
 
         const tradeDataTokenOut = transformSwapToTradeForToken(swap, swap.token_out.mint, prices.priceUsdTokenOut, prices.priceUsdTokenOut * supplyOut);
         this.bufferTrade(swap.token_out.mint, tradeDataTokenOut);
+        await this.statsAggregation.storeTradeData(swap.token_out.mint, tradeDataTokenOut);
 
         const tradeDataTokenIn = transformSwapToTradeForToken(swap, swap.token_in.mint, prices.priceUsdTokenIn, prices.priceUsdTokenIn * supplyIn);
         this.bufferTrade(swap.token_in.mint, tradeDataTokenIn);
+        await this.statsAggregation.storeTradeData(swap.token_in.mint, tradeDataTokenIn);
     }
 
     private startScheduler(domain: RoomDomain, interval: RoomInterval) {

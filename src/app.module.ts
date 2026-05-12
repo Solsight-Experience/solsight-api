@@ -3,7 +3,6 @@ import { ConfigModule } from "@nestjs/config";
 import { ScheduleModule } from "@nestjs/schedule";
 import { DatabaseModule } from "./database/database.module";
 import { LoggerModule } from "./common/logger/logger.module";
-import { SolanaModule } from "./infra/solana/solana.module";
 import { WebsocketModule } from "./websocket/websocket.module";
 import { UsersModule } from "./modules/users/users.module";
 import { WalletsModule } from "./modules/wallets/wallets.module";

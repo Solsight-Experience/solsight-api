@@ -174,9 +174,9 @@ export class DiscoveryService {
     /**
      * Sync trending tokens from CoinGecko (with optional Jupiter for Solana tokens)
      */
-    private async syncTrendingTokens(): Promise<void> {
+    @Cron(CronExpression.EVERY_5_MINUTES)
+    async syncTrendingTokens(): Promise<void> {
         try {
-            // Get trending coins from CoinGecko
             const trendingData = await this.coingeckoService.getTrendingCoins();
             if (!trendingData || !trendingData.coins) {
                 this.logger.warn("No trending data from CoinGecko");
@@ -185,7 +185,6 @@ export class DiscoveryService {
 
             this.logger.log(`Fetched ${trendingData.coins.length} trending coins from CoinGecko`);
 
-            // Try to get Jupiter token list (optional - may fail if network issues)
             let solanaTokenMap = new Map<string, any>();
             try {
                 const jupiterTokens = await this.jupiterService.getTokenList();
@@ -197,34 +196,23 @@ export class DiscoveryService {
                 this.logger.warn("Jupiter API unavailable, proceeding without Solana matching");
             }
 
-            // Get existing tokens from database
-            const existingTokens = await this.tokenRepository.find();
-            const existingTokenMap = new Map(existingTokens.map((t) => [t.symbol, t]));
-
-            // Get market data from CoinGecko for top trending coins
             const coinIds = trendingData.coins.slice(0, 20).map((c) => c.item.id);
             const marketData = await this.coingeckoService.getCoinsMarketData(coinIds);
             const marketDataMap = new Map(marketData.map((m) => [m.id, m]));
 
-            // Update or create tokens (only Solana tokens)
-            let syncedCount = 0;
+            const tokensToUpsert: object[] = [];
             for (const item of trendingData.coins.slice(0, 20)) {
                 const symbol = item.item.symbol.toUpperCase();
                 const market = marketDataMap.get(item.item.id);
-
                 if (!market) continue;
 
                 const jupiterToken = solanaTokenMap.get(item.item.symbol.toLowerCase());
-
-                // Skip if not a Solana token
                 if (!jupiterToken) {
                     this.logger.debug(`Skipping ${symbol} - not found on Solana`);
                     continue;
                 }
 
-                const existingToken = existingTokenMap.get(symbol);
-
-                const tokenData = {
+                tokensToUpsert.push({
                     symbol,
                     name: item.item.name,
                     address: jupiterToken.address,
@@ -241,26 +229,23 @@ export class DiscoveryService {
                     totalSupply: market.total_supply || 0,
                     maxSupply: market.max_supply || 0,
                     fdv: market.fully_diluted_valuation || 0
-                };
-
-                if (existingToken) {
-                    await this.tokenRepository.update(existingToken.id, tokenData);
-                } else {
-                    await this.tokenRepository.save(tokenData);
-                }
-                syncedCount++;
+                });
             }
 
-            this.logger.log(`Synced ${syncedCount} trending tokens from CoinGecko`);
+            if (tokensToUpsert.length > 0) {
+                await this.tokenRepository.upsert(tokensToUpsert, {
+                    conflictPaths: ["address"],
+                    skipUpdateIfNoValuesChanged: true
+                });
+            }
+
+            this.logger.log(`Synced ${tokensToUpsert.length} trending tokens from CoinGecko`);
         } catch (error) {
             this.logger.error("Failed to sync trending tokens", error);
         }
     }
 
     async getNewListings(dto: GetNewListingsDto) {
-        // Sync new listings from CoinGecko first
-        await this.syncNewListings();
-
         const { time_frame, min_liquidity, limit, offset } = dto;
 
         let ageThresholdSeconds = 86400; // 24h default
@@ -297,19 +282,17 @@ export class DiscoveryService {
     /**
      * Sync new listings from CoinGecko
      */
-    private async syncNewListings(): Promise<void> {
+    @Cron(CronExpression.EVERY_10_MINUTES)
+    async syncNewListings(): Promise<void> {
         try {
             this.logger.log("Starting new listings sync...");
 
-            // Fetch recently added coins from CoinGecko
             const recentCoins = await this.coingeckoService.getRecentlyAddedCoins(50);
-
             if (!recentCoins || recentCoins.length === 0) {
                 this.logger.warn("No recent coins found from CoinGecko");
                 return;
             }
 
-            // Get Jupiter token list to verify Solana tokens
             let solanaTokenMap = new Map<string, any>();
             try {
                 const jupiterTokens = await this.jupiterService.getTokenList();
@@ -318,20 +301,15 @@ export class DiscoveryService {
                 }
             } catch (error) {
                 this.logger.warn("Jupiter API unavailable for new listings sync");
-                return; // Skip if can't verify Solana tokens
+                return;
             }
 
-            // Process and save tokens (only Solana)
-            let syncedCount = 0;
+            const tokensToUpsert: object[] = [];
             for (const coin of recentCoins) {
                 const jupiterToken = solanaTokenMap.get(coin.symbol.toLowerCase());
+                if (!jupiterToken) continue;
 
-                // Skip if not a Solana token
-                if (!jupiterToken) {
-                    continue;
-                }
-
-                const tokenData = {
+                tokensToUpsert.push({
                     address: jupiterToken.address,
                     name: coin.name,
                     symbol: coin.symbol.toUpperCase(),
@@ -347,19 +325,19 @@ export class DiscoveryService {
                     totalSupply: coin.total_supply,
                     maxSupply: coin.max_supply,
                     coingeckoId: coin.id,
-                    // New listings are typically recent, so set a low age
-                    ageSeconds: 3600, // 1 hour default for new listings
-                    liquidity: coin.total_volume || 0 // Use volume as proxy for liquidity
-                };
+                    ageSeconds: 3600,
+                    liquidity: coin.total_volume || 0
+                });
+            }
 
-                await this.tokenRepository.upsert(tokenData, {
+            if (tokensToUpsert.length > 0) {
+                await this.tokenRepository.upsert(tokensToUpsert, {
                     conflictPaths: ["address"],
                     skipUpdateIfNoValuesChanged: true
                 });
-                syncedCount++;
             }
 
-            this.logger.log(`Synced ${syncedCount} Solana new listings from CoinGecko`);
+            this.logger.log(`Synced ${tokensToUpsert.length} Solana new listings from CoinGecko`);
         } catch (error) {
             this.logger.error("Failed to sync new listings", error);
         }
@@ -569,9 +547,6 @@ export class DiscoveryService {
 
     async getGainersLosers(dto: GetGainersLosersDto) {
         const { type, limit, time_frame } = dto;
-
-        // Sync real-time data from external APIs before querying
-        await this.syncTrendingTokens();
 
         // Determine which field to sort by based on time_frame
         let orderByField = "priceChange24h"; // default
