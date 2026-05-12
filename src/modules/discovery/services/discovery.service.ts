@@ -1,7 +1,7 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Cron, CronExpression } from "@nestjs/schedule";
-import { Repository } from "typeorm";
+import { Repository, Not, IsNull } from "typeorm";
 import { Token } from "../../tokens/entities/token.entity";
 import { Category } from "../../tokens/entities/category.entity";
 import { GetTrendingDto, SortByTrending, TimeFrame } from "../dtos/get-trending.dto";
@@ -517,7 +517,7 @@ export class DiscoveryService {
 
         if (type === GainersLosersType.GAINERS || type === GainersLosersType.BOTH) {
             gainers = await this.tokenRepository.find({
-                where: {},
+                where: { [orderByField]: Not(IsNull()) },
                 order: { [orderByField]: "DESC" },
                 take: limit,
                 relations: ["category"]
@@ -526,7 +526,7 @@ export class DiscoveryService {
 
         if (type === GainersLosersType.LOSERS || type === GainersLosersType.BOTH) {
             losers = await this.tokenRepository.find({
-                where: {},
+                where: { [orderByField]: Not(IsNull()) },
                 order: { [orderByField]: "ASC" },
                 take: limit,
                 relations: ["category"]
