@@ -10,7 +10,14 @@ import { GetGainersLosersDto, GainersLosersType, GainersLosersTimeFrame } from "
 import { GetCategoryDto } from "../dtos/get-category.dto";
 import { JupiterService } from "../../../infra/jupiter/jupiter.service";
 import { CoinGeckoService } from "../../../infra/coingecko/coingecko.service";
-import { TokenOverview, PaginatedCategoriesResponse } from "../dtos/discovery.response.dto";
+import { SolanaService } from "../../../infra/solana/solana.service";
+import { TokenOverview, CategoryOverview, PaginatedCategoriesResponse } from "../dtos/discovery.response.dto";
+import { RedisService } from "../../../redis";
+
+const TRENDING_TTL = 60; // 1 minute
+const CATEGORIES_TTL = 300; // 5 minutes
+const CATEGORY_DETAIL_TTL = 120; // 2 minutes
+const WINDOW_SIZE = 100;
 
 @Injectable()
 export class DiscoveryService {
@@ -22,7 +29,9 @@ export class DiscoveryService {
         @InjectRepository(Category)
         private readonly categoryRepository: Repository<Category>,
         private readonly jupiterService: JupiterService,
-        private readonly coingeckoService: CoinGeckoService
+        private readonly coingeckoService: CoinGeckoService,
+        private readonly solanaService: SolanaService,
+        private readonly redisService: RedisService
     ) {}
 
     /**
@@ -93,42 +102,70 @@ export class DiscoveryService {
         };
     }
 
-    async getTrending(dto: GetTrendingDto) {
-        const { sort_by, time_frame, limit, offset } = dto;
-
-        let orderBy: { [key: string]: "DESC" | "ASC" } = {};
-
+    private getTrendingOrderBy(sort_by: SortByTrending): { [key: string]: "DESC" | "ASC" } {
         switch (sort_by) {
             case SortByTrending.VOLUME_24H:
-                orderBy = { volume24h: "DESC" };
-                break;
+                return { volume24h: "DESC" };
             case SortByTrending.TXNS_24H:
-                orderBy = { txns24hTotal: "DESC" };
-                break;
+                return { txns24hTotal: "DESC" };
             case SortByTrending.PRICE_CHANGE_24H:
-                orderBy = { priceChange24h: "DESC" };
-                break;
+                return { priceChange24h: "DESC" };
             case SortByTrending.MARKET_CAP:
-                orderBy = { marketCap: "DESC" };
-                break;
+                return { marketCap: "DESC" };
             case SortByTrending.HOLDERS_CHANGE:
-                orderBy = { holdersChange24h: "DESC" };
-                break;
+                return { holdersChange24h: "DESC" };
             default:
-                orderBy = { volume24h: "DESC" };
+                return { volume24h: "DESC" };
+        }
+    }
+
+    async getTrending(dto: GetTrendingDto) {
+        const { sort_by = SortByTrending.VOLUME_24H, limit = 20, offset = 0 } = dto;
+
+        // Example with WINDOW_SIZE = 100:
+        //   limit=100, offset=0   → window 0
+        //   limit=50,  offset=0   → window 0, slice [:50]
+        //   limit=140, offset=0   → window 0 + window 1, slice [:140]
+        //   limit=50,  offset=80  → window 0 (items 80-99) + window 1 (items 0-29)
+        const startWindow = Math.floor(offset / WINDOW_SIZE);
+        const endWindow = Math.floor((offset + limit - 1) / WINDOW_SIZE);
+
+        let synced = false;
+        const windowData: TokenOverview[][] = [];
+
+        for (let w = startWindow; w <= endWindow; w++) {
+            const windowKey = `discovery:trending:${sort_by}:${w}`;
+            let window = await this.redisService.get<TokenOverview[]>(windowKey);
+
+            if (!window) {
+                if (!synced) {
+                    await this.syncTrendingTokens();
+                    synced = true;
+                }
+                const tokens = await this.tokenRepository.find({
+                    order: this.getTrendingOrderBy(sort_by),
+                    take: WINDOW_SIZE,
+                    skip: w * WINDOW_SIZE,
+                    relations: ["category"]
+                });
+                window = tokens.map((t) => this.transformToTokenOverview(t));
+                await this.redisService.set(windowKey, window, TRENDING_TTL);
+            }
+            windowData.push(window);
         }
 
-        const [tokens, total] = await this.tokenRepository.findAndCount({
-            order: orderBy,
-            take: limit,
-            skip: offset,
-            relations: ["category"]
-        });
+        const totalKey = `discovery:trending:${sort_by}:total`;
+        let total = await this.redisService.get<number>(totalKey);
+        if (total === null) {
+            total = await this.tokenRepository.count();
+            await this.redisService.set(totalKey, total, TRENDING_TTL);
+        }
 
-        const transformedTokens = tokens.map((token) => this.transformToTokenOverview(token));
+        const combined = windowData.flat();
+        const startInCombined = offset - startWindow * WINDOW_SIZE;
 
         return {
-            tokens: transformedTokens,
+            tokens: combined.slice(startInCombined, startInCombined + limit),
             total,
             updated_at: new Date().toISOString()
         };
@@ -309,31 +346,49 @@ export class DiscoveryService {
     async getCategories(dto: GetCategoryDto): Promise<PaginatedCategoriesResponse> {
         const { limit = 10, offset = 0 } = dto;
 
-        const [categories, total] = await this.categoryRepository.findAndCount({
-            order: { marketCap: "DESC" },
-            take: limit,
-            skip: offset
-        });
+        const startWindow = Math.floor(offset / WINDOW_SIZE);
+        const endWindow = Math.floor((offset + limit - 1) / WINDOW_SIZE);
 
-        // Filter out categories with missing or zero data
-        const validCategories = categories.filter(
-            (cat) =>
-                Number(cat.marketCap) > 0 &&
-                Number(cat.volume24h) > 0 &&
-                cat.top3Coins &&
-                cat.top3Coins.length > 0 &&
-                cat.top3CoinsId &&
-                cat.top3CoinsId.length > 0
-        );
+        const windowData: CategoryOverview[][] = [];
 
-        const transformedCategories = validCategories.map((category) => this.transformToCategory(category));
+        for (let w = startWindow; w <= endWindow; w++) {
+            const windowKey = `discovery:categories:${w}`;
+            let window = await this.redisService.get<CategoryOverview[]>(windowKey);
+
+            if (!window) {
+                // Populate all windows at once: fetch + filter + split into chunks
+                await this.populateCategoryWindows();
+                window = (await this.redisService.get<CategoryOverview[]>(windowKey)) ?? [];
+            }
+            windowData.push(window);
+        }
+
+        const total = (await this.redisService.get<number>("discovery:categories:total")) ?? 0;
+
+        const combined = windowData.flat();
+        const startInCombined = offset - startWindow * WINDOW_SIZE;
 
         return {
-            data: transformedCategories,
+            data: combined.slice(startInCombined, startInCombined + limit),
             total,
             limit,
             offset
         };
+    }
+
+    private async populateCategoryWindows(): Promise<void> {
+        const categories = await this.categoryRepository.find({ order: { marketCap: "DESC" } });
+
+        const valid: CategoryOverview[] = categories
+            .filter((cat) => Number(cat.marketCap) > 0 && Number(cat.volume24h) > 0 && cat.top3Coins?.length > 0 && cat.top3CoinsId?.length > 0)
+            .map((cat) => this.transformToCategory(cat));
+
+        await this.redisService.set("discovery:categories:total", valid.length, CATEGORIES_TTL);
+
+        for (let i = 0; i < valid.length; i += WINDOW_SIZE) {
+            const windowIndex = Math.floor(i / WINDOW_SIZE);
+            await this.redisService.set(`discovery:categories:${windowIndex}`, valid.slice(i, i + WINDOW_SIZE), CATEGORIES_TTL);
+        }
     }
 
     /**
@@ -387,13 +442,24 @@ export class DiscoveryService {
             }
 
             this.logger.log(`Synced ${categories.length} categories from CoinGecko`);
+
+            // Invalidate cached category responses so next requests get fresh data
+            // discovery:categories:* matches window keys (e.g. :0, :1) and :total
+            const windowKeys = await this.redisService.keys("discovery:categories:*");
+            const detailKeys = await this.redisService.keys("discovery:category:*");
+            for (const key of [...windowKeys, ...detailKeys]) {
+                await this.redisService.del(key);
+            }
         } catch (error) {
             this.logger.error("Failed to sync categories", error);
         }
     }
 
-    async getCategoryDetail(categorySlug: string, dto: GetCategoryDto) {
-        const { sort_by, limit, offset } = dto;
+    async getCategoryDetail(categorySlug: string, _dto: GetCategoryDto) {
+        const cacheKey = `discovery:category:${categorySlug}`;
+
+        const cached = await this.redisService.get(cacheKey);
+        if (cached) return cached;
 
         const category = await this.categoryRepository.findOne({
             where: { slug: categorySlug }
@@ -406,30 +472,8 @@ export class DiscoveryService {
         // Sync tokens for this category
         await this.syncCategoryTokens(categorySlug, category.id);
 
-        // Map snake_case to camelCase for Token entity fields
-        const fieldMap: Record<string, string> = {
-            market_cap: "marketCap",
-            volume_24h: "volume24h",
-            price_change_24h: "priceChange24h",
-            price_change_1h: "priceChange1h",
-            price_change_7d: "priceChange7d"
-        };
-
-        let orderBy: { [key: string]: "DESC" | "ASC" } = { marketCap: "DESC" };
-        if (sort_by) {
-            const mappedField = fieldMap[sort_by] || sort_by;
-            orderBy = { [mappedField]: "DESC" };
-        }
-
-        const [tokens, total] = await this.tokenRepository.findAndCount({
-            where: { categoryId: category.id },
-            order: orderBy,
-            take: limit,
-            skip: offset,
-            relations: ["category"]
-        });
-
         const transformedCategory = this.transformToCategory(category);
+        await this.redisService.set(cacheKey, transformedCategory, CATEGORY_DETAIL_TTL);
         return transformedCategory;
     }
 
