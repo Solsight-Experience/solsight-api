@@ -18,6 +18,7 @@ import {
 export class JupiterService {
     private readonly logger = new Logger(JupiterService.name);
     private readonly apiClient: AxiosInstance;
+    private readonly swapApiClient: AxiosInstance;
     private tokenListCache: JupiterTokenV2[] = [];
     private tokenListCacheTime = 0;
     private readonly CACHE_DURATION = 3600000; // 1 hour
@@ -25,17 +26,29 @@ export class JupiterService {
     constructor(private readonly configService: ConfigService) {
         const baseUrl = this.configService.get<string>("jupiter.apiUrl");
         const apiKey = this.configService.get<string>("jupiter.apiKey");
+        const swapBaseUrl = this.configService.get<string>("jupiter.swapApiUrl") ?? baseUrl;
+        const swapApiKey = this.configService.get<string>("jupiter.swapApiKey") ?? apiKey;
 
         this.apiClient = axios.create({
             baseURL: baseUrl,
             timeout: 10000,
             headers: {
                 "Content-Type": "application/json",
-                "x-api-key": apiKey
+                ...(apiKey ? { "x-api-key": apiKey } : {})
+            }
+        });
+
+        this.swapApiClient = axios.create({
+            baseURL: swapBaseUrl,
+            timeout: 15000,
+            headers: {
+                "Content-Type": "application/json",
+                ...(swapApiKey ? { "x-api-key": swapApiKey } : {})
             }
         });
 
         this.logger.log(`Jupiter API initialized: ${baseUrl}`);
+        this.logger.log(`Jupiter Swap API initialized: ${swapBaseUrl}`);
     }
 
     /**
@@ -253,6 +266,45 @@ export class JupiterService {
             return response.data;
         } catch (error) {
             this.logger.error("Failed to get trigger orders", error);
+            throw error;
+        }
+    }
+
+    /**
+     * Get a swap quote from Jupiter
+     */
+    async getSwapQuote(params: {
+        inputMint: string;
+        outputMint: string;
+        amount: string;
+        swapMode: string;
+        slippageBps: number;
+    }): Promise<Record<string, unknown>> {
+        try {
+            const response = await this.swapApiClient.get<Record<string, unknown>>("/swap/v1/quote", { params });
+            return response.data;
+        } catch (error) {
+            this.logger.error("Failed to get swap quote", error);
+            throw error;
+        }
+    }
+
+    /**
+     * Get an unsigned swap transaction from Jupiter
+     */
+    async getSwapTransaction(params: {
+        quoteResponse: Record<string, unknown>;
+        userPublicKey: string;
+        wrapAndUnwrapSol?: boolean;
+    }): Promise<{ swapTransaction: string }> {
+        try {
+            const response = await this.swapApiClient.post<{ swapTransaction: string }>("/swap/v1/swap", {
+                ...params,
+                wrapAndUnwrapSol: params.wrapAndUnwrapSol ?? true
+            });
+            return response.data;
+        } catch (error) {
+            this.logger.error("Failed to get swap transaction", error);
             throw error;
         }
     }
