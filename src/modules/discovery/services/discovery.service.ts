@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
+import { Injectable, Logger, OnModuleInit, NotFoundException } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Cron, CronExpression } from "@nestjs/schedule";
 import { Repository } from "typeorm";
@@ -472,7 +472,7 @@ export class DiscoveryService implements OnModuleInit {
         });
 
         if (!category) {
-            throw new Error("Category not found");
+            throw new NotFoundException("Category not found");
         }
 
         // Sync tokens for this category

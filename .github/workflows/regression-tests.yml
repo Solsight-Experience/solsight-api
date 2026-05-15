@@ -1,0 +1,84 @@
+name: API Regression Tests
+
+on:
+  pull_request:
+    branches: [ main, develop ]
+  push:
+    branches: [ main, develop ]
+
+jobs:
+  regression-test:
+    runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_DB: test_db
+          POSTGRES_USER: test_user
+          POSTGRES_PASSWORD: test_pass
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      mongodb:
+        image: mongo:6.0
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --eval 'db.runCommand({ping: 1})'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v5
+        with:
+          run_install: false
+
+      - name: Install Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run E2E Regression Tests
+        run: pnpm test:e2e
+        env:
+          DATABASE_HOST: localhost
+          DATABASE_PORT: 5432
+          DATABASE_USERNAME: test_user
+          DATABASE_PASSWORD: test_pass
+          DATABASE_NAME: test_db
+          REDIS_URL: redis://localhost:6379
+          MONGODB_URI: mongodb://localhost:27017/test
+          JWT_SECRET: ci-test-secret
+          NODE_ENV: test
+          SOLANA_RPC_URL: http://mock-solana-rpc.com
+          HELIUS_RPC_URL: http://mock-helius-rpc.com
+          HELIUS_API_KEY: mock-helius-key
+          JUPITER_API_KEY: mock-jupiter-key
+          COINGECKO_API_KEY: mock-coingecko-key
+          OPENAI_API_KEY: mock-openai-key
+
