@@ -22,6 +22,7 @@ import {
 export class JupiterService {
     private readonly logger = new Logger(JupiterService.name);
     private readonly apiClient: AxiosInstance;
+    private readonly swapApiClient: AxiosInstance;
     private tokenListCache: JupiterTokenV2[] = [];
     private tokenListCacheTime = 0;
     private readonly CACHE_DURATION = 3600000; // 1 hour
@@ -29,17 +30,29 @@ export class JupiterService {
     constructor(private readonly configService: ConfigService) {
         const baseUrl = this.configService.get<string>("jupiter.apiUrl");
         const apiKey = this.configService.get<string>("jupiter.apiKey");
+        const swapBaseUrl = this.configService.get<string>("jupiter.swapApiUrl") ?? baseUrl;
+        const swapApiKey = this.configService.get<string>("jupiter.swapApiKey") ?? apiKey;
 
         this.apiClient = axios.create({
             baseURL: baseUrl,
             timeout: 15000,
             headers: {
                 "Content-Type": "application/json",
-                "x-api-key": apiKey
+                ...(apiKey ? { "x-api-key": apiKey } : {})
+            }
+        });
+
+        this.swapApiClient = axios.create({
+            baseURL: swapBaseUrl,
+            timeout: 15000,
+            headers: {
+                "Content-Type": "application/json",
+                ...(swapApiKey ? { "x-api-key": swapApiKey } : {})
             }
         });
 
         this.logger.log(`Jupiter API initialized: ${baseUrl}`);
+        this.logger.log(`Jupiter Swap API initialized: ${swapBaseUrl}`);
     }
 
     /**
