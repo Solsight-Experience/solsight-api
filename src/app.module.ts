@@ -24,6 +24,7 @@ import { WatchlistModule } from "./modules/watchlist/watchlist.module";
 import { ZaloModule } from "./modules/zalo/zalo.module";
 import { EmailModule } from "./modules/email/email.module";
 import { SwapModule } from "./modules/swap/swap.module";
+import { AdminAnalyticsModule } from "./modules/admin-analytics/admin-analytics.module";
 @Module({
     imports: [
         ConfigModule.forRoot({
@@ -58,7 +59,8 @@ import { SwapModule } from "./modules/swap/swap.module";
         WatchlistModule,
         ZaloModule,
         EmailModule,
-        SwapModule
+        SwapModule,
+        AdminAnalyticsModule
     ],
     controllers: [],
     providers: []

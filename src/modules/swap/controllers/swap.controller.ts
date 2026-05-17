@@ -1,8 +1,9 @@
-import { Body, Controller, Get, Param, Post, Query } from "@nestjs/common";
+import { Body, Controller, Get, Param, Post, Query, Request, UseGuards } from "@nestjs/common";
 import { SwapService } from "../services/swap.service";
 import { GetQuoteDto } from "../dtos/get-quote.dto";
 import { GetSwapTransactionDto } from "../dtos/get-swap-transaction.dto";
 import { ExecuteSwapDto } from "../dtos/execute-swap.dto";
+import { OptionalJwtAuthGuard } from "../../../common/guards/optional-jwt-auth.guard";
 
 @Controller("swap")
 export class SwapController {
@@ -19,8 +20,9 @@ export class SwapController {
     }
 
     @Post("execute")
-    async executeSwap(@Body() dto: ExecuteSwapDto) {
-        return this.swapService.executeSwap(dto);
+    @UseGuards(OptionalJwtAuthGuard)
+    async executeSwap(@Body() dto: ExecuteSwapDto, @Request() req: { user?: { id?: string } }) {
+        return this.swapService.executeSwap(dto, req.user?.id ?? null);
     }
 
     @Get("sol-price")

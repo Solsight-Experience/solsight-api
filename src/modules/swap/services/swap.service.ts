@@ -1,4 +1,6 @@
 import { HttpException, HttpStatus, Inject, Injectable, Logger } from "@nestjs/common";
+import { InjectRepository } from "@nestjs/typeorm";
+import { Repository } from "typeorm";
 import { JupiterService } from "../../../infra/jupiter/jupiter.service";
 import { CoinGeckoService } from "../../../infra/coingecko/coingecko.service";
 import { SOLANA_RPC_SERVICE } from "../../../infra/solana/constants/solana.token";
@@ -6,6 +8,7 @@ import type { SolanaRpcService } from "../../../infra/solana/interfaces/solana-r
 import type { GetQuoteDto } from "../dtos/get-quote.dto";
 import type { GetSwapTransactionDto } from "../dtos/get-swap-transaction.dto";
 import type { ExecuteSwapDto } from "../dtos/execute-swap.dto";
+import { SwapExecution } from "../../admin-analytics/entities/swap-execution.entity";
 
 @Injectable()
 export class SwapService {
@@ -14,7 +17,9 @@ export class SwapService {
     constructor(
         private readonly jupiterService: JupiterService,
         private readonly coinGeckoService: CoinGeckoService,
-        @Inject(SOLANA_RPC_SERVICE) private readonly rpcService: SolanaRpcService
+        @Inject(SOLANA_RPC_SERVICE) private readonly rpcService: SolanaRpcService,
+        @InjectRepository(SwapExecution)
+        private readonly swapExecutionRepo: Repository<SwapExecution>
     ) {}
 
     async getQuote(dto: GetQuoteDto): Promise<Record<string, unknown>> {
@@ -37,7 +42,7 @@ export class SwapService {
         }
     }
 
-    async executeSwap(dto: ExecuteSwapDto): Promise<{ signature: string }> {
+    async executeSwap(dto: ExecuteSwapDto, userId: string | null = null): Promise<{ signature: string }> {
         try {
             const txBuffer = Buffer.from(dto.signedTransaction, "base64");
             const latestBlockhash = await this.rpcService.getLatestBlockhash();
@@ -53,12 +58,29 @@ export class SwapService {
                 },
                 "confirmed"
             );
+            this.persistSwapExecution(signature, dto, userId);
             return { signature };
         } catch (error) {
             this.logger.error("Failed to execute swap", error);
             const message = error instanceof Error ? error.message : "Swap execution failed.";
             throw new HttpException(message, HttpStatus.BAD_GATEWAY);
         }
+    }
+
+    private persistSwapExecution(signature: string, dto: ExecuteSwapDto, userId: string | null): void {
+        if (!dto.walletAddress || !dto.inputMint || !dto.outputMint || !dto.inAmount || !dto.outAmount) return;
+        this.swapExecutionRepo
+            .save({
+                userId,
+                walletAddress: dto.walletAddress,
+                signature,
+                inputMint: dto.inputMint,
+                outputMint: dto.outputMint,
+                inAmount: dto.inAmount,
+                outAmount: dto.outAmount,
+                volumeUsd: dto.volumeUsd ?? null
+            })
+            .catch((err) => this.logger.warn("Failed to persist swap execution", err));
     }
 
     async getSolPrice(): Promise<{ usd: number }> {
