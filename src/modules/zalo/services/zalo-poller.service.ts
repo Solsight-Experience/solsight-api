@@ -1,6 +1,6 @@
-import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
-import { ZaloApiService } from './zalo-api.service';
-import { ZaloSubscriptionService } from './zalo-subscription.service';
+import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from "@nestjs/common";
+import { ZaloApiService } from "./zalo-api.service";
+import { ZaloSubscriptionService } from "./zalo-subscription.service";
 
 @Injectable()
 export class ZaloPollerService implements OnModuleInit, OnModuleDestroy {
@@ -9,12 +9,12 @@ export class ZaloPollerService implements OnModuleInit, OnModuleDestroy {
 
     constructor(
         private readonly zaloApi: ZaloApiService,
-        private readonly subscriptionService: ZaloSubscriptionService,
+        private readonly subscriptionService: ZaloSubscriptionService
     ) {}
 
     onModuleInit(): void {
         if (!this.zaloApi.hasToken) {
-            this.logger.warn('ZALO_BOT_TOKEN not set — Zalo long polling disabled');
+            this.logger.warn("ZALO_BOT_TOKEN not set — Zalo long polling disabled");
             return;
         }
         this.running = true;
@@ -38,9 +38,9 @@ export class ZaloPollerService implements OnModuleInit, OnModuleDestroy {
                     this.logger.log(`Zalo verified: userId=${sub.userId}`);
                 }
             } catch (err) {
-                this.logger.error('Zalo poll loop error', err);
+                this.logger.error("Zalo poll loop error", err);
                 // Brief back-off to avoid hammering on repeated errors
-                await new Promise(r => setTimeout(r, 3000));
+                await new Promise((r) => setTimeout(r, 3000));
             }
         }
     }

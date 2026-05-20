@@ -166,7 +166,7 @@ export class BaseSolanaRpcService implements SolanaRpcService {
         programId: unknown,
         configOrCommitment?: unknown
     ): Promise<RpcResponseAndContext<GetProgramAccountsResponse>> | Promise<GetProgramAccountsResponse> {
-        let programPubkey = programId as PublicKey;
+        const programPubkey = programId as PublicKey;
         if (configOrCommitment) {
             return this.connection.getProgramAccounts(programPubkey, configOrCommitment);
         }
