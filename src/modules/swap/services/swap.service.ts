@@ -6,6 +6,7 @@ import type { SolanaRpcService } from "../../../infra/solana/interfaces/solana-r
 import type { GetQuoteDto } from "../dtos/get-quote.dto";
 import type { GetSwapTransactionDto } from "../dtos/get-swap-transaction.dto";
 import type { ExecuteSwapDto } from "../dtos/execute-swap.dto";
+import type { QuoteResponse, SwapResponse } from "../interfaces/swap.interface";
 
 @Injectable()
 export class SwapService {
@@ -17,7 +18,7 @@ export class SwapService {
         @Inject(SOLANA_RPC_SERVICE) private readonly rpcService: SolanaRpcService
     ) {}
 
-    async getQuote(dto: GetQuoteDto): Promise<Record<string, unknown>> {
+    async getQuote(dto: GetQuoteDto): Promise<QuoteResponse> {
         try {
             return await this.jupiterService.getSwapQuote(dto);
         } catch (error) {
@@ -25,7 +26,7 @@ export class SwapService {
         }
     }
 
-    async getSwapTransaction(dto: GetSwapTransactionDto): Promise<{ swapTransaction: string }> {
+    async getSwapTransaction(dto: GetSwapTransactionDto): Promise<SwapResponse> {
         try {
             return await this.jupiterService.getSwapTransaction({
                 quoteResponse: dto.quoteResponse,

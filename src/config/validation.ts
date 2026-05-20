@@ -46,10 +46,6 @@ export const validationSchema = Joi.object({
     // Jupiter
     JUPITER_API_URL: Joi.string().uri().default("https://api.jup.ag"),
     JUPITER_API_KEY: Joi.string().optional(),
-    // Optional separate host/key for swap endpoints (quote + transaction).
-    // If unset, falls back to JUPITER_API_URL / JUPITER_API_KEY.
-    JUPITER_SWAP_API_URL: Joi.string().uri().optional(),
-    JUPITER_SWAP_API_KEY: Joi.string().optional(),
 
     // CoinGecko
     COINGECKO_API_URL: Joi.string().uri().default("https://api.coingecko.com/api/v3"),

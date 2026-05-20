@@ -1,8 +1,9 @@
 import { IsBoolean, IsObject, IsOptional, IsString } from "class-validator";
+import type { QuoteResponse } from "../interfaces/quote-response.interface";
 
 export class GetSwapTransactionDto {
     @IsObject()
-    quoteResponse: Record<string, unknown>;
+    quoteResponse: QuoteResponse;
 
     @IsString()
     userPublicKey: string;
