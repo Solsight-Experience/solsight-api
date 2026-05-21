@@ -35,7 +35,7 @@ export class JupiterService {
             timeout: 15000,
             headers: {
                 "Content-Type": "application/json",
-                ...(apiKey ? { "x-api-key": apiKey } : {})
+                "x-api-key": apiKey
             }
         });
 

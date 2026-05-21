@@ -36,7 +36,6 @@ export class TokenSummaryService {
     private readonly INACTIVE_TOKEN_TTL = 900; // 15 minutes for less active tokens
 
     constructor(
-        private readonly tokensService: TokensService,
         private readonly promptBuilderService: PromptBuilderService,
         private readonly geminiService: GeminiService,
         private readonly redisService: RedisService,
@@ -54,7 +53,7 @@ export class TokenSummaryService {
 
         // Check if Gemini is configured
         if (!this.geminiService.isConfigured()) {
-            throw new HttpException("AI service is not configured. Please set GEMINI_API_KEY in environment variables.", HttpStatus.SERVICE_UNAVAILABLE);
+            throw new HttpException("AI service is not configured. Please set OPENAI_API_KEY in environment variables.", HttpStatus.SERVICE_UNAVAILABLE);
         }
 
         // Check cache first
