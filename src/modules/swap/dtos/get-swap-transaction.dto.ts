@@ -1,5 +1,5 @@
 import { IsBoolean, IsObject, IsOptional, IsString } from "class-validator";
-import type { QuoteResponse } from "../interfaces/quote-response.interface";
+import type { QuoteResponse } from "../../../infra/executor/interfaces/executor-service.interface";
 
 export class GetSwapTransactionDto {
     @IsObject()

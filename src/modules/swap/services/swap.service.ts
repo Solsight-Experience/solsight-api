@@ -1,18 +1,20 @@
 import { HttpException, HttpStatus, Inject, Injectable, Logger } from "@nestjs/common";
-import { JupiterService } from "../../../infra/jupiter/jupiter.service";
 import { CoinGeckoService } from "../../../infra/coingecko/coingecko.service";
+import { EXECUTOR_SERVICE } from "../../../infra/executor/constants/executor.token";
+import type { ExecutorService, QuoteResponse, SwapResponse } from "../../../infra/executor/interfaces/executor-service.interface";
+import { JupiterService } from "../../../infra/jupiter/jupiter.service";
 import { SOLANA_RPC_SERVICE } from "../../../infra/solana/constants/solana.token";
 import type { SolanaRpcService } from "../../../infra/solana/interfaces/solana-rpc-service.interface";
+import type { ExecuteSwapDto } from "../dtos/execute-swap.dto";
 import type { GetQuoteDto } from "../dtos/get-quote.dto";
 import type { GetSwapTransactionDto } from "../dtos/get-swap-transaction.dto";
-import type { ExecuteSwapDto } from "../dtos/execute-swap.dto";
-import type { QuoteResponse, SwapResponse } from "../interfaces/swap.interface";
 
 @Injectable()
 export class SwapService {
     private readonly logger = new Logger(SwapService.name);
 
     constructor(
+        @Inject(EXECUTOR_SERVICE) private readonly executorService: ExecutorService,
         private readonly jupiterService: JupiterService,
         private readonly coinGeckoService: CoinGeckoService,
         @Inject(SOLANA_RPC_SERVICE) private readonly rpcService: SolanaRpcService
@@ -20,7 +22,7 @@ export class SwapService {
 
     async getQuote(dto: GetQuoteDto): Promise<QuoteResponse> {
         try {
-            return await this.jupiterService.getSwapQuote(dto);
+            return await this.executorService.getQuote(dto);
         } catch (error) {
             throw this.toHttpException(error);
         }
@@ -28,7 +30,7 @@ export class SwapService {
 
     async getSwapTransaction(dto: GetSwapTransactionDto): Promise<SwapResponse> {
         try {
-            return await this.jupiterService.getSwapTransaction({
+            return await this.executorService.getSwapTransaction({
                 quoteResponse: dto.quoteResponse,
                 userPublicKey: dto.userPublicKey,
                 wrapAndUnwrapSol: dto.wrapAndUnwrapSol ?? true
