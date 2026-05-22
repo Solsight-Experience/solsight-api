@@ -1,8 +1,6 @@
 import { HttpException, HttpStatus, Inject, Injectable, Logger } from "@nestjs/common";
-import { CoinGeckoService } from "../../../infra/coingecko/coingecko.service";
 import { EXECUTOR_SERVICE } from "../../../infra/executor/constants/executor.token";
 import type { ExecutorService, QuoteResponse, SwapResponse } from "../../../infra/executor/interfaces/executor-service.interface";
-import { JupiterService } from "../../../infra/jupiter/jupiter.service";
 import { SOLANA_RPC_SERVICE } from "../../../infra/solana/constants/solana.token";
 import type { SolanaRpcService } from "../../../infra/solana/interfaces/solana-rpc-service.interface";
 import type { ExecuteSwapDto } from "../dtos/execute-swap.dto";
@@ -15,8 +13,6 @@ export class SwapService {
 
     constructor(
         @Inject(EXECUTOR_SERVICE) private readonly executorService: ExecutorService,
-        private readonly jupiterService: JupiterService,
-        private readonly coinGeckoService: CoinGeckoService,
         @Inject(SOLANA_RPC_SERVICE) private readonly rpcService: SolanaRpcService
     ) {}
 
@@ -62,21 +58,6 @@ export class SwapService {
             const message = error instanceof Error ? error.message : "Swap execution failed.";
             throw new HttpException(message, HttpStatus.BAD_GATEWAY);
         }
-    }
-
-    async getSolPrice(): Promise<{ usd: number }> {
-        try {
-            const prices = await this.coinGeckoService.getSimplePrice(["solana"]);
-            return { usd: (prices as Record<string, { usd?: number }>)["solana"]?.usd ?? 0 };
-        } catch {
-            return { usd: 0 };
-        }
-    }
-
-    async getTokenInfo(mint: string): Promise<{ decimals: number } | null> {
-        const token = await this.jupiterService.searchToken(mint);
-        if (!token) return null;
-        return { decimals: token.decimals };
     }
 
     private toHttpException(error: unknown): HttpException {

@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query } from "@nestjs/common";
+import { Body, Controller, Get, Post, Query } from "@nestjs/common";
 import { SwapService } from "../services/swap.service";
 import { GetQuoteDto } from "../dtos/get-quote.dto";
 import { GetSwapTransactionDto } from "../dtos/get-swap-transaction.dto";
@@ -21,15 +21,5 @@ export class SwapController {
     @Post("execute")
     async executeSwap(@Body() dto: ExecuteSwapDto) {
         return this.swapService.executeSwap(dto);
-    }
-
-    @Get("sol-price")
-    async getSolPrice() {
-        return this.swapService.getSolPrice();
-    }
-
-    @Get("token-info/:mint")
-    async getTokenInfo(@Param("mint") mint: string) {
-        return this.swapService.getTokenInfo(mint);
     }
 }
