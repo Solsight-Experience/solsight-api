@@ -27,6 +27,11 @@ export class AdminAnalyticsController {
         return this.analyticsService.getSwapsOverTime(query);
     }
 
+    @Get("top-pairs")
+    async getTopPairs(@Query() query: AnalyticsQueryDto) {
+        return this.analyticsService.getTopPairs(query);
+    }
+
     @Get("top-tokens")
     async getTopTokens(@Query() query: AnalyticsQueryDto) {
         return this.analyticsService.getTopTokens(query);

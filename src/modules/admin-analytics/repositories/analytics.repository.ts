@@ -2,14 +2,13 @@ import { Injectable } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
 import { User } from "../../users/entities/user.entity";
-import { SwapTrade } from "../../portfolio/entities/swap-trade.entity";
 import { SwapExecution } from "../entities/swap-execution.entity";
+import { Token } from "../../tokens/entities/token.entity";
 
 @Injectable()
 export class AnalyticsRepository {
     constructor(
         @InjectRepository(User) private readonly userRepo: Repository<User>,
-        @InjectRepository(SwapTrade) private readonly swapTradeRepo: Repository<SwapTrade>,
         @InjectRepository(SwapExecution) private readonly swapExecutionRepo: Repository<SwapExecution>
     ) {}
 
@@ -19,10 +18,6 @@ export class AnalyticsRepository {
 
     async getNewUsersCount(startDate: Date, endDate: Date): Promise<number> {
         return this.userRepo.createQueryBuilder("u").where("u.createdAt >= :start AND u.createdAt <= :end", { start: startDate, end: endDate }).getCount();
-    }
-
-    async getTotalSwapTrades(): Promise<number> {
-        return this.swapTradeRepo.count();
     }
 
     async getTotalSwapExecutions(): Promise<number> {
@@ -70,6 +65,76 @@ export class AnalyticsRepository {
         return rows.map((r) => ({
             date: r.date,
             count: parseInt(r.count, 10),
+            volumeUsd: parseFloat(r.volumeUsd ?? "0") || 0
+        }));
+    }
+
+    async getTopPairs(
+        startDate: Date,
+        endDate: Date,
+        limit: number
+    ): Promise<
+        {
+            inputMint: string;
+            inputSymbol: string | null;
+            inputName: string | null;
+            inputLogoUri: string | null;
+            outputMint: string;
+            outputSymbol: string | null;
+            outputName: string | null;
+            outputLogoUri: string | null;
+            swapCount: number;
+            volumeUsd: number;
+        }[]
+    > {
+        const rows = await this.swapExecutionRepo
+            .createQueryBuilder("se")
+            .select("se.inputMint", "inputMint")
+            .addSelect("se.outputMint", "outputMint")
+            .addSelect("COUNT(*)", "swapCount")
+            .addSelect("SUM(se.volumeUsd)", "volumeUsd")
+            .addSelect("it.symbol", "inputSymbol")
+            .addSelect("it.name", "inputName")
+            .addSelect("it.logoUri", "inputLogoUri")
+            .addSelect("ot.symbol", "outputSymbol")
+            .addSelect("ot.name", "outputName")
+            .addSelect("ot.logoUri", "outputLogoUri")
+            .leftJoin(Token, "it", "it.address = se.inputMint")
+            .leftJoin(Token, "ot", "ot.address = se.outputMint")
+            .where("se.createdAt >= :start AND se.createdAt <= :end", { start: startDate, end: endDate })
+            .groupBy("se.inputMint")
+            .addGroupBy("se.outputMint")
+            .addGroupBy("it.symbol")
+            .addGroupBy("it.name")
+            .addGroupBy("it.logoUri")
+            .addGroupBy("ot.symbol")
+            .addGroupBy("ot.name")
+            .addGroupBy("ot.logoUri")
+            .orderBy('"swapCount"', "DESC")
+            .limit(limit)
+            .getRawMany<{
+                inputMint: string;
+                inputSymbol: string | null;
+                inputName: string | null;
+                inputLogoUri: string | null;
+                outputMint: string;
+                outputSymbol: string | null;
+                outputName: string | null;
+                outputLogoUri: string | null;
+                swapCount: string;
+                volumeUsd: string | null;
+            }>();
+
+        return rows.map((r) => ({
+            inputMint: r.inputMint,
+            inputSymbol: r.inputSymbol ?? null,
+            inputName: r.inputName ?? null,
+            inputLogoUri: r.inputLogoUri ?? null,
+            outputMint: r.outputMint,
+            outputSymbol: r.outputSymbol ?? null,
+            outputName: r.outputName ?? null,
+            outputLogoUri: r.outputLogoUri ?? null,
+            swapCount: parseInt(r.swapCount, 10),
             volumeUsd: parseFloat(r.volumeUsd ?? "0") || 0
         }));
     }

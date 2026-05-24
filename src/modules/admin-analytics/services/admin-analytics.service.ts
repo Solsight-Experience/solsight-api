@@ -19,10 +19,9 @@ export class AdminAnalyticsService {
     async getOverview(dto: AnalyticsQueryDto) {
         const { startDate, endDate } = parseDateRange(dto);
 
-        const [totalUsers, newUsersInRange, totalSwapTrades, totalSwapExecutions, totalVolumeUsd, activeWalletsInRange] = await Promise.all([
+        const [totalUsers, newUsersInRange, totalSwaps, totalVolumeUsd, activeWalletsInRange] = await Promise.all([
             this.analyticsRepo.getTotalUsers(),
             this.analyticsRepo.getNewUsersCount(startDate, endDate),
-            this.analyticsRepo.getTotalSwapTrades(),
             this.analyticsRepo.getTotalSwapExecutions(),
             this.analyticsRepo.getTotalVolumeUsd(),
             this.analyticsRepo.getActiveWalletsCount(startDate, endDate)
@@ -31,7 +30,7 @@ export class AdminAnalyticsService {
         return {
             totalUsers,
             newUsersInRange,
-            totalSwaps: totalSwapTrades + totalSwapExecutions,
+            totalSwaps,
             totalVolumeUsd,
             activeWalletsInRange
         };
@@ -45,6 +44,11 @@ export class AdminAnalyticsService {
     async getSwapsOverTime(dto: AnalyticsQueryDto) {
         const { startDate, endDate } = parseDateRange(dto);
         return this.analyticsRepo.getSwapsOverTime(startDate, endDate);
+    }
+
+    async getTopPairs(dto: AnalyticsQueryDto) {
+        const { startDate, endDate } = parseDateRange(dto);
+        return this.analyticsRepo.getTopPairs(startDate, endDate, dto.limit ?? 10);
     }
 
     async getTopTokens(dto: AnalyticsQueryDto) {
