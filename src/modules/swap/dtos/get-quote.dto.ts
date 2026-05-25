@@ -1,11 +1,12 @@
-import { IsIn, IsNumber, IsString } from "class-validator";
+import { IsIn, IsNumber, IsString, Min } from "class-validator";
 import { Type } from "class-transformer";
+import { IsSolanaAddress } from "../../../common/validators/is-solana-address.validator";
 
 export class GetQuoteDto {
-    @IsString()
+    @IsSolanaAddress()
     inputMint: string;
 
-    @IsString()
+    @IsSolanaAddress()
     outputMint: string;
 
     @IsString()
@@ -17,5 +18,6 @@ export class GetQuoteDto {
 
     @IsNumber()
     @Type(() => Number)
+    @Min(0)
     slippageBps: number;
 }
