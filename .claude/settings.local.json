@@ -12,7 +12,8 @@
       "Bash(xargs basename:*)",
       "WebFetch(domain:bot.zapps.me)",
       "Bash(npm install:*)",
-      "Bash(pnpm tsc:*)"
+      "Bash(pnpm tsc:*)",
+      "Read(//Users/lap15113/sources/solsight-ui/**)"
     ]
   }
 }

@@ -97,11 +97,7 @@ export class PortfolioController {
 
     @UseGuards(JwtAuthGuard)
     @Get("watch/pnl-chart")
-    async getWatchPnlChart(
-        @Query("wallet_address") walletAddress: string,
-        @Query("time_frame") timeFrame?: string,
-        @Query("interval") interval?: string
-    ) {
+    async getWatchPnlChart(@Query("wallet_address") walletAddress: string, @Query("time_frame") timeFrame?: string, @Query("interval") interval?: string) {
         if (!walletAddress) throw new BadRequestException("wallet_address is required");
         return this.portfolioService.getPnlChartByAddress(walletAddress, timeFrame, interval);
     }

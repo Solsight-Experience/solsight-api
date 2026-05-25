@@ -17,7 +17,7 @@ import { ChatController } from "./controllers/chat.controller";
         JwtModule.registerAsync({
             imports: [ConfigModule],
             useFactory: (configService: ConfigService) => ({
-                secret: configService.get<string>("JWT_SECRET")
+                secret: configService.getOrThrow<string>("jwt.secret")
             }),
             inject: [ConfigService]
         }),

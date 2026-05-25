@@ -19,7 +19,7 @@ export class OpenAIService {
     private readonly model: string;
 
     constructor(private readonly configService: ConfigService) {
-        const apiKey = this.configService.get<string>("openai.apiKey") || "";
+        const apiKey = this.configService.get<string>("openai.apiKey");
         const baseURL = this.configService.get<string>("openai.apiUrl");
         const model = this.configService.get<string>("openai.model");
 

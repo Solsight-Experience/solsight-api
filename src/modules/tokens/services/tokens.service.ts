@@ -15,9 +15,17 @@ import { StatsAggregationService } from "./aggregation/stats-aggregation.service
 import { OhlcInterval } from "./socket/room/room.constants";
 import { RedisService } from "src/redis/services/redis.service";
 import { TradeData } from "../types/swap-event.type";
+import { COMMON_TOKEN_MINT } from "../constants/token.constant";
+import { SolPriceResponseDto } from "../dtos/sol-price.response.dto";
 
 const TOKEN_META_KEY = (address: string) => `token:meta:${address}`;
 const TOKEN_META_TTL = 24 * 60 * 60; // 24 hours
+// Indexer (holder-aggregation.service) sets EXPIRE = PRICE_TTL_S on each write.
+// We treat the cached entry as stale when remaining TTL < FRESH_MIN_TTL_S,
+// i.e. last write was more than STALE_THRESHOLD_S ago.
+const PRICE_TTL_S = 60 * 60;
+const STALE_THRESHOLD_S = 5 * 60;
+const FRESH_MIN_TTL_S = PRICE_TTL_S - STALE_THRESHOLD_S;
 
 @Injectable()
 export class TokensService {
@@ -37,6 +45,38 @@ export class TokensService {
         private readonly redisService: RedisService
     ) {
         this.network = this.solanaService.getNetwork();
+    }
+
+    /**
+     * SOL/USD price for the limit-order panel. Reads the indexer-maintained
+     * Redis hashset; falls back to CoinGecko on miss/stale (does NOT write back —
+     * that's the indexer's job).
+     */
+    async getSolPrice(): Promise<SolPriceResponseDto> {
+        const priceKey = `price:${COMMON_TOKEN_MINT.SOL}:latest`;
+        const cached = await this.redisService.hgetall(priceKey);
+
+        if (cached?.price_usd) {
+            const priceUsd = parseFloat(cached.price_usd);
+            if (priceUsd > 0) {
+                const ttl = await this.redisService.ttl(priceKey);
+                // ttl < 0: no expiry set → treat as fresh (or missing, handled above).
+                const isStale = ttl >= 0 && ttl < FRESH_MIN_TTL_S;
+                if (!isStale) {
+                    return { price_usd: priceUsd, source: "redis" };
+                }
+                this.logger.debug(`Redis SOL price stale (ttl=${ttl}s), falling back to CoinGecko`);
+            }
+        }
+
+        try {
+            const prices = await this.coinGeckoService.getSimplePrice(["solana"]);
+            const priceUsd = (prices as Record<string, { usd?: number }>)["solana"]?.usd ?? 0;
+            return { price_usd: priceUsd, source: "coingecko" };
+        } catch (error) {
+            this.logger.error("Failed to fetch SOL price from CoinGecko", error);
+            return { price_usd: 0, source: "coingecko" };
+        }
     }
 
     private async cacheTokenMetadata(token: {

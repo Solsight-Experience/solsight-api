@@ -23,6 +23,7 @@ import { IndexerModule } from "./modules/indexer/indexer.module";
 import { WatchlistModule } from "./modules/watchlist/watchlist.module";
 import { ZaloModule } from "./modules/zalo/zalo.module";
 import { EmailModule } from "./modules/email/email.module";
+import { SwapModule } from "./modules/swap/swap.module";
 @Module({
     imports: [
         ConfigModule.forRoot({
@@ -56,7 +57,8 @@ import { EmailModule } from "./modules/email/email.module";
         IndexerModule,
         WatchlistModule,
         ZaloModule,
-        EmailModule
+        EmailModule,
+        SwapModule
     ],
     controllers: [],
     providers: []

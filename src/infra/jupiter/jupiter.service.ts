@@ -9,7 +9,11 @@ import {
     CreateOrderResponse,
     ExecuteParams,
     ExecuteResponse,
+    JupiterGetSwapQuoteParams,
     JupiterPriceV3Item,
+    JupiterQuoteResponse,
+    JupiterSwapRequest,
+    JupiterSwapResponse,
     JupiterTokenMintInformation,
     JupiterTokenV2
 } from "./types";
@@ -28,7 +32,7 @@ export class JupiterService {
 
         this.apiClient = axios.create({
             baseURL: baseUrl,
-            timeout: 10000,
+            timeout: 15000,
             headers: {
                 "Content-Type": "application/json",
                 "x-api-key": apiKey
@@ -253,6 +257,35 @@ export class JupiterService {
             return response.data;
         } catch (error) {
             this.logger.error("Failed to get trigger orders", error);
+            throw error;
+        }
+    }
+
+    /**
+     * Get a swap quote from Jupiter
+     */
+    async getSwapQuote(params: JupiterGetSwapQuoteParams): Promise<JupiterQuoteResponse> {
+        try {
+            const response = await this.apiClient.get<JupiterQuoteResponse>("/swap/v1/quote", { params });
+            return response.data;
+        } catch (error) {
+            this.logger.error("Failed to get swap quote", error);
+            throw error;
+        }
+    }
+
+    /**
+     * Get an unsigned swap transaction from Jupiter
+     */
+    async getSwapTransaction(params: JupiterSwapRequest): Promise<JupiterSwapResponse> {
+        try {
+            const response = await this.apiClient.post<JupiterSwapResponse>("/swap/v1/swap", {
+                ...params,
+                wrapAndUnwrapSol: params.wrapAndUnwrapSol ?? true
+            });
+            return response.data;
+        } catch (error) {
+            this.logger.error("Failed to get swap transaction", error);
             throw error;
         }
     }

@@ -28,13 +28,8 @@ export default () => ({
         apiKey: process.env.HELIUS_API_KEY
     },
 
-    helius: {
-        heliusRpcUrl: process.env.HELIUS_RPC_URL,
-        heliusApiKey: process.env.HELIUS_API_KEY
-    },
-
     jupiter: {
-        apiUrl: process.env.JUPITER_API_URL,
+        apiUrl: process.env.JUPITER_API_URL ?? "https://api.jup.ag",
         apiKey: process.env.JUPITER_API_KEY
     },
 

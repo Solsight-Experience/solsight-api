@@ -191,3 +191,119 @@ export interface ExecuteResponse {
     signature: string;
     code: number;
 }
+
+export type JupiterSwapMode = "ExactIn" | "ExactOut";
+
+export interface JupiterPlatformFee {
+    amount?: string;
+    feeBps?: number;
+}
+
+export interface JupiterSwapInfo {
+    ammKey: string;
+    label?: string;
+    inputMint: string;
+    outputMint: string;
+    inAmount: string;
+    outAmount: string;
+    feeAmount?: string | null;
+    feeMint?: string | null;
+}
+
+export interface JupiterRoutePlanStep {
+    swapInfo: JupiterSwapInfo;
+    percent?: number | null;
+    bps?: number;
+}
+
+export interface JupiterMostReliableAmmsQuoteReport {
+    info?: Record<string, string>;
+}
+
+export interface JupiterQuoteResponse {
+    inputMint: string;
+    inAmount: string;
+    outputMint: string;
+    outAmount: string;
+    otherAmountThreshold: string;
+    swapMode: JupiterSwapMode;
+    slippageBps: number;
+    platformFee?: JupiterPlatformFee;
+    priceImpactPct: string;
+    routePlan: JupiterRoutePlanStep[];
+    contextSlot?: number;
+    timeTaken?: number;
+    mostReliableAmmsQuoteReport?: JupiterMostReliableAmmsQuoteReport | null;
+}
+
+export interface JupiterGetSwapQuoteParams {
+    inputMint: string;
+    outputMint: string;
+    amount: string;
+    swapMode?: JupiterSwapMode | string;
+    slippageBps?: number;
+    dexes?: string;
+    excludeDexes?: string;
+    restrictIntermediateTokens?: boolean;
+    onlyDirectRoutes?: boolean;
+    asLegacyTransaction?: boolean;
+    platformFeeBps?: number;
+    maxAccounts?: number;
+    instructionVersion?: "V1" | "V2";
+    dynamicSlippage?: boolean;
+    forJitoBundle?: boolean;
+}
+
+export interface JupiterPriorityLevelWithMaxLamports {
+    priorityLevelWithMaxLamports: {
+        priorityLevel: "medium" | "high" | "veryHigh";
+        maxLamports: number;
+        global?: boolean;
+    };
+}
+
+export interface JupiterJitoTipLamports {
+    jitoTipLamports: number;
+}
+
+export interface JupiterJitoTipLamportsWithPayer {
+    jitoTipLamportsWithPayer: {
+        lamports: number;
+        payer: string;
+    };
+}
+
+export type JupiterPrioritizationFeeLamports = JupiterPriorityLevelWithMaxLamports | JupiterJitoTipLamports | JupiterJitoTipLamportsWithPayer | number | "auto";
+
+export interface JupiterSwapRequest {
+    userPublicKey: string;
+    quoteResponse: JupiterQuoteResponse;
+    payer?: string;
+    wrapAndUnwrapSol?: boolean;
+    useSharedAccounts?: boolean;
+    feeAccount?: string;
+    trackingAccount?: string;
+    prioritizationFeeLamports?: JupiterPrioritizationFeeLamports;
+    asLegacyTransaction?: boolean;
+    destinationTokenAccount?: string;
+    nativeDestinationAccount?: string;
+    dynamicComputeUnitLimit?: boolean;
+    skipUserAccountsRpcCalls?: boolean;
+    dynamicSlippage?: boolean;
+    computeUnitPriceMicroLamports?: number;
+    blockhashSlotsToExpiry?: number;
+}
+
+export interface JupiterDynamicSlippageReport {
+    slippageBps?: number;
+    otherAmount?: number;
+    simulatedIncurredSlippageBps?: number;
+    amplificationRatio?: string;
+}
+
+export interface JupiterSwapResponse {
+    swapTransaction: string;
+    lastValidBlockHeight: number;
+    prioritizationFeeLamports?: number;
+    dynamicSlippageReport?: JupiterDynamicSlippageReport;
+}
