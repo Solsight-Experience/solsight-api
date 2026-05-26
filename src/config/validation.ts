@@ -68,6 +68,11 @@ export const validationSchema = Joi.object({
     JUPITER_API_URL: Joi.string().uri().optional(),
     JUPITER_API_KEY: Joi.string().required(),
 
+    // Executor
+    EXECUTOR_PROVIDER: Joi.string().valid("jupiter", "solsight").optional(),
+    SOLSIGHT_EXECUTOR_API_URL: Joi.string().uri().optional(),
+    SOLSIGHT_EXECUTOR_API_KEY: Joi.string().optional(),
+
     // CoinGecko
     COINGECKO_API_URL: Joi.string().uri().optional(),
     COINGECKO_API_KEY: Joi.string().required(),
