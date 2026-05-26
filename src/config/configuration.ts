@@ -33,6 +33,15 @@ export default () => ({
         apiKey: process.env.JUPITER_API_KEY
     },
 
+    executor: {
+        provider: process.env.EXECUTOR_PROVIDER || "jupiter"
+    },
+
+    solsightExecutor: {
+        apiUrl: process.env.SOLSIGHT_EXECUTOR_API_URL ?? "http://localhost:8080",
+        apiKey: process.env.SOLSIGHT_EXECUTOR_API_KEY
+    },
+
     coingecko: {
         apiUrl: process.env.COINGECKO_API_URL || "https://api.coingecko.com/api/v3",
         apiKey: process.env.COINGECKO_API_KEY || "",
