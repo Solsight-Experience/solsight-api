@@ -1,5 +1,4 @@
 import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
-import { InjectRepository } from "@nestjs/typeorm";
 import { Cron } from "@nestjs/schedule";
 import { Repository } from "typeorm";
 import { PubSubService } from "../../../redis/services/pubsub.service";
@@ -7,6 +6,8 @@ import { MarketPriceEvent } from "../entities/market-price-event.entity";
 import { Transaction, TransactionStatus, TransactionType } from "../../transactions/entities/transaction.entity";
 import { Token } from "../../tokens/entities/token.entity";
 import { SwapEvent, getTokenMintFromSwap } from "../../tokens/types/swap-event.type";
+import { DataSourceRegistry } from "../../../common/cluster/data-source-registry";
+import { ClusterProvider } from "../../../common/cluster/cluster.provider";
 
 const TRADES_CHANNEL = "trades";
 
@@ -17,13 +18,24 @@ export class StreamConsumerService implements OnModuleInit {
 
     constructor(
         private readonly pubSubService: PubSubService,
-        @InjectRepository(MarketPriceEvent)
-        private readonly priceEventRepo: Repository<MarketPriceEvent>,
-        @InjectRepository(Transaction)
-        private readonly transactionRepo: Repository<Transaction>,
-        @InjectRepository(Token)
-        private readonly tokenRepo: Repository<Token>
+        private readonly registryService: DataSourceRegistry,
+        private readonly clusterProvider: ClusterProvider
     ) {}
+
+    private async getPriceEventRepository(): Promise<Repository<MarketPriceEvent>> {
+        const dataSource = this.registryService.get("mainnet");
+        return dataSource.getRepository(MarketPriceEvent);
+    }
+
+    private async getTransactionRepository(): Promise<Repository<Transaction>> {
+        const dataSource = this.registryService.get("mainnet");
+        return dataSource.getRepository(Transaction);
+    }
+
+    private async getTokenRepository(): Promise<Repository<Token>> {
+        const dataSource = this.registryService.get("mainnet");
+        return dataSource.getRepository(Token);
+    }
 
     async onModuleInit(): Promise<void> {
         await this.pubSubService.subscribe(TRADES_CHANNEL, (message) => {
@@ -45,7 +57,9 @@ export class StreamConsumerService implements OnModuleInit {
 
     private async persistPriceEvent(swap: SwapEvent): Promise<void> {
         try {
-            const entity = this.priceEventRepo.create({
+            const entity = await (
+                await this.getPriceEventRepository()
+            ).create({
                 tokenMint: getTokenMintFromSwap(swap),
                 price: swap.price_usd ?? swap.price_native,
                 slot: String(swap.slot),
@@ -55,7 +69,7 @@ export class StreamConsumerService implements OnModuleInit {
                 eventType: "SWAP"
             });
 
-            await this.priceEventRepo.createQueryBuilder().insert().into(MarketPriceEvent).values(entity).orIgnore().execute();
+            await await (await this.getPriceEventRepository()).createQueryBuilder().insert().into(MarketPriceEvent).values(entity).orIgnore().execute();
         } catch (err) {
             this.logger.error(`Failed to persist price event for sig ${swap.signature}:`, err);
         }
@@ -63,7 +77,9 @@ export class StreamConsumerService implements OnModuleInit {
 
     private async persistTransaction(swap: SwapEvent): Promise<void> {
         try {
-            const entity = this.transactionRepo.create({
+            const entity = await (
+                await this.getTransactionRepository()
+            ).create({
                 signature: swap.signature,
                 type: TransactionType.SWAP,
                 status: TransactionStatus.CONFIRMED,
@@ -82,7 +98,7 @@ export class StreamConsumerService implements OnModuleInit {
                 }
             });
 
-            await this.transactionRepo.createQueryBuilder().insert().into(Transaction).values(entity).orIgnore().execute();
+            await await (await this.getTransactionRepository()).createQueryBuilder().insert().into(Transaction).values(entity).orIgnore().execute();
         } catch (err) {
             this.logger.error(`Failed to persist transaction for sig ${swap.signature}:`, err);
         }
@@ -96,7 +112,7 @@ export class StreamConsumerService implements OnModuleInit {
 
         for (const [address, price] of snapshot) {
             try {
-                await this.tokenRepo.update({ address }, { price });
+                await await (await this.getTokenRepository()).update({ address }, { price });
             } catch (err) {
                 this.logger.error(`Failed to update price for token ${address}:`, err);
             }

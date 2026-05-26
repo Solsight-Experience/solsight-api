@@ -1,11 +1,12 @@
 import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
-import { InjectRepository } from "@nestjs/typeorm";
 import { In, Repository } from "typeorm";
 import { Token } from "../entities/token.entity";
 import { ConfigService } from "@nestjs/config";
 import * as fs from "fs";
 import * as path from "path";
 import * as readline from "readline";
+import { DataSourceRegistry } from "../../../common/cluster/data-source-registry";
+import { ClusterProvider } from "../../../common/cluster/cluster.provider";
 
 @Injectable()
 export class TokenSeederService implements OnModuleInit {
@@ -13,9 +14,15 @@ export class TokenSeederService implements OnModuleInit {
 
     constructor(
         private readonly configService: ConfigService,
-        @InjectRepository(Token)
-        private readonly tokenRepository: Repository<Token>
+        private readonly registryService: DataSourceRegistry,
+        private readonly clusterProvider: ClusterProvider
     ) {}
+
+    private async getTokenRepository(): Promise<Repository<Token>> {
+        const cluster = this.clusterProvider.cluster;
+        const dataSource = this.registryService.get(cluster);
+        return dataSource.getRepository(Token);
+    }
 
     async onModuleInit() {
         this.logger.log("Initializing TokenSeederService...");
@@ -53,7 +60,7 @@ export class TokenSeederService implements OnModuleInit {
                 if (force) {
                     newAddresses = addresses;
                 } else {
-                    const existing = await this.tokenRepository
+                    const existing = await (await this.getTokenRepository())
                         .createQueryBuilder("t")
                         .select("t.address")
                         .where("t.address IN (:...addresses)", { addresses })
@@ -179,7 +186,9 @@ export class TokenSeederService implements OnModuleInit {
                     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
                         try {
                             for (let i = 0; i < rows.length; i += UPSERT_CHUNK_SIZE) {
-                                await this.tokenRepository.upsert(rows.slice(i, i + UPSERT_CHUNK_SIZE), {
+                                await await (
+                                    await this.getTokenRepository()
+                                ).upsert(rows.slice(i, i + UPSERT_CHUNK_SIZE), {
                                     conflictPaths: ["address"],
                                     skipUpdateIfNoValuesChanged: false
                                 });
@@ -194,7 +203,9 @@ export class TokenSeederService implements OnModuleInit {
                                 this.logger.warn(`[Provisioned sync] Batch failed, retrying row-by-row to isolate errors...`);
                                 for (const row of rows) {
                                     try {
-                                        await this.tokenRepository.upsert(row, { conflictPaths: ["address"], skipUpdateIfNoValuesChanged: false });
+                                        await await (
+                                            await this.getTokenRepository()
+                                        ).upsert(row, { conflictPaths: ["address"], skipUpdateIfNoValuesChanged: false });
                                         totalInserted++;
                                     } catch (rowErr: any) {
                                         this.logger.error(`[Provisioned sync] Failed to upsert token ${row.address}: ${rowErr.message}`);
@@ -253,7 +264,7 @@ export class TokenSeederService implements OnModuleInit {
             const jupBaseUrl = `${this.configService.get<string>("jupiter.apiUrl")}/tokens/v2/search?query=`;
 
             // Load all addresses from DB
-            const dbTokens = await this.tokenRepository.createQueryBuilder("t").select("t.address").getMany();
+            const dbTokens = await await (await this.getTokenRepository()).createQueryBuilder("t").select("t.address").getMany();
             const allAddresses = dbTokens.map((t) => t.address).slice(fromRow ?? 0, toRow ?? undefined);
 
             this.logger.log(`[DB sync] Found ${allAddresses.length.toLocaleString()} tokens to refresh (total in DB: ${dbTokens.length.toLocaleString()}).`);
@@ -375,7 +386,9 @@ export class TokenSeederService implements OnModuleInit {
                 for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
                     try {
                         for (let k = 0; k < rows.length; k += UPSERT_CHUNK_SIZE) {
-                            await this.tokenRepository.upsert(rows.slice(k, k + UPSERT_CHUNK_SIZE), {
+                            await await (
+                                await this.getTokenRepository()
+                            ).upsert(rows.slice(k, k + UPSERT_CHUNK_SIZE), {
                                 conflictPaths: ["address"],
                                 skipUpdateIfNoValuesChanged: false
                             });
@@ -391,7 +404,9 @@ export class TokenSeederService implements OnModuleInit {
                             // Upsert row-by-row to isolate the problematic token
                             for (const row of rows) {
                                 try {
-                                    await this.tokenRepository.upsert(row, { conflictPaths: ["address"], skipUpdateIfNoValuesChanged: false });
+                                    await await (
+                                        await this.getTokenRepository()
+                                    ).upsert(row, { conflictPaths: ["address"], skipUpdateIfNoValuesChanged: false });
                                     totalUpdated++;
                                 } catch (rowErr: any) {
                                     this.logger.error(`[DB sync] Failed to upsert token ${row.address}: ${rowErr.message}`);
@@ -429,7 +444,7 @@ export class TokenSeederService implements OnModuleInit {
         await this.updateBatchTokens(importantAddresses);
 
         // --- Giai đoạn 2: batch 60 token mỗi 70 giây ---
-        const allTokens = await this.tokenRepository.find();
+        const allTokens = await await (await this.getTokenRepository()).find();
         const remainingTokens = allTokens.map((t) => t.address).filter((addr) => !importantAddresses.includes(addr));
 
         const BATCH_SIZE = 60;
@@ -461,7 +476,9 @@ export class TokenSeederService implements OnModuleInit {
             const tokensInfo: any[] = await fetch(jupUrl).then((res) => res.json());
             if (!tokensInfo?.length) return;
 
-            const existingTokens = await this.tokenRepository.findBy({
+            const existingTokens = await await (
+                await this.getTokenRepository()
+            ).findBy({
                 address: In(addresses)
             });
 
@@ -521,7 +538,9 @@ export class TokenSeederService implements OnModuleInit {
                 });
 
             if (!updates.length) return;
-            await this.tokenRepository.upsert(updates, {
+            await await (
+                await this.getTokenRepository()
+            ).upsert(updates, {
                 conflictPaths: ["address"],
                 skipUpdateIfNoValuesChanged: false
             });

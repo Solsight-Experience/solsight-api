@@ -1,5 +1,4 @@
 import { Injectable, Logger } from "@nestjs/common";
-import { InjectRepository } from "@nestjs/typeorm";
 import { Between, FindOptionsOrderValue, ILike, In, Repository } from "typeorm";
 import { Token } from "../entities/token.entity";
 import { OhlcCandle } from "../entities/ohlc-candle.entity";
@@ -17,6 +16,8 @@ import { RedisService } from "src/redis/services/redis.service";
 import { TradeData } from "../types/swap-event.type";
 import { COMMON_TOKEN_MINT } from "../constants/token.constant";
 import { SolPriceResponseDto } from "../dtos/sol-price.response.dto";
+import { DataSourceRegistry } from "src/common/cluster/data-source-registry";
+import { ClusterProvider } from "src/common/cluster/cluster.provider";
 
 const TOKEN_META_KEY = (address: string) => `token:meta:${address}`;
 const TOKEN_META_TTL = 24 * 60 * 60; // 24 hours
@@ -33,10 +34,8 @@ export class TokensService {
     private network: string;
 
     constructor(
-        @InjectRepository(Token)
-        private readonly tokenRepository: Repository<Token>,
-        @InjectRepository(OhlcCandle)
-        private readonly ohlcCandleRepository: Repository<OhlcCandle>,
+        private readonly registryService: DataSourceRegistry,
+        private readonly clusterProvider: ClusterProvider,
         private readonly solanaService: SolanaService,
         private readonly jupiterService: JupiterService,
         private readonly coinGeckoService: CoinGeckoService,
@@ -45,6 +44,18 @@ export class TokensService {
         private readonly redisService: RedisService
     ) {
         this.network = this.solanaService.getNetwork();
+    }
+
+    private async getTokenRepository(): Promise<Repository<Token>> {
+        const cluster = this.clusterProvider.cluster;
+        const dataSource = this.registryService.get(cluster);
+        return dataSource.getRepository(Token);
+    }
+
+    private async getOhlcCandleRepository(): Promise<Repository<OhlcCandle>> {
+        const cluster = this.clusterProvider.cluster;
+        const dataSource = this.registryService.get(cluster);
+        return dataSource.getRepository(OhlcCandle);
     }
 
     /**
@@ -108,7 +119,9 @@ export class TokensService {
             }
         }
 
-        const token = await this.tokenRepository.findOne({
+        const token = await (
+            await this.getTokenRepository()
+        ).findOne({
             where: { address },
             select: ["address", "symbol", "name", "logoUri", "decimals", "coingeckoId"]
         });
@@ -128,7 +141,7 @@ export class TokensService {
     }
 
     async findOne(address: string): Promise<TokenResponseDto | null> {
-        let token = await this.tokenRepository.findOneBy({ address });
+        let token = await (await this.getTokenRepository()).findOneBy({ address });
 
         if (!token) {
             const jupiterToken = await this.jupiterService.searchToken(address);
@@ -144,7 +157,7 @@ export class TokensService {
             }
 
             await this.updateToken(address, tokenData);
-            token = await this.tokenRepository.findOneBy({ address });
+            token = await (await this.getTokenRepository()).findOneBy({ address });
         }
 
         if (!token) {
@@ -178,7 +191,9 @@ export class TokensService {
         if (uncached.length === 0) return result;
 
         // 2. Query DB for uncached addresses
-        const tokens = await this.tokenRepository.find({
+        const tokens = await (
+            await this.getTokenRepository()
+        ).find({
             where: { address: In(uncached) },
             select: ["address", "symbol", "name", "logoUri", "decimals", "coingeckoId"]
         });
@@ -201,7 +216,9 @@ export class TokensService {
         for (const addr of missing) {
             try {
                 await this.findOne(addr);
-                const token = await this.tokenRepository.findOne({
+                const token = await (
+                    await this.getTokenRepository()
+                ).findOne({
                     where: { address: addr },
                     select: ["address", "symbol", "name", "logoUri", "decimals", "coingeckoId"]
                 });
@@ -224,7 +241,9 @@ export class TokensService {
     }
 
     async search(query: string, limit: number = 10): Promise<TokenDetailsResponseDto[]> {
-        const tokens = await this.tokenRepository.find({
+        const tokens = await (
+            await this.getTokenRepository()
+        ).find({
             where: [{ name: ILike(`%${query}%`) }, { symbol: ILike(`%${query}%`) }, { address: ILike(`%${query}%`) }],
             take: limit
         });
@@ -292,7 +311,9 @@ export class TokensService {
                 whereConditions.insiderPercent = Between(0, h.insider_max_percent);
             }
         }
-        const tokens = await this.tokenRepository.find({
+        const tokens = await (
+            await this.getTokenRepository()
+        ).find({
             take: limit,
             skip: offset,
             relations: ["category"],
@@ -363,7 +384,9 @@ export class TokensService {
         const from = to - days * 86_400_000;
 
         // 1. Query DB theo range [from, to]
-        const cached = await this.ohlcCandleRepository.find({
+        const cached = await (
+            await this.getOhlcCandleRepository()
+        ).find({
             where: { tokenMint: address, interval, timestamp: Between(from, to) },
             order: { timestamp: "ASC" }
         });
@@ -373,7 +396,7 @@ export class TokensService {
         }
 
         // 2. Get coingeckoId from token DB
-        const token = await this.tokenRepository.findOne({ where: { address }, select: ["coingeckoId"] });
+        const token = await (await this.getTokenRepository()).findOne({ where: { address }, select: ["coingeckoId"] });
         if (!token?.coingeckoId) {
             return { interval, points: this.mapCandles(cached) };
         }
@@ -396,10 +419,12 @@ export class TokensService {
                 close,
                 volume: 0
             }));
-            await this.ohlcCandleRepository.createQueryBuilder().insert().into(OhlcCandle).values(candles).orIgnore().execute();
+            await (await this.getOhlcCandleRepository()).createQueryBuilder().insert().into(OhlcCandle).values(candles).orIgnore().execute();
 
             // 5. Re-query DB theo cùng range [from, to]
-            const fresh = await this.ohlcCandleRepository.find({
+            const fresh = await (
+                await this.getOhlcCandleRepository()
+            ).find({
                 where: { tokenMint: address, interval, timestamp: Between(from, to) },
                 order: { timestamp: "ASC" }
             });
@@ -433,7 +458,7 @@ export class TokensService {
     }
 
     async updateToken(address: string, data: Partial<Token>) {
-        const token = await this.tokenRepository.upsert({ address, ...data }, ["address"]);
+        const token = await (await this.getTokenRepository()).upsert({ address, ...data }, ["address"]);
         // Invalidate metadata cache so next read picks up fresh data
         await this.redisService.del(TOKEN_META_KEY(address));
         return token;

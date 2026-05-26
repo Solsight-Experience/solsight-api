@@ -3,9 +3,10 @@ import { TokensService } from "./tokens.service";
 import { PromptBuilderService, TokenContext } from "./prompt-builder.service";
 import { GeminiService } from "../../../infra/gemini/gemini.service";
 import { RedisService } from "../../../redis/services/redis.service";
-import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
 import { Token } from "../entities/token.entity";
+import { DataSourceRegistry } from "../../../common/cluster/data-source-registry";
+import { ClusterProvider } from "../../../common/cluster/cluster.provider";
 
 export interface TokenSummaryInput {
     address: string;
@@ -39,9 +40,15 @@ export class TokenSummaryService {
         private readonly promptBuilderService: PromptBuilderService,
         private readonly geminiService: GeminiService,
         private readonly redisService: RedisService,
-        @InjectRepository(Token)
-        private readonly tokenRepository: Repository<Token>
+        private readonly registryService: DataSourceRegistry,
+        private readonly clusterProvider: ClusterProvider
     ) {}
+
+    private async getTokenRepository(): Promise<Repository<Token>> {
+        const cluster = this.clusterProvider.cluster;
+        const dataSource = this.registryService.get(cluster);
+        return dataSource.getRepository(Token);
+    }
 
     /**
      * Generate AI-powered summary for a token
@@ -66,7 +73,9 @@ export class TokenSummaryService {
         // Attempt to fetch full token entity for richer data
         let token: Token | null = null;
         try {
-            token = await this.tokenRepository.findOne({
+            token = await (
+                await this.getTokenRepository()
+            ).findOne({
                 where: { address },
                 relations: ["category"]
             });

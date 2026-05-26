@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 import { ConfigModule } from "@nestjs/config";
 import { ScheduleModule } from "@nestjs/schedule";
+import { ClusterModule } from "./common/cluster/cluster.module";
 import { DatabaseModule } from "./database/database.module";
 import { LoggerModule } from "./common/logger/logger.module";
 import { WebsocketModule } from "./websocket/websocket.module";
@@ -39,6 +40,7 @@ import { SwapModule } from "./modules/swap/swap.module";
         CacheModule.register({
             isGlobal: true
         }),
+        ClusterModule,
         WebsocketModule,
         RedisModule,
         DatabaseModule,

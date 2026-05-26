@@ -18,6 +18,13 @@
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
+    "migration:generate:partitioned": "typeorm migration:generate -d dist/ormconfig.js -n",
+    "migration:generate:shared": "typeorm migration:generate -d dist/ormconfig.js -n",
+    "migration:run": "ts-node -r tsconfig-paths/register src/database/cli-migration-runner.ts",
+    "migration:revert": "typeorm migration:revert",
+    "schema:drift-check": "bash scripts/schema-drift-check.sh",
+    "seed:devnet": "ts-node -r tsconfig-paths/register src/database/seeders/seed-devnet-tokens.ts",
+    "reset-schemas": "bash scripts/reset-schemas.sh",
     "prepare": "husky"
   },
   "dependencies": {
