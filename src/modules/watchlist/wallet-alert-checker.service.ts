@@ -8,8 +8,7 @@ import { HeliusService } from "../../infra/solana/helius.service";
 import { ZaloSubscriptionService } from "../zalo/services/zalo-subscription.service";
 import { EmailSubscriptionService } from "../email/services/email-subscription.service";
 import { TokensService } from "../tokens/services/tokens.service";
-
-const SOL_MINT = "So11111111111111111111111111111111111111112";
+import { COMMON_TOKEN_MINT } from "../tokens/constants/token.constant";
 
 @Injectable()
 export class WalletAlertCheckerService implements OnModuleInit {
@@ -185,7 +184,7 @@ export class WalletAlertCheckerService implements OnModuleInit {
 
         if (swap) {
             if (swap.nativeInput) {
-                mintIn = SOL_MINT;
+                mintIn = COMMON_TOKEN_MINT.SOL;
                 amountIn = swap.nativeInput.amount / 1e9;
             } else if (swap.tokenInputs?.[0]) {
                 const i = swap.tokenInputs[0];
@@ -193,7 +192,7 @@ export class WalletAlertCheckerService implements OnModuleInit {
                 amountIn = parseFloat(i.rawTokenAmount?.tokenAmount ?? "0");
             }
             if (swap.nativeOutput) {
-                mintOut = SOL_MINT;
+                mintOut = COMMON_TOKEN_MINT.SOL;
                 amountOut = swap.nativeOutput.amount / 1e9;
             } else if (swap.tokenOutputs?.[0]) {
                 const o = swap.tokenOutputs[0];
@@ -217,7 +216,7 @@ export class WalletAlertCheckerService implements OnModuleInit {
                     .filter((t: any) => t.fromUserAccount === walletAddress)
                     .reduce((sum: number, t: any) => sum + (t.amount ?? 0), 0);
                 if (solSpent > 0) {
-                    mintIn = SOL_MINT;
+                    mintIn = COMMON_TOKEN_MINT.SOL;
                     amountIn = solSpent / 1e9;
                 }
             }
@@ -227,7 +226,7 @@ export class WalletAlertCheckerService implements OnModuleInit {
                     .filter((t: any) => t.toUserAccount === walletAddress)
                     .reduce((sum: number, t: any) => sum + (t.amount ?? 0), 0);
                 if (solReceived > 0) {
-                    mintOut = SOL_MINT;
+                    mintOut = COMMON_TOKEN_MINT.SOL;
                     amountOut = solReceived / 1e9;
                 }
             }
@@ -349,7 +348,7 @@ export class WalletAlertCheckerService implements OnModuleInit {
                 const from: string | undefined = nativeTransfers[0]?.fromUserAccount;
                 const to: string | undefined = nativeTransfers[0]?.toUserAccount;
                 const direction = to === alert.walletAddress ? "Received" : "Sent";
-                const solMeta = await this.tokenService.findOne(SOL_MINT);
+                const solMeta = await this.tokenService.findOne(COMMON_TOKEN_MINT.SOL);
                 type = NotificationEventType.TRANSACTION_CONFIRMED;
                 title = `${direction} ${this.fmt(totalSol)} SOL`;
                 message = `${direction} ${this.fmt(totalSol)} SOL · ${walletLabel}`;

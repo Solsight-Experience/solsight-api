@@ -1,0 +1,493 @@
+> ## Documentation Index
+> Fetch the complete documentation index at: https://dev.jup.ag/docs/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# Swap
+
+> Request for a base64-encoded unsigned swap transaction based on the /quote response
+
+<Warning>
+  **Metis Swap API** is no longer actively maintained and has been superseded by [Swap V2](/swap).
+</Warning>
+
+
+## OpenAPI
+
+````yaml /openapi-spec/swap/v1/swap.yaml post /swap
+openapi: 3.0.3
+info:
+  title: Metis Swap API
+  version: 1.0.0
+  description: Metis Swap API Schema
+servers:
+  - url: https://api.jup.ag/swap/v1
+    description: Metis Swap API endpoint
+  - url: https://preprod-quote-api.jup.ag/
+    description: This is a staging endpoint for tests
+security: []
+paths:
+  /swap:
+    post:
+      tags:
+        - Swap
+      summary: swap
+      description: >
+        Request for a base64-encoded unsigned swap transaction based on the
+        `/quote` response
+      operationId: SwapPost
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SwapRequest'
+            example:
+              userPublicKey: BQ72nSv9f3PRyRKCBnHLVrerrv37CYTHm5h3s9VSGQDV
+              quoteResponse:
+                inputMint: So11111111111111111111111111111111111111112
+                inAmount: '100000000'
+                outputMint: EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v
+                outAmount: '17057460'
+                otherAmountThreshold: '16886885'
+                swapMode: ExactIn
+                slippageBps: 100
+                priceImpactPct: '0.0001'
+                routePlan: []
+              dynamicComputeUnitLimit: true
+              dynamicSlippage: true
+              prioritizationFeeLamports:
+                priorityLevelWithMaxLamports:
+                  priorityLevel: veryHigh
+                  maxLamports: 1000000
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SwapResponse'
+              example:
+                swapTransaction: >-
+                  AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAEN...
+                lastValidBlockHeight: 324307300
+                prioritizationFeeLamports: 254600
+                dynamicSlippageReport:
+                  slippageBps: 12
+                  otherAmount: 17055413
+                  simulatedIncurredSlippageBps: 1
+                  amplificationRatio: '1.5'
+      security:
+        - ApiKeyAuth: []
+components:
+  schemas:
+    SwapRequest:
+      type: object
+      required:
+        - userPublicKey
+        - quoteResponse
+      properties:
+        userPublicKey:
+          type: string
+        payer:
+          description: >
+            - Allow a custom payer to pay for the transaction fees and rent of
+            token accounts
+
+            - Note that users can close their ATAs elsewhere and have you reopen
+            them again, your fees should account for this
+          type: string
+        wrapAndUnwrapSol:
+          description: >
+            - To automatically wrap/unwrap SOL in the transaction, as WSOL is an
+            SPL token while native SOL is not
+
+            - When true and input mint is SOL, it will wrap the SOL amount to
+            WSOL and swap
+
+            - When true and output mint is SOL, it will unwrap the WSOL back to
+            SOL
+
+            - When true, the wSOL token account is always closed after the
+            transaction, regardless of whether SOL is the input or output mint
+
+            - When false and input mint is SOL, it will use existing WSOL amount
+            to swap
+
+            - When false and output mint is SOL, it will not unwrap the WSOL to
+            SOL
+
+            - To set this parameter to false, you need to have the WSOL token
+            account initialized
+          type: boolean
+          default: true
+        useSharedAccounts:
+          description: >
+            - The default is determined dynamically by the routing engine,
+            allowing us to optimize for compute units, etc
+
+            - This enables the usage of shared program accounts, this is
+            essential as complex routing will require multiple intermediate
+            token accounts which the user might not have
+
+            - If true, you do not need to handle the creation of intermediate
+            token accounts for the user
+
+            - Do note, shared accounts route will fail on some new AMMs (low
+            liquidity token)
+          type: boolean
+        feeAccount:
+          description: >
+            - An initialized token account that will be used to collect fees
+
+            - The mint of the token account **can only be either the input or
+            output mint of the swap**
+
+            - Swap API no longer requires the use of the Referral Program
+
+            - If `platformFeeBps` is passed in `/quote`, the `feeAccount` must
+            be passed as well
+          type: string
+        trackingAccount:
+          description: >
+            - Specify any public key that belongs to you to track the
+            transactions
+
+            - Useful for integrators to get all the swap transactions from this
+            public key
+
+            - Query the data using a block explorer like Solscan/SolanaFM or
+            query like Dune/Flipside
+          type: string
+        prioritizationFeeLamports:
+          description: >
+            - To specify a level or amount of additional fees to prioritize the
+            transaction
+
+            - It can be used for EITHER priority fee OR Jito tip (not both at
+            the same time)
+
+            - If you want to include both, you will need to use
+            `/swap-instructions` to add both at the same time
+
+            - Defaults to `auto`, but preferred to use
+            `priorityLevelWithMaxLamports` as it may be more accurate when
+            accounting local fee market
+
+            - Fixed lamports can be passed in as an integer in the
+            `prioritizationFeeLamports` parameter
+          oneOf:
+            - $ref: '#/components/schemas/PriorityLevelWithMaxLamports'
+            - $ref: '#/components/schemas/JitoTipLamports'
+            - $ref: '#/components/schemas/JitoTipLamportsWithPayer'
+        asLegacyTransaction:
+          description: >
+            - Builds a legacy transaction rather than the default versioned
+            transaction
+
+            - Used together with `asLegacyTransaction` in `/quote`, otherwise
+            the transaction might be too large
+          type: boolean
+          default: false
+        destinationTokenAccount:
+          description: >
+            - Public key of a token account that will be used to receive the
+            token out of the swap
+
+            - If not provided, the signer's token account will be used
+
+            - If provided, we assume that the token account is already
+            initialized
+
+            - `destinationTokenAccount` and `nativeDestinationAccount` are
+            mutually exclusive
+          type: string
+        nativeDestinationAccount:
+          description: >
+            - Public key of an account that will be used to receive the native
+            SOL token out of the swap
+
+            - If not provided, the swap will default unwrap the WSOL and
+            transfer the native SOL to the swap authority account
+
+            - If provided, we will unwrap the WSOL and transfer the native SOL
+            to the account
+
+            - Only works if the output mint is SOL, is using the V2 instructions
+            and the account passed in is not owned by token program
+
+            - When sending native SOL to a new account, you must swap at least
+            enough to cover the rent required to create it.
+
+            - `destinationTokenAccount` and `nativeDestinationAccount` are
+            mutually exclusive
+          type: string
+        dynamicComputeUnitLimit:
+          description: >
+            - When enabled, simulates the swap to provide an accurate compute
+            unit limit in the transaction
+
+            - This incurs one extra RPC call to simulate
+
+            - Recommended for all normal flows — reduces priority fees needed
+            and improves transaction landing
+          type: boolean
+          default: false
+        skipUserAccountsRpcCalls:
+          description: >
+            - When enabled, it will not do any additional RPC calls to check on
+            required accounts
+
+            - The returned swap transaction will still attempt to create
+            required accounts regardless if it exists or not
+          type: boolean
+          default: false
+        dynamicSlippage:
+          description: >
+            - When enabled, it estimates slippage and apply it in the swap
+            transaction directly, overwriting the `slippageBps` parameter in the
+            quote response.
+
+            - This is no longer maintained, we are focusing efforts on RTSE on
+            Ultra Swap API
+          type: boolean
+          default: false
+        computeUnitPriceMicroLamports:
+          description: >
+            - To use an exact compute unit price to calculate priority fee
+
+            - `computeUnitLimit (1400000) * computeUnitPriceMicroLamports`
+
+            - We recommend using `prioritizationFeeLamports` and
+            `dynamicComputeUnitLimit` instead of passing in your own compute
+            unit price
+          type: integer
+          format: uint64
+        blockhashSlotsToExpiry:
+          description: >
+            - Pass in the number of slots we want the transaction to be valid
+            for
+
+            - Example: If you pass in 10 slots, the transaction will be valid
+            for ~400ms * 10 = approximately 4 seconds before it expires
+          type: integer
+          format: uint8
+        quoteResponse:
+          $ref: '#/components/schemas/QuoteResponse'
+    SwapResponse:
+      type: object
+      properties:
+        swapTransaction:
+          type: string
+        lastValidBlockHeight:
+          type: integer
+          format: uint64
+        prioritizationFeeLamports:
+          type: integer
+          format: uint64
+      required:
+        - swapTransaction
+        - lastValidBlockHeight
+    PriorityLevelWithMaxLamports:
+      title: priorityLevelWithMaxLamports
+      type: object
+      properties:
+        priorityLevelWithMaxLamports:
+          type: object
+          properties:
+            priorityLevel:
+              type: string
+              enum:
+                - medium
+                - high
+                - veryHigh
+            maxLamports:
+              type: integer
+              format: uint64
+              description: >
+                - Maximum lamports to cap the priority fee estimation, to
+                prevent overpaying
+            global:
+              type: boolean
+              default: false
+              description: >
+                - A boolean to choose between using a global or local fee market
+                to estimate. If `global` is set to `false`, the estimation
+                focuses on fees relevant to the **writable accounts** involved
+                in the instruction.
+          required:
+            - priorityLevel
+            - maxLamports
+          additionalProperties: false
+      required:
+        - priorityLevelWithMaxLamports
+      additionalProperties: false
+    JitoTipLamports:
+      title: jitoTipLamports
+      type: object
+      properties:
+        jitoTipLamports:
+          type: integer
+          format: uint64
+          description: >
+            - Exact amount of tip to use in a tip instruction
+
+            - Refer to Jito docs on how to estimate the tip amount based on
+            percentiles
+
+            - It has to be used together with a connection to a Jito RPC
+
+            - See their docs at https://docs.jito.wtf/
+      required:
+        - jitoTipLamports
+      additionalProperties: false
+    JitoTipLamportsWithPayer:
+      title: jitoTipLamportsWithPayer
+      type: object
+      properties:
+        jitoTipLamportsWithPayer:
+          type: object
+          properties:
+            lamports:
+              type: integer
+              format: uint64
+              description: Exact amount of lamports to use for the tip
+            payer:
+              type: string
+              description: Public key of an account that will be used to pay for the tip
+          required:
+            - lamports
+            - payer
+          additionalProperties: false
+      required:
+        - jitoTipLamportsWithPayer
+      additionalProperties: false
+    QuoteResponse:
+      type: object
+      required:
+        - inputMint
+        - outputMint
+        - inAmount
+        - outAmount
+        - otherAmountThreshold
+        - swapMode
+        - slippageBps
+        - priceImpactPct
+        - routePlan
+      properties:
+        inputMint:
+          type: string
+        inAmount:
+          type: string
+        outputMint:
+          type: string
+        outAmount:
+          type: string
+          description: |
+            - Best output amount after deducting AMM fees and platform fees
+            - Does not account for slippage
+        otherAmountThreshold:
+          type: string
+          description: >
+            - Minimum acceptable output amount — `outAmount` after applying
+            `slippageBps` tolerance
+
+            - Not used by `/swap` endpoint to build transaction
+        swapMode:
+          $ref: '#/components/schemas/SwapMode'
+          required: true
+        slippageBps:
+          type: integer
+          format: uint16
+          minimum: 0
+        platformFee:
+          $ref: '#/components/schemas/PlatformFee'
+        priceImpactPct:
+          type: string
+        routePlan:
+          type: array
+          items:
+            $ref: '#/components/schemas/RoutePlanStep'
+        contextSlot:
+          type: integer
+          format: uint64
+        timeTaken:
+          type: number
+        mostReliableAmmsQuoteReport:
+          type: object
+          nullable: true
+          description: >
+            - Markets that would have quoted for this pair
+
+            - Useful for debugging and verifying route decisions
+
+            - Each key is an AMM account address, each value is the quoted
+            output amount
+          properties:
+            info:
+              type: object
+              additionalProperties:
+                type: string
+    SwapMode:
+      type: string
+      enum:
+        - ExactIn
+        - ExactOut
+    PlatformFee:
+      type: object
+      properties:
+        amount:
+          type: string
+        feeBps:
+          type: integer
+          format: uint16
+    RoutePlanStep:
+      type: object
+      properties:
+        swapInfo:
+          $ref: '#/components/schemas/SwapInfo'
+        percent:
+          type: integer
+          format: uint8
+          nullable: true
+        bps:
+          type: integer
+          format: uint16
+      required:
+        - swapInfo
+    SwapInfo:
+      type: object
+      required:
+        - ammKey
+        - inputMint
+        - outputMint
+        - inAmount
+        - outAmount
+      properties:
+        ammKey:
+          type: string
+        label:
+          type: string
+        inputMint:
+          type: string
+        outputMint:
+          type: string
+        inAmount:
+          type: string
+        outAmount:
+          type: string
+        feeAmount:
+          type: string
+          nullable: true
+          deprecated: true
+        feeMint:
+          type: string
+          nullable: true
+          deprecated: true
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: x-api-key
+      description: Get API key via https://developers.jup.ag/portal
+
+````

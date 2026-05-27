@@ -45,9 +45,7 @@ export class TokenSeederService implements OnModuleInit {
             let totalProcessed = 0;
             let totalInserted = 0;
 
-            const jupBaseUrl = this.configService.get<string>("jupiter.apiUrl")
-                ? `${this.configService.get<string>("jupiter.apiUrl")}/tokens/v2/search?query=`
-                : "https://api.jup.ag/tokens/v2/search?query=";
+            const jupBaseUrl = `${this.configService.get<string>("jupiter.apiUrl")}/tokens/v2/search?query=`;
 
             const processBatch = async (addresses: string[]) => {
                 // 1. Filter out addresses already in DB (skip when force=true)
@@ -252,9 +250,7 @@ export class TokenSeederService implements OnModuleInit {
             const MAX_RETRIES = 3;
             const UPSERT_CHUNK_SIZE = 1500;
 
-            const jupBaseUrl = this.configService.get<string>("jupiter.apiUrl")
-                ? `${this.configService.get<string>("jupiter.apiUrl")}/tokens/v2/search?query=`
-                : "https://api.jup.ag/tokens/v2/search?query=";
+            const jupBaseUrl = `${this.configService.get<string>("jupiter.apiUrl")}/tokens/v2/search?query=`;
 
             // Load all addresses from DB
             const dbTokens = await this.tokenRepository.createQueryBuilder("t").select("t.address").getMany();

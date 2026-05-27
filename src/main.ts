@@ -22,7 +22,7 @@ async function bootstrap() {
     });
 
     const configService = app.get(ConfigService);
-    const port = configService.get<number>("PORT", 3000); // backend port
+    const port = configService.getOrThrow<number>("port"); // backend port
     app.setGlobalPrefix("api");
     await app.listen(port);
 }

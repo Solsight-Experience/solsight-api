@@ -470,7 +470,7 @@ export class PortfolioService {
 
         const tokenPrices = await this.getTokenPrices(mintAddresses, tokenMetaMap);
 
-        let positions = Array.from(aggregatedTokens.entries()).map(([mint, data]) => {
+        const positions = Array.from(aggregatedTokens.entries()).map(([mint, data]) => {
             const price = tokenPrices.get(mint) || 0;
             const valueUsd = data.amount * price;
             return {
@@ -1469,7 +1469,7 @@ export class PortfolioService {
 
         const tokenPrices = await this.getTokenPrices(mintAddresses, tokenMetaMap);
 
-        let positions: any[] = Array.from(aggregatedTokens.entries()).map(([mint, data]) => {
+        const positions: any[] = Array.from(aggregatedTokens.entries()).map(([mint, data]) => {
             const price = tokenPrices.get(mint) || 0;
             return {
                 mint,
