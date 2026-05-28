@@ -92,4 +92,48 @@ export class AnalyticsRepository {
             volumeUsd: parseFloat(r.volumeUsd ?? "0") || 0
         }));
     }
+
+    async getRecentSwaps(page: number, limit: number, startDate?: Date, endDate?: Date): Promise<{ swaps: SwapExecution[]; total: number }> {
+        const qb = this.swapExecutionRepo
+            .createQueryBuilder("se")
+            .orderBy("se.createdAt", "DESC")
+            .skip((page - 1) * limit)
+            .take(limit);
+
+        if (startDate) qb.andWhere("se.createdAt >= :start", { start: startDate });
+        if (endDate) qb.andWhere("se.createdAt <= :end", { end: endDate });
+
+        const [swaps, total] = await qb.getManyAndCount();
+        return { swaps, total };
+    }
+
+    async getVolumeByPair(
+        startDate: Date,
+        endDate: Date,
+        limit: number
+    ): Promise<{ inputMint: string; outputMint: string; swapCount: number; volumeUsd: number }[]> {
+        const rows = await this.swapExecutionRepo
+            .createQueryBuilder("se")
+            .select("se.inputMint", "inputMint")
+            .addSelect("se.outputMint", "outputMint")
+            .addSelect("COUNT(*)", "swapCount")
+            .addSelect("SUM(se.volumeUsd)", "volumeUsd")
+            .where("se.createdAt >= :start AND se.createdAt <= :end", { start: startDate, end: endDate })
+            .groupBy("se.inputMint, se.outputMint")
+            .orderBy('"volumeUsd"', "DESC")
+            .limit(limit)
+            .getRawMany<{ inputMint: string; outputMint: string; swapCount: string; volumeUsd: string | null }>();
+
+        return rows.map((r) => ({
+            inputMint: r.inputMint,
+            outputMint: r.outputMint,
+            swapCount: parseInt(r.swapCount, 10),
+            volumeUsd: parseFloat(r.volumeUsd ?? "0") || 0
+        }));
+    }
+
+    async getAllActiveUserIds(): Promise<string[]> {
+        const rows = await this.userRepo.createQueryBuilder("u").select("u.id", "id").where("u.isActive = true").getRawMany<{ id: string }>();
+        return rows.map((r) => r.id);
+    }
 }

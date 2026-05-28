@@ -51,4 +51,22 @@ export class AdminAnalyticsService {
         const { startDate, endDate } = parseDateRange(dto);
         return this.analyticsRepo.getTopTokens(startDate, endDate, dto.limit ?? 10);
     }
+
+    async getRecentSwaps(dto: AnalyticsQueryDto & { page?: number }) {
+        const page = dto.page ?? 1;
+        const limit = dto.limit ?? 20;
+        const startDate = dto.startDate ? new Date(dto.startDate) : undefined;
+        const endDate = dto.endDate ? new Date(dto.endDate) : undefined;
+        const { swaps, total } = await this.analyticsRepo.getRecentSwaps(page, limit, startDate, endDate);
+        return { swaps, total, page, limit };
+    }
+
+    async getVolumeByPair(dto: AnalyticsQueryDto) {
+        const { startDate, endDate } = parseDateRange(dto);
+        return this.analyticsRepo.getVolumeByPair(startDate, endDate, dto.limit ?? 10);
+    }
+
+    async getAllActiveUserIds(): Promise<string[]> {
+        return this.analyticsRepo.getAllActiveUserIds();
+    }
 }

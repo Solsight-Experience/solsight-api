@@ -31,4 +31,14 @@ export class AdminAnalyticsController {
     async getTopTokens(@Query() query: AnalyticsQueryDto) {
         return this.analyticsService.getTopTokens(query);
     }
+
+    @Get("recent-swaps")
+    async getRecentSwaps(@Query() query: AnalyticsQueryDto) {
+        return this.analyticsService.getRecentSwaps(query);
+    }
+
+    @Get("volume-by-pair")
+    async getVolumeByPair(@Query() query: AnalyticsQueryDto) {
+        return this.analyticsService.getVolumeByPair(query);
+    }
 }

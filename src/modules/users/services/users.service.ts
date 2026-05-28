@@ -4,7 +4,7 @@ import { UsersRepository } from "../repositories/users.repository";
 import { CreateUserDto } from "../dtos/create-user.dto";
 import { UpdateUserDto } from "../dtos/update-user.dto";
 import { UserFilterDto } from "../dtos/user-filter.dto";
-import { User } from "../entities/user.entity";
+import { User, UserRole } from "../entities/user.entity";
 
 @Injectable()
 export class UsersService {
@@ -46,5 +46,30 @@ export class UsersService {
         await this.findById(id);
         await this.usersRepository.delete(id);
         return { message: "User deleted successfully" };
+    }
+
+    async ban(id: string, reason: string): Promise<User> {
+        await this.findById(id);
+        return this.usersRepository.update(id, { isActive: false, banReason: reason });
+    }
+
+    async unban(id: string): Promise<User> {
+        await this.findById(id);
+        return this.usersRepository.update(id, { isActive: true, banReason: null });
+    }
+
+    async changeRole(id: string, role: UserRole): Promise<User> {
+        await this.findById(id);
+        return this.usersRepository.update(id, { role });
+    }
+
+    async getUserWallets(id: string) {
+        await this.findById(id);
+        return this.usersRepository.getUserWallets(id);
+    }
+
+    async getUserSwapStats(id: string) {
+        await this.findById(id);
+        return this.usersRepository.getUserSwapStats(id);
     }
 }

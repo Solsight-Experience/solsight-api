@@ -14,6 +14,12 @@ export class AnalyticsQueryDto {
     @Type(() => Number)
     @IsInt()
     @Min(1)
-    @Max(10)
+    @Max(100)
     limit?: number;
+
+    @IsOptional()
+    @Type(() => Number)
+    @IsInt()
+    @Min(1)
+    page?: number;
 }

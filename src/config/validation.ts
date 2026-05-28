@@ -74,11 +74,11 @@ export const validationSchema = Joi.object({
 
     // CoinGecko
     COINGECKO_API_URL: Joi.string().uri().optional(),
-    COINGECKO_API_KEY: Joi.string().required(),
+    COINGECKO_API_KEY: Joi.string().optional(),
     COINGECKO_LIST_API: Joi.string().uri().optional(),
 
     // OpenAI (default AI provider)
-    OPENAI_API_KEY: Joi.string().required(),
+    OPENAI_API_KEY: Joi.string().optional(),
     OPENAI_API_URL: Joi.string().uri().optional(),
     OPENAI_MODEL: Joi.string().optional(),
 

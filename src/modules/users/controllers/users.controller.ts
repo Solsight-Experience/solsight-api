@@ -6,6 +6,8 @@ import { UsersService } from "../services/users.service";
 import { CreateUserDto } from "../dtos/create-user.dto";
 import { UpdateUserDto } from "../dtos/update-user.dto";
 import { UserFilterDto } from "../dtos/user-filter.dto";
+import { BanUserDto } from "../dtos/ban-user.dto";
+import { ChangeRoleDto } from "../dtos/change-role.dto";
 import { User, UserRole } from "../entities/user.entity";
 
 @Controller("users")
@@ -37,5 +39,30 @@ export class UsersController {
     @Delete(":id")
     async delete(@Param("id") id: string): Promise<{ message: string }> {
         return this.usersService.delete(id);
+    }
+
+    @Put(":id/ban")
+    async ban(@Param("id") id: string, @Body() dto: BanUserDto): Promise<User> {
+        return this.usersService.ban(id, dto.reason);
+    }
+
+    @Put(":id/unban")
+    async unban(@Param("id") id: string): Promise<User> {
+        return this.usersService.unban(id);
+    }
+
+    @Put(":id/role")
+    async changeRole(@Param("id") id: string, @Body() dto: ChangeRoleDto): Promise<User> {
+        return this.usersService.changeRole(id, dto.role);
+    }
+
+    @Get(":id/wallets")
+    async getUserWallets(@Param("id") id: string) {
+        return this.usersService.getUserWallets(id);
+    }
+
+    @Get(":id/swap-stats")
+    async getUserSwapStats(@Param("id") id: string) {
+        return this.usersService.getUserSwapStats(id);
     }
 }
