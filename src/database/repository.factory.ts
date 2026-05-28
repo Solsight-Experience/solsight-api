@@ -1,6 +1,6 @@
 import { Injectable, Scope } from "@nestjs/common";
 import { ClusterProvider } from "src/infra/solana/cluster.provider";
-import { DataSource, EntityTarget, Repository } from "typeorm";
+import { DataSource, EntityTarget, ObjectLiteral, Repository } from "typeorm";
 
 @Injectable({ scope: Scope.REQUEST })
 export class RepositoryFactory {
@@ -9,7 +9,7 @@ export class RepositoryFactory {
         private readonly clusterCtx: ClusterProvider
     ) {}
 
-    getRepository<T>(entity: EntityTarget<T>): Repository<T> {
+    getRepository<T extends ObjectLiteral>(entity: EntityTarget<T>): Repository<T> {
         const baseMetadata = this.datasource.getMetadata(entity);
         const resolvedTable = this.clusterCtx.resolveTableName(baseMetadata.tableName);
 
