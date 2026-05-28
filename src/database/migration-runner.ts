@@ -41,8 +41,8 @@ async function runMigrationsForSchemas(clusters: Cluster[] = CLUSTERS as any): P
             type: "postgres" as const,
             ...baseConfig,
             schema: cluster,
-            entities: PARTITIONED_ENTITIES as any,
-            migrations: [`dist/database/migrations/partitioned/*{.ts,.js}`],
+            entities: [...PARTITIONED_ENTITIES, ...SHARED_ENTITIES] as any,
+            migrations: [__dirname + `/migrations/partitioned/*{.ts,.js}`],
             synchronize: false,
             logging: true
         };
@@ -61,8 +61,8 @@ async function runMigrationsForSchemas(clusters: Cluster[] = CLUSTERS as any): P
         type: "postgres" as const,
         ...baseConfig,
         schema: "public",
-        entities: SHARED_ENTITIES as any,
-        migrations: [`dist/database/migrations/shared/*{.ts,.js}`],
+        entities: [...SHARED_ENTITIES, ...PARTITIONED_ENTITIES] as any,
+        migrations: [__dirname + `/migrations/shared/*{.ts,.js}`],
         synchronize: false,
         logging: true
     };
