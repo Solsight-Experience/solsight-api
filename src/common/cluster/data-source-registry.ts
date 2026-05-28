@@ -3,14 +3,15 @@ import { Inject } from "@nestjs/common";
 import { DataSource } from "typeorm";
 import { DATA_SOURCE_MAINNET, DATA_SOURCE_DEVNET, Cluster } from "./cluster.types";
 import { PARTITIONED_ENTITIES, SHARED_ENTITIES } from "../../database/entity-registry";
+import { getDataSourceToken } from "@nestjs/typeorm";
 
 @Injectable()
 export class DataSourceRegistry implements OnApplicationBootstrap {
     private registry: Map<Cluster, DataSource> = new Map();
 
     constructor(
-        @Inject(DATA_SOURCE_MAINNET) private mainnetDataSource: DataSource,
-        @Inject(DATA_SOURCE_DEVNET) private devnetDataSource: DataSource
+        @Inject(getDataSourceToken(DATA_SOURCE_MAINNET)) private mainnetDataSource: DataSource,
+        @Inject(getDataSourceToken(DATA_SOURCE_DEVNET)) private devnetDataSource: DataSource
     ) {}
 
     onApplicationBootstrap(): void {

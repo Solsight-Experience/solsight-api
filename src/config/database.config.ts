@@ -1,7 +1,7 @@
 import { TypeOrmModuleOptions } from "@nestjs/typeorm";
 import { ConfigService } from "@nestjs/config";
 import { DataSource, DataSourceOptions } from "typeorm";
-import { PARTITIONED_ENTITIES } from "../database/entity-registry";
+import { PARTITIONED_ENTITIES, SHARED_ENTITIES } from "../database/entity-registry";
 import { Cluster } from "../common/cluster/cluster.types";
 
 export const getDatabaseConfig = (configService: ConfigService): TypeOrmModuleOptions => {
@@ -39,7 +39,7 @@ export const getPartitionedDatabaseConfig = (configService: ConfigService, clust
     const baseConfig: TypeOrmModuleOptions = {
         type: "postgres",
         schema: cluster,
-        entities: PARTITIONED_ENTITIES as any,
+        entities: [...PARTITIONED_ENTITIES, ...SHARED_ENTITIES] as any,
         migrations: [__dirname + "/../database/migrations/partitioned/*{.ts,.js}"],
         synchronize: false,
         migrationsRun: false,
