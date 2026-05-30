@@ -18,10 +18,10 @@
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
-    "migration:generate": "ts-node -r tsconfig-paths/register ./node_modules/typeorm/cli.js migration:generate -d src/database/datasource.ts src/database/migrations/Migration",
+    "typeorm": "typeorm-ts-node-commonjs -d src/database/datasource.ts",
+    "migration:generate": "pnpm typeorm migration:generate src/database/migrations/Migration",
     "migration:run": "ts-node -r tsconfig-paths/register src/database/cli-migration-runner.ts",
-    "migration:revert": "ts-node -r tsconfig-paths/register ./node_modules/typeorm/cli.js migration:revert -d src/database/datasource.ts",
-    "seed:devnet": "ts-node -r tsconfig-paths/register src/database/seeders/seed-devnet-tokens.ts",
+    "migration:revert": "pnpm typeorm migration:revert",
     "reset-schema": "bash scripts/reset-schemas.sh",
     "prepare": "husky"
   },
