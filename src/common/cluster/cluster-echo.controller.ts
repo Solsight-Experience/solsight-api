@@ -1,26 +1,20 @@
-import { Controller, Get, Req, Logger } from "@nestjs/common";
-import { Request } from "express";
-import { ClusterProvider } from "../../common/cluster/cluster.provider";
-import { Cluster } from "../../common/cluster/cluster.types";
+import { Controller, Get } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { ClusterProvider } from "./cluster.provider";
+import { Cluster } from "./cluster.types";
+import { resolveHeliusRpcUrl } from "../../infra/solana/helius-url.util";
 
 @Controller("cluster-echo")
 export class ClusterEchoController {
-    private readonly logger = new Logger(ClusterEchoController.name);
-
-    constructor(private readonly clusterProvider: ClusterProvider) {}
+    constructor(
+        private readonly clusterProvider: ClusterProvider,
+        private readonly configService: ConfigService
+    ) {}
 
     @Get()
-    async getClusterInfo(@Req() req: Request): Promise<{ cluster: Cluster; rpcUrl: string }> {
+    getClusterInfo(): { cluster: Cluster; rpcUrl: string } {
         const cluster = this.clusterProvider.cluster;
-
-        const rpcUrlMap: Record<Cluster, string> = {
-            mainnet: process.env.SOLANA_RPC_URL_MAINNET || "https://api.mainnet-beta.solana.com",
-            devnet: process.env.SOLANA_RPC_URL_DEVNET || "https://api.devnet.solana.com"
-        };
-
-        return {
-            cluster,
-            rpcUrl: rpcUrlMap[cluster]
-        };
+        const baseUrl = this.configService.getOrThrow<string>("helius.rpcUrl");
+        return { cluster, rpcUrl: resolveHeliusRpcUrl(baseUrl, cluster) };
     }
 }
