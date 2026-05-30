@@ -1,4 +1,4 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, ManyToOne } from "typeorm";
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, ManyToOne, Index } from "typeorm";
 import { Wallet } from "../../wallets/entities/wallet.entity";
 
 export enum TransactionType {
@@ -17,12 +17,16 @@ export enum TransactionStatus {
 }
 
 @Entity("transactions")
+@Index(["signature", "network"], { unique: true })
 export class Transaction {
     @PrimaryGeneratedColumn("uuid")
     id: string;
 
-    @Column({ unique: true })
+    @Column()
     signature: string;
+
+    @Column({ default: "mainnet" })
+    network: string;
 
     @Column({
         type: "enum",

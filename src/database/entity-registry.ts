@@ -14,6 +14,19 @@ import { ZaloSubscription } from "../modules/zalo/entities/zalo-subscription.ent
 import { WalletAlert } from "../modules/watchlist/entities/wallet-alert.entity";
 import { WatchedWallet } from "../modules/watchlist/entities/watched-wallet.entity";
 
-export const PARTITIONED_ENTITIES: EntityTarget<any>[] = [Token, OhlcCandle, Category, Transaction, SwapTrade, WalletSnapshot, MarketPriceEvent];
-
-export const SHARED_ENTITIES: EntityTarget<any>[] = [User, Wallet, EmailSubscription, Notification, ZaloSubscription, WalletAlert, WatchedWallet];
+export const ENTITIES: EntityTarget<any>[] = [
+    Token,
+    OhlcCandle,
+    Category,
+    Transaction,
+    SwapTrade,
+    WalletSnapshot,
+    MarketPriceEvent,
+    User,
+    Wallet,
+    EmailSubscription,
+    Notification,
+    ZaloSubscription,
+    WalletAlert,
+    WatchedWallet
+];

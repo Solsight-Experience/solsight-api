@@ -1,6 +1,6 @@
 import "reflect-metadata";
 import { DataSource } from "typeorm";
-import { PARTITIONED_ENTITIES, SHARED_ENTITIES } from "./entity-registry";
+import { ENTITIES } from "./entity-registry";
 
 const dataSource = new DataSource({
     type: "postgres",
@@ -9,9 +9,8 @@ const dataSource = new DataSource({
     username: process.env.DATABASE_USERNAME || "postgres",
     password: process.env.DATABASE_PASSWORD || "password",
     database: process.env.DATABASE_NAME || "flaxh_trade",
-    schema: "public",
-    entities: [...SHARED_ENTITIES, ...PARTITIONED_ENTITIES] as any,
-    migrations: [__dirname + "/migrations/shared/*{.ts,.js}"],
+    entities: ENTITIES as any,
+    migrations: [__dirname + "/migrations/*{.ts,.js}"],
     synchronize: false
 });
 

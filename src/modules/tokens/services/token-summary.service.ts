@@ -1,11 +1,11 @@
 import { Injectable, Logger, HttpException, HttpStatus } from "@nestjs/common";
+import { InjectRepository } from "@nestjs/typeorm";
+import { Repository } from "typeorm";
 import { TokensService } from "./tokens.service";
 import { PromptBuilderService, TokenContext } from "./prompt-builder.service";
 import { GeminiService } from "../../../infra/gemini/gemini.service";
 import { RedisService } from "../../../redis/services/redis.service";
-import { Repository } from "typeorm";
 import { Token } from "../entities/token.entity";
-import { DataSourceRegistry } from "../../../common/cluster/data-source-registry";
 import { ClusterProvider } from "../../../common/cluster/cluster.provider";
 
 export interface TokenSummaryInput {
@@ -32,58 +32,42 @@ export interface TokenSummaryResult {
 export class TokenSummaryService {
     private readonly logger = new Logger(TokenSummaryService.name);
     private readonly CACHE_KEY_PREFIX = "token:summary";
-    private readonly DEFAULT_CACHE_TTL = 600; // 10 minutes default
-    private readonly ACTIVE_TOKEN_TTL = 300; // 5 minutes for active tokens
-    private readonly INACTIVE_TOKEN_TTL = 900; // 15 minutes for less active tokens
+    private readonly DEFAULT_CACHE_TTL = 600;
+    private readonly ACTIVE_TOKEN_TTL = 300;
+    private readonly INACTIVE_TOKEN_TTL = 900;
 
     constructor(
         private readonly promptBuilderService: PromptBuilderService,
         private readonly geminiService: GeminiService,
         private readonly redisService: RedisService,
-        private readonly registryService: DataSourceRegistry,
+        @InjectRepository(Token)
+        private readonly tokenRepository: Repository<Token>,
         private readonly clusterProvider: ClusterProvider
     ) {}
 
-    private async getTokenRepository(): Promise<Repository<Token>> {
-        const cluster = this.clusterProvider.cluster;
-        const dataSource = this.registryService.get(cluster);
-        return dataSource.getRepository(Token);
-    }
-
-    /**
-     * Generate AI-powered summary for a token
-     * @param input - Token input (address, name, symbol)
-     * @returns Token summary result
-     */
     async generateSummary(input: TokenSummaryInput): Promise<TokenSummaryResult> {
         const { address, name, symbol } = input;
 
-        // Check if Gemini is configured
         if (!this.geminiService.isConfigured()) {
             throw new HttpException("AI service is not configured. Please set OPENAI_API_KEY in environment variables.", HttpStatus.SERVICE_UNAVAILABLE);
         }
 
-        // Check cache first
         const cached = await this.getCachedSummary(address);
         if (cached) {
             this.logger.log(`Returning cached summary for token: ${address}`);
             return cached;
         }
 
-        // Attempt to fetch full token entity for richer data
         let token: Token | null = null;
         try {
-            token = await (
-                await this.getTokenRepository()
-            ).findOne({
-                where: { address },
+            token = await this.tokenRepository.findOne({
+                where: { address, network: this.clusterProvider.cluster },
                 relations: ["category"]
             });
-        } catch (error) {
+        } catch {
             this.logger.warn(`Could not find token entity for ${address}, falling back to basic input.`);
         }
 
-        // Construct context for prompt builder
         const context: TokenContext = {
             name: token?.name || name,
             symbol: token?.symbol || symbol,
@@ -92,10 +76,8 @@ export class TokenSummaryService {
             website: token?.website
         };
 
-        // Build prompt
         const prompt = this.promptBuilderService.buildSummaryPrompt(context);
 
-        // Generate summary using Gemini
         let summary: string;
         let model: string;
 
@@ -119,7 +101,6 @@ export class TokenSummaryService {
             throw new HttpException("Failed to generate AI summary. Please try again later.", HttpStatus.INTERNAL_SERVER_ERROR);
         }
 
-        // Prepare result
         const result: TokenSummaryResult = {
             address,
             summary,
@@ -134,15 +115,11 @@ export class TokenSummaryService {
             }
         };
 
-        // Cache the result
         await this.cacheSummary(address, token, result);
 
         return result;
     }
 
-    /**
-     * Get cached summary if available
-     */
     private async getCachedSummary(address: string): Promise<TokenSummaryResult | null> {
         try {
             const cacheKey = this.getCacheKey(address);
@@ -162,9 +139,6 @@ export class TokenSummaryService {
         }
     }
 
-    /**
-     * Cache summary with dynamic TTL based on token activity
-     */
     private async cacheSummary(address: string, token: Token | null, result: TokenSummaryResult): Promise<void> {
         try {
             const cacheKey = this.getCacheKey(address);
@@ -177,9 +151,6 @@ export class TokenSummaryService {
         }
     }
 
-    /**
-     * Calculate cache TTL based on token activity level
-     */
     private calculateCacheTTL(token: Token): number {
         const txns24h = token.txns24hTotal || 0;
         const volume24h = Number(token.volume24h) || 0;
@@ -194,6 +165,6 @@ export class TokenSummaryService {
     }
 
     private getCacheKey(address: string): string {
-        return `${this.CACHE_KEY_PREFIX}:${address}`;
+        return `${this.CACHE_KEY_PREFIX}:${this.clusterProvider.cluster}:${address}`;
     }
 }

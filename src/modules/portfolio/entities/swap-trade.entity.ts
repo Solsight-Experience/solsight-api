@@ -1,7 +1,8 @@
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, Index } from "typeorm";
 
 @Entity("swap_trades")
-@Index(["walletAddress", "timestamp"])
+@Index(["walletAddress", "network", "timestamp"])
+@Index(["signature", "network"], { unique: true })
 export class SwapTrade {
     @PrimaryGeneratedColumn("uuid")
     id: string;
@@ -9,7 +10,10 @@ export class SwapTrade {
     @Column()
     walletAddress: string;
 
-    @Column({ unique: true })
+    @Column({ default: "mainnet" })
+    network: string;
+
+    @Column()
     signature: string;
 
     @Column({ type: "bigint" })

@@ -1,13 +1,16 @@
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, Index } from "typeorm";
 
 @Entity("market_price_events")
-@Index(["tokenMint", "timestamp"])
+@Index(["tokenMint", "network", "timestamp"])
 export class MarketPriceEvent {
     @PrimaryGeneratedColumn("uuid")
     id: string;
 
     @Column()
     tokenMint: string;
+
+    @Column({ default: "mainnet" })
+    network: string;
 
     @Column({ nullable: true })
     poolAddress: string;

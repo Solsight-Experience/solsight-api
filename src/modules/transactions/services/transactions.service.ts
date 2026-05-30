@@ -1,32 +1,30 @@
 import { Injectable } from "@nestjs/common";
+import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
 import { Transaction } from "../entities/transaction.entity";
 import { CreateTransactionDto } from "../dtos/create-transaction.dto";
-import { DataSourceRegistry } from "../../../common/cluster/data-source-registry";
 import { ClusterProvider } from "../../../common/cluster/cluster.provider";
 
 @Injectable()
 export class TransactionsService {
     constructor(
-        private readonly registryService: DataSourceRegistry,
+        @InjectRepository(Transaction)
+        private readonly transactionRepository: Repository<Transaction>,
         private readonly clusterProvider: ClusterProvider
     ) {}
 
-    private async getTransactionRepository(): Promise<Repository<Transaction>> {
-        const cluster = this.clusterProvider.cluster;
-        const dataSource = this.registryService.get(cluster);
-        return dataSource.getRepository(Transaction);
-    }
-
     async findOneById(id: string): Promise<Transaction | null> {
-        return (await this.getTransactionRepository()).findOne({
-            where: { id },
+        return this.transactionRepository.findOne({
+            where: { id, network: this.clusterProvider.cluster },
             relations: ["fromWallet", "toWallet"]
         });
     }
+
     async createTransaction(createTransactionDto: CreateTransactionDto): Promise<Transaction> {
-        const repo = await this.getTransactionRepository();
-        const transaction = repo.create(createTransactionDto);
-        return repo.save(transaction);
+        const transaction = this.transactionRepository.create({
+            ...createTransactionDto,
+            network: this.clusterProvider.cluster
+        });
+        return this.transactionRepository.save(transaction);
     }
 }

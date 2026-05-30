@@ -1,8 +1,6 @@
 import { TypeOrmModuleOptions } from "@nestjs/typeorm";
 import { ConfigService } from "@nestjs/config";
 import { DataSource, DataSourceOptions } from "typeorm";
-import { PARTITIONED_ENTITIES, SHARED_ENTITIES } from "../database/entity-registry";
-import { Cluster } from "../common/cluster/cluster.types";
 
 export const getDatabaseConfig = (configService: ConfigService): TypeOrmModuleOptions => {
     const url = configService.get<string>("database.url");
@@ -31,36 +29,6 @@ export const getDatabaseConfig = (configService: ConfigService): TypeOrmModuleOp
         synchronize: configService.get("database.synchronize"),
         logging: configService.get("database.logging"),
         ssl: configService.get("environment") === "production" ? { rejectUnauthorized: false } : false
-    };
-};
-
-export const getPartitionedDatabaseConfig = (configService: ConfigService, cluster: Cluster): TypeOrmModuleOptions => {
-    const url = configService.get<string>("database.url");
-    const baseConfig: TypeOrmModuleOptions = {
-        type: "postgres",
-        schema: cluster,
-        entities: [...PARTITIONED_ENTITIES, ...SHARED_ENTITIES] as any,
-        migrations: [__dirname + "/../database/migrations/partitioned/*{.ts,.js}"],
-        synchronize: false,
-        migrationsRun: false,
-        logging: configService.get("database.logging"),
-        ssl: configService.get("environment") === "production" ? { rejectUnauthorized: false } : false
-    };
-
-    if (url) {
-        return {
-            ...baseConfig,
-            url
-        };
-    }
-
-    return {
-        ...baseConfig,
-        host: configService.get("database.host"),
-        port: configService.get("database.port") as number,
-        username: configService.get("database.username"),
-        password: configService.get("database.password"),
-        database: configService.get("database.database") as string
     };
 };
 

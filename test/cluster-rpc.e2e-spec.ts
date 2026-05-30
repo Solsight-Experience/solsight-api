@@ -8,7 +8,7 @@ describe("Cluster-aware RPC (e2e)", () => {
     let app: INestApplication;
 
     beforeAll(async () => {
-        await setupE2EDatabase(["mainnet", "devnet"]);
+        await setupE2EDatabase();
 
         const moduleFixture: TestingModule = await Test.createTestingModule({
             imports: [AppModule]
