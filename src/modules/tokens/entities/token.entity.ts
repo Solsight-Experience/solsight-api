@@ -7,7 +7,7 @@ export class Token {
     @PrimaryGeneratedColumn("uuid")
     id: string;
 
-    @Column()
+    @Column({ unique: true })
     address: string;
 
     @Column()
@@ -22,7 +22,7 @@ export class Token {
     @Column({ nullable: true })
     coingeckoId?: string;
 
-    @Column({ default: "solana" })
+    @Column({ default: "mainnet" })
     network: string;
 
     @Column({ type: "text", nullable: true })

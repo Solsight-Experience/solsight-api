@@ -13,7 +13,7 @@ export class SwapTrade {
     @Column({ default: "mainnet" })
     network: string;
 
-    @Column()
+    @Column({ unique: true })
     signature: string;
 
     @Column({ type: "bigint" })
