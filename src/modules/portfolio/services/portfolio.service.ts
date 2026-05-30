@@ -2,7 +2,7 @@ import { Injectable, Inject, Logger } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
 import { WalletsService } from "../../wallets/services/wallets.service";
-import { HeliusService } from "../../../infra/solana/helius.service";
+import { HeliusResolver } from "../../../infra/solana/helius.resolver";
 import { SolanaService } from "../../../infra/solana/solana.service";
 import { CoinGeckoService } from "../../../infra/coingecko/coingecko.service";
 import { CACHE_MANAGER } from "@nestjs/cache-manager";
@@ -27,7 +27,7 @@ export class PortfolioService {
 
     constructor(
         private readonly walletsService: WalletsService,
-        private readonly heliusService: HeliusService,
+        private readonly heliusResolver: HeliusResolver,
         private readonly solanaService: SolanaService,
         private readonly tokenService: TokensService,
         private readonly coinGeckoService: CoinGeckoService,
@@ -550,7 +550,7 @@ export class PortfolioService {
 
         try {
             let transactions = await this.rateLimitedHeliusCall(() =>
-                this.heliusService.getEnhancedTransactionsByAddress(walletAddress, {
+                this.heliusResolver.get().getEnhancedTransactionsByAddress(walletAddress, {
                     limit,
                     type: heliusType || undefined,
                     beforeSignature: before
@@ -1263,7 +1263,7 @@ export class PortfolioService {
                     : await (async () => {
                           try {
                               const fetched = await this.rateLimitedHeliusCall(() =>
-                                  this.heliusService.getEnhancedTransactionsByAddress(wallet.address, { limit: 100 })
+                                  this.heliusResolver.get().getEnhancedTransactionsByAddress(wallet.address, { limit: 100 })
                               );
                               await this.cacheManager.set(cacheKey, fetched, HELIUS_CACHE_TTL);
                               return fetched;
@@ -1542,7 +1542,7 @@ export class PortfolioService {
         await Promise.all(
             candidates.map(async ({ a: activity, i: idx }) => {
                 try {
-                    const data = await this.rateLimitedHeliusCall(() => this.heliusService.getEnhancedTransactions([activity.tx_hash]));
+                    const data = await this.rateLimitedHeliusCall(() => this.heliusResolver.get().getEnhancedTransactions([activity.tx_hash]));
                     const txDetail = Array.isArray(data) ? data[0] : null;
                     if (!txDetail) return;
 

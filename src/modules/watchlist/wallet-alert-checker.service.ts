@@ -4,7 +4,7 @@ import { WalletAlertService } from "./wallet-alert.service";
 import { WalletAlert, WalletAlertType, WalletAlertCondition } from "./entities/wallet-alert.entity";
 import { NotificationsService } from "../notifications/services/notifications.service";
 import { NotificationEventType } from "../notifications/entities/notification.entity";
-import { HeliusService } from "../../infra/solana/helius.service";
+import { HeliusResolver } from "../../infra/solana/helius.resolver";
 import { ZaloSubscriptionService } from "../zalo/services/zalo-subscription.service";
 import { EmailSubscriptionService } from "../email/services/email-subscription.service";
 import { TokensService } from "../tokens/services/tokens.service";
@@ -20,7 +20,7 @@ export class WalletAlertCheckerService implements OnModuleInit {
         private readonly walletAlertService: WalletAlertService,
         private readonly notificationsService: NotificationsService,
         private readonly tokenService: TokensService,
-        private readonly heliusService: HeliusService,
+        private readonly heliusResolver: HeliusResolver,
         private readonly zaloSubscriptionService: ZaloSubscriptionService,
         private readonly emailSubscriptionService: EmailSubscriptionService
     ) {}
@@ -85,9 +85,8 @@ export class WalletAlertCheckerService implements OnModuleInit {
 
     private async fetchRecentTxs(walletAddress: string): Promise<any[]> {
         try {
-            return await this.heliusService.getEnhancedTransactionsByAddress(walletAddress, { limit: 50 });
+            return await this.heliusResolver.forCluster("mainnet").getEnhancedTransactionsByAddress(walletAddress, { limit: 50 });
         } catch (err) {
-            // this.logger.warn(`Helius fetch failed for ${walletAddress}: ${err instanceof Error ? err.message : err}`);
             return [];
         }
     }

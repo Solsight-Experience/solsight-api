@@ -1,5 +1,4 @@
 import { Injectable } from "@nestjs/common";
-import { ConfigService } from "@nestjs/config";
 import { BaseSolanaRpcService } from "./base-solana-rpc.service";
 import axios, { AxiosInstance } from "axios";
 import { EnhancedTransaction, GetAssetResponse, GetEnhancedTransactionsByAddressParams, HeliusCommitment, RpcResponse } from "./constants/types";
@@ -12,8 +11,7 @@ export class HeliusService extends BaseSolanaRpcService {
         id: "1"
     };
 
-    constructor(configService: ConfigService) {
-        const [rpcUrl, apiKey] = [configService.get("helius.rpcUrl"), configService.get("helius.apiKey")];
+    constructor(rpcUrl: string, apiKey: string) {
         super(rpcUrl);
         this.apiClient = axios.create({
             baseURL: rpcUrl,

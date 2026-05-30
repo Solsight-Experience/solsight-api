@@ -4,7 +4,6 @@ import { ConfigModule } from "@nestjs/config";
 import { ClusterProvider } from "./cluster.provider";
 import { ClusterInterceptor } from "./cluster.interceptor";
 import { ClusterEchoController } from "./cluster-echo.controller";
-import { ClusterAwareSolanaConnection } from "./cluster-aware-solana-connection";
 
 @Global()
 @Module({
@@ -12,12 +11,11 @@ import { ClusterAwareSolanaConnection } from "./cluster-aware-solana-connection"
     controllers: [ClusterEchoController],
     providers: [
         ClusterProvider,
-        ClusterAwareSolanaConnection,
         {
             provide: APP_INTERCEPTOR,
             useClass: ClusterInterceptor
         }
     ],
-    exports: [ClusterProvider, ClusterAwareSolanaConnection]
+    exports: [ClusterProvider]
 })
 export class ClusterModule {}
