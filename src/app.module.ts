@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 import { ConfigModule } from "@nestjs/config";
 import { ScheduleModule } from "@nestjs/schedule";
+import { ClsModule } from "nestjs-cls";
 import { ClusterModule } from "./common/cluster/cluster.module";
 import { DatabaseModule } from "./database/database.module";
 import { LoggerModule } from "./common/logger/logger.module";
@@ -37,6 +38,10 @@ import { SwapModule } from "./modules/swap/swap.module";
             }
         }),
         ScheduleModule.forRoot(),
+        ClsModule.forRoot({
+            global: true,
+            middleware: { mount: true }
+        }),
         CacheModule.register({
             isGlobal: true
         }),

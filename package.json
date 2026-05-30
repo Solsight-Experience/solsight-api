@@ -53,6 +53,7 @@
     "cookie-parser": "^1.4.7",
     "ioredis": "^5.8.2",
     "joi": "^18.0.1",
+    "nestjs-cls": "^6.2.1",
     "openai": "^4",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
