@@ -69,13 +69,10 @@ class SeedTokensFromFileService {
     ) {}
 
     private async fetchFromSearchApi(addresses: string[]): Promise<Map<string, JupiterSearchToken>> {
-        const searchBaseUrl =
-            process.env.JUPITER_TOKEN_INFO_API ||
-            this.configService.get<string>("solana.jupiterApi.searchToken") ||
-            "https://api.jup.ag/tokens/v2/search?query=";
-        const jupiterApiKey = this.configService.get<string>("jupiter.apiKey") || process.env.JUPITER_API_KEY || "";
+        const searchBaseUrl = `${this.configService.get<string>("jupiter.apiUrl")}/tokens/v2/search?query=`;
+        const jupiterApiKey = this.configService.get<string>("jupiter.apiKey");
         if (!searchBaseUrl) {
-            throw new Error("Missing solana.jupiterApi.searchToken configuration");
+            throw new Error("Missing jupiter.apiUrl configuration");
         }
 
         const tokenByAddress = new Map<string, JupiterSearchToken>();

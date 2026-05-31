@@ -2,6 +2,8 @@ import { Injectable } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
 import { User, UserRole } from "../entities/user.entity";
+import { Wallet } from "../../wallets/entities/wallet.entity";
+import { SwapExecution } from "../../admin-analytics/entities/swap-execution.entity";
 import { CreateUserDto } from "../dtos/create-user.dto";
 
 interface UserFilters {
@@ -14,7 +16,11 @@ interface UserFilters {
 export class UsersRepository {
     constructor(
         @InjectRepository(User)
-        private readonly userRepository: Repository<User>
+        private readonly userRepository: Repository<User>,
+        @InjectRepository(Wallet)
+        private readonly walletRepository: Repository<Wallet>,
+        @InjectRepository(SwapExecution)
+        private readonly swapExecutionRepository: Repository<SwapExecution>
     ) {}
 
     async create(createUserDto: Partial<CreateUserDto> & Partial<User>): Promise<User> {
@@ -52,6 +58,35 @@ export class UsersRepository {
 
     async delete(id: string): Promise<void> {
         await this.userRepository.delete(id);
+    }
+
+    async getUserWallets(
+        userId: string
+    ): Promise<Pick<Wallet, "id" | "address" | "chain" | "type" | "name" | "balance" | "isActive" | "isVerified" | "isDefault" | "createdAt">[]> {
+        return this.walletRepository
+            .createQueryBuilder("w")
+            .select(["w.id", "w.address", "w.chain", "w.type", "w.name", "w.balance", "w.isActive", "w.isVerified", "w.isDefault", "w.createdAt"])
+            .where("w.userId = :userId", { userId })
+            .orderBy("w.createdAt", "DESC")
+            .getMany();
+    }
+
+    async getUserSwapStats(userId: string): Promise<{ totalSwaps: number; totalVolumeUsd: number; firstSwapAt: Date | null; lastSwapAt: Date | null }> {
+        const result = await this.swapExecutionRepository
+            .createQueryBuilder("se")
+            .select("COUNT(*)", "totalSwaps")
+            .addSelect("COALESCE(SUM(se.volumeUsd), 0)", "totalVolumeUsd")
+            .addSelect("MIN(se.createdAt)", "firstSwapAt")
+            .addSelect("MAX(se.createdAt)", "lastSwapAt")
+            .where("se.userId = :userId", { userId })
+            .getRawOne<{ totalSwaps: string; totalVolumeUsd: string; firstSwapAt: Date | null; lastSwapAt: Date | null }>();
+
+        return {
+            totalSwaps: parseInt(result?.totalSwaps ?? "0", 10),
+            totalVolumeUsd: parseFloat(result?.totalVolumeUsd ?? "0") || 0,
+            firstSwapAt: result?.firstSwapAt ?? null,
+            lastSwapAt: result?.lastSwapAt ?? null
+        };
     }
 
     async findAll(page: number, limit: number, filters: UserFilters = {}): Promise<[User[], number]> {

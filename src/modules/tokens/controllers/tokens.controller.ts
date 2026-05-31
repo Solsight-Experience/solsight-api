@@ -31,6 +31,11 @@ export class TokensController {
         return this.tokensService.filter(filterDto, limit, sort_by, sort_order, offset);
     }
 
+    @Get("sol-price")
+    getSolPrice() {
+        return this.tokensService.getSolPrice();
+    }
+
     @Get(":address/chart")
     getChart(@Param("address") address: string, @Query() query: ChartQueryDto) {
         return this.tokensService.getChartData(address, query);

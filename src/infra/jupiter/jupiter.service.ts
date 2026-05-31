@@ -9,7 +9,11 @@ import {
     CreateOrderResponse,
     ExecuteParams,
     ExecuteResponse,
+    JupiterGetSwapQuoteParams,
     JupiterPriceV3Item,
+    JupiterQuoteResponse,
+    JupiterSwapRequest,
+    JupiterSwapResponse,
     JupiterTokenMintInformation,
     JupiterTokenV2
 } from "./types";
@@ -31,7 +35,7 @@ export class JupiterService {
 
         this.apiClient = axios.create({
             baseURL: baseUrl,
-            timeout: 10000,
+            timeout: 15000,
             headers: {
                 "Content-Type": "application/json",
                 ...(apiKey ? { "x-api-key": apiKey } : {})
@@ -273,15 +277,9 @@ export class JupiterService {
     /**
      * Get a swap quote from Jupiter
      */
-    async getSwapQuote(params: {
-        inputMint: string;
-        outputMint: string;
-        amount: string;
-        swapMode: string;
-        slippageBps: number;
-    }): Promise<Record<string, unknown>> {
+    async getSwapQuote(params: JupiterGetSwapQuoteParams): Promise<JupiterQuoteResponse> {
         try {
-            const response = await this.swapApiClient.get<Record<string, unknown>>("/swap/v1/quote", { params });
+            const response = await this.swapApiClient.get<JupiterQuoteResponse>("/swap/v1/quote", { params });
             return response.data;
         } catch (error) {
             this.logger.error("Failed to get swap quote", error);
@@ -292,13 +290,9 @@ export class JupiterService {
     /**
      * Get an unsigned swap transaction from Jupiter
      */
-    async getSwapTransaction(params: {
-        quoteResponse: Record<string, unknown>;
-        userPublicKey: string;
-        wrapAndUnwrapSol?: boolean;
-    }): Promise<{ swapTransaction: string }> {
+    async getSwapTransaction(params: JupiterSwapRequest): Promise<JupiterSwapResponse> {
         try {
-            const response = await this.swapApiClient.post<{ swapTransaction: string }>("/swap/v1/swap", {
+            const response = await this.swapApiClient.post<JupiterSwapResponse>("/swap/v1/swap", {
                 ...params,
                 wrapAndUnwrapSol: params.wrapAndUnwrapSol ?? true
             });

@@ -1,0 +1,381 @@
+> ## Documentation Index
+> Fetch the complete documentation index at: https://dev.jup.ag/docs/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# Get Quote
+
+> Request for a quote to be used in POST /swap
+
+<Warning>
+  **Metis Swap API** is no longer actively maintained and has been superseded by [Swap V2](/swap).
+</Warning>
+
+
+## OpenAPI
+
+````yaml /openapi-spec/swap/v1/swap.yaml get /quote
+openapi: 3.0.3
+info:
+  title: Metis Swap API
+  version: 1.0.0
+  description: Metis Swap API Schema
+servers:
+  - url: https://api.jup.ag/swap/v1
+    description: Metis Swap API endpoint
+  - url: https://preprod-quote-api.jup.ag/
+    description: This is a staging endpoint for tests
+security: []
+paths:
+  /quote:
+    get:
+      tags:
+        - Swap
+      summary: quote
+      description: |
+        Request for a quote to be used in `POST /swap`
+      operationId: QuoteGet
+      parameters:
+        - $ref: '#/components/parameters/InputMintParameter'
+        - $ref: '#/components/parameters/OutputMintParameter'
+        - $ref: '#/components/parameters/AmountParameter'
+        - $ref: '#/components/parameters/SlippageParameter'
+        - $ref: '#/components/parameters/SwapModeParameter'
+        - $ref: '#/components/parameters/DexesParameter'
+        - $ref: '#/components/parameters/ExcludeDexesParameter'
+        - $ref: '#/components/parameters/RestrictIntermediateTokensParameter'
+        - $ref: '#/components/parameters/OnlyDirectRoutesParameter'
+        - $ref: '#/components/parameters/AsLegacyTransactionParameter'
+        - $ref: '#/components/parameters/PlatformFeeBpsParameter'
+        - $ref: '#/components/parameters/MaxAccountsParameter'
+        - $ref: '#/components/parameters/InstructionVersion'
+        - $ref: '#/components/parameters/DynamicSlippage'
+        - $ref: '#/components/parameters/ForJitoBundle'
+      responses:
+        '200':
+          description: Successful response to be used in `/swap`
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QuoteResponse'
+              example:
+                inputMint: So11111111111111111111111111111111111111112
+                inAmount: '100000000'
+                outputMint: EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v
+                outAmount: '17057460'
+                otherAmountThreshold: '16886885'
+                swapMode: ExactIn
+                slippageBps: 100
+                priceImpactPct: '0.0001'
+                platformFee:
+                  amount: '0'
+                  feeBps: 0
+                routePlan:
+                  - swapInfo:
+                      ammKey: HXpGFJGCEEFdV31tDmjDBaJMEB1fKLiAoKoWr3Fnonid
+                      label: Meteora DLMM
+                      inputMint: So11111111111111111111111111111111111111112
+                      outputMint: EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v
+                      inAmount: '100000000'
+                      outAmount: '17057460'
+                      feeAmount: '1285'
+                      feeMint: EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v
+                    percent: 100
+                contextSlot: 324307186
+                timeTaken: 0.012
+      security:
+        - ApiKeyAuth: []
+components:
+  parameters:
+    InputMintParameter:
+      name: inputMint
+      in: query
+      required: true
+      schema:
+        type: string
+    OutputMintParameter:
+      name: outputMint
+      in: query
+      required: true
+      schema:
+        type: string
+    AmountParameter:
+      name: amount
+      description: |
+        - Raw amount to swap (before decimals)
+        - Input Amount if `SwapMode=ExactIn`
+        - Output Amount if `SwapMode=ExactOut`
+      in: query
+      required: true
+      schema:
+        type: integer
+        format: uint64
+    SlippageParameter:
+      name: slippageBps
+      description: >
+        - Default: 50
+
+        - This is threshold denoted in basis points.
+
+        - If exact in and output amount exceeds the threshold, then the swap
+        transaction will fail.
+      in: query
+      schema:
+        type: integer
+        format: uint16
+        default: 50
+    SwapModeParameter:
+      name: swapMode
+      description: >
+        - ExactOut is for supporting use cases where you need an exact output
+        amount
+
+        - In the case of `ExactIn`, the slippage is on the output token
+
+        - In the case of `ExactOut`, the slippage is on the input token
+
+        - Not all AMMs support `ExactOut`: Currently only Orca Whirlpool,
+        Raydium CLMM, Raydium CPMM
+
+        - We do not recommend using `ExactOut` for most use cases
+      in: query
+      schema:
+        type: string
+        enum:
+          - ExactIn
+          - ExactOut
+        default: ExactIn
+    DexesParameter:
+      name: dexes
+      description: |
+        - Multiple DEXes can be pass in by comma separating them
+        - For example: `dexes=Raydium,Orca+V2,Meteora+DLMM`
+        - If a DEX is indicated, the route will **only use** that DEX
+        - Full list of DEXes here using the `/program-id-to-label` endpoint
+      in: query
+      schema:
+        type: array
+        items:
+          type: string
+    ExcludeDexesParameter:
+      name: excludeDexes
+      description: |
+        - Multiple DEXes can be pass in by comma separating them
+        - For example: `excludeDexes=Raydium,Orca+V2,Meteora+DLMM`
+        - If a DEX is indicated, the route will **not use** that DEX
+        - Full list of DEXes here using the `/program-id-to-label` endpoint
+      in: query
+      schema:
+        type: array
+        items:
+          type: string
+    RestrictIntermediateTokensParameter:
+      name: restrictIntermediateTokens
+      description: >
+        - Restrict intermediate tokens within a route to a set of more stable
+        tokens
+
+        - This will help to reduce exposure to potential high slippage routes
+      in: query
+      schema:
+        type: boolean
+        default: true
+    OnlyDirectRoutesParameter:
+      name: onlyDirectRoutes
+      description: |
+        - Direct route limits Jupiter routing to single hop routes only
+        - This may result in worse routes
+      in: query
+      schema:
+        type: boolean
+        default: false
+    AsLegacyTransactionParameter:
+      name: asLegacyTransaction
+      description: >
+        - Instead of using versioned transaction, this will use the legacy
+        transaction
+      in: query
+      schema:
+        type: boolean
+        default: false
+    PlatformFeeBpsParameter:
+      name: platformFeeBps
+      description: >
+        - Take fees in basis points
+
+        - If `platformFeeBps` is passed in, the `feeAccount` in `/swap` must be
+        passed as well
+      in: query
+      schema:
+        type: integer
+        format: uint16
+    MaxAccountsParameter:
+      name: maxAccounts
+      description: >
+        - Rough estimate of the max accounts to be used for the quote
+
+        - Useful if composing your own transaction or to be more precise in
+        resource accounting for better routes
+      in: query
+      schema:
+        type: integer
+        format: uint64
+        default: 64
+    InstructionVersion:
+      name: instructionVersion
+      description: |
+        - The version of instruction to use in the swap program
+      in: query
+      schema:
+        type: string
+        enum:
+          - V1
+          - V2
+        default: V1
+    DynamicSlippage:
+      name: dynamicSlippage
+      description: |
+        - No longer applicable, only required to pass in via `/swap` endpoint
+      in: query
+      schema:
+        type: boolean
+        default: false
+    ForJitoBundle:
+      name: forJitoBundle
+      description: >
+        Set to `true` if the quote will be used in a Jito bundle. This excludes
+        DEXes that are incompatible with Jito bundles (e.g. HumidiFi).
+      in: query
+      schema:
+        type: boolean
+        default: false
+  schemas:
+    QuoteResponse:
+      type: object
+      required:
+        - inputMint
+        - outputMint
+        - inAmount
+        - outAmount
+        - otherAmountThreshold
+        - swapMode
+        - slippageBps
+        - priceImpactPct
+        - routePlan
+      properties:
+        inputMint:
+          type: string
+        inAmount:
+          type: string
+        outputMint:
+          type: string
+        outAmount:
+          type: string
+          description: |
+            - Best output amount after deducting AMM fees and platform fees
+            - Does not account for slippage
+        otherAmountThreshold:
+          type: string
+          description: >
+            - Minimum acceptable output amount — `outAmount` after applying
+            `slippageBps` tolerance
+
+            - Not used by `/swap` endpoint to build transaction
+        swapMode:
+          $ref: '#/components/schemas/SwapMode'
+          required: true
+        slippageBps:
+          type: integer
+          format: uint16
+          minimum: 0
+        platformFee:
+          $ref: '#/components/schemas/PlatformFee'
+        priceImpactPct:
+          type: string
+        routePlan:
+          type: array
+          items:
+            $ref: '#/components/schemas/RoutePlanStep'
+        contextSlot:
+          type: integer
+          format: uint64
+        timeTaken:
+          type: number
+        mostReliableAmmsQuoteReport:
+          type: object
+          nullable: true
+          description: >
+            - Markets that would have quoted for this pair
+
+            - Useful for debugging and verifying route decisions
+
+            - Each key is an AMM account address, each value is the quoted
+            output amount
+          properties:
+            info:
+              type: object
+              additionalProperties:
+                type: string
+    SwapMode:
+      type: string
+      enum:
+        - ExactIn
+        - ExactOut
+    PlatformFee:
+      type: object
+      properties:
+        amount:
+          type: string
+        feeBps:
+          type: integer
+          format: uint16
+    RoutePlanStep:
+      type: object
+      properties:
+        swapInfo:
+          $ref: '#/components/schemas/SwapInfo'
+        percent:
+          type: integer
+          format: uint8
+          nullable: true
+        bps:
+          type: integer
+          format: uint16
+      required:
+        - swapInfo
+    SwapInfo:
+      type: object
+      required:
+        - ammKey
+        - inputMint
+        - outputMint
+        - inAmount
+        - outAmount
+      properties:
+        ammKey:
+          type: string
+        label:
+          type: string
+        inputMint:
+          type: string
+        outputMint:
+          type: string
+        inAmount:
+          type: string
+        outAmount:
+          type: string
+        feeAmount:
+          type: string
+          nullable: true
+          deprecated: true
+        feeMint:
+          type: string
+          nullable: true
+          deprecated: true
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: x-api-key
+      description: Get API key via https://developers.jup.ag/portal
+
+````
