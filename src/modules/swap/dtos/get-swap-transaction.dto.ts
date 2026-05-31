@@ -1,4 +1,4 @@
-import { IsBoolean, IsEnum, IsNotEmpty, IsOptional, IsString, ValidateNested } from "class-validator";
+import { IsBoolean, IsEnum, IsNotEmpty, IsNumber, IsOptional, IsString, ValidateNested } from "class-validator";
 import { Type } from "class-transformer";
 import type { QuoteResponse } from "../../../infra/executor/interfaces/executor-service.interface";
 import type { JupiterSwapMode } from "../../../infra/jupiter/types";
@@ -37,6 +37,14 @@ class QuoteResponseDto implements QuoteResponse {
 
     @IsNotEmpty()
     routePlan: any[];
+
+    @IsNumber()
+    @IsNotEmpty()
+    contextSlot: number;
+
+    @IsNumber()
+    @IsNotEmpty()
+    timeTaken: number;
 }
 
 export class GetSwapTransactionDto {
