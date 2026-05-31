@@ -1,15 +1,17 @@
-import { IsString, IsOptional } from "class-validator";
+import { IsString, IsOptional, IsNotEmpty } from "class-validator";
 
 export class VerifySolanaDto {
     @IsString()
+    @IsNotEmpty()
     walletAddress: string;
 
     @IsString()
+    @IsNotEmpty()
     signature: string;
 
-    @IsOptional()
     @IsString()
-    userId?: string;
+    @IsNotEmpty()
+    message: string;
 
     @IsOptional()
     @IsString()

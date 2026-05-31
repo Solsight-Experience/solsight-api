@@ -9,6 +9,8 @@ import { WalletsResponse, Position, WalletSummary, Wallet as WalletDto } from ".
 import { TokensService } from "../../tokens/services/tokens.service";
 import { CoinGeckoService } from "../../../infra/coingecko/coingecko.service";
 
+const NONCE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
 @Injectable()
 export class WalletsService {
     private readonly logger = new Logger(WalletsService.name);
@@ -22,16 +24,21 @@ export class WalletsService {
     ) {}
 
     async createWithNonce(address: string, nonce: string): Promise<Wallet> {
+        const nonceExpiresAt = new Date(Date.now() + NONCE_TTL_MS);
         const wallet = this.walletRepository.create({
             address,
             nonce,
+            nonceExpiresAt,
             chain: "SOL"
         });
         return this.walletRepository.save(wallet);
     }
 
     async updateNonce(walletId: string, nonce: string | null): Promise<void> {
-        await this.walletRepository.update(walletId, { nonce });
+        await this.walletRepository.update(walletId, {
+            nonce,
+            nonceExpiresAt: nonce ? new Date(Date.now() + NONCE_TTL_MS) : null
+        });
     }
 
     async updateUser(walletId: string, userId: string, icon?: string): Promise<void> {

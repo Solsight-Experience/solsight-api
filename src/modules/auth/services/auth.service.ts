@@ -184,53 +184,116 @@ export class AuthService {
         return { nonce };
     }
 
-    async verifySolanaWallet(walletAddress: string, signature: string, walletIcon?: string, userId?: string): Promise<{ success: boolean; message: string }> {
+    async verifySolanaWallet(
+        walletAddress: string,
+        signature: string,
+        message: string,
+        walletIcon: string | undefined,
+        userId: string
+    ): Promise<{ success: boolean; message: string }> {
         const wallet = await this.walletsService.findByAddress(walletAddress);
 
         if (!wallet || !wallet.nonce) {
             throw new BadRequestException("Wallet not found or nonce not generated");
         }
 
+        if (!wallet.nonceExpiresAt || wallet.nonceExpiresAt.getTime() < Date.now()) {
+            await this.walletsService.updateNonce(wallet.id, null);
+            throw new UnauthorizedException("Nonce expired. Please request a new one.");
+        }
+
+        // TODO: validate parsed.domain against an allowlist (e.g. CORS_ORIGIN host) in a follow-up PR
+        const parsed = this.parseSiwsMessage(message);
+
+        if (parsed.address !== walletAddress) {
+            throw new UnauthorizedException("SIWS address mismatch");
+        }
+
+        if (parsed.nonce !== wallet.nonce) {
+            throw new UnauthorizedException("SIWS nonce mismatch");
+        }
+
+        if (parsed.version !== "1") {
+            throw new BadRequestException("Unsupported SIWS version");
+        }
+
+        if (parsed.chainId !== "solana:mainnet" && parsed.chainId !== "solana:devnet") {
+            throw new BadRequestException("Invalid SIWS chain ID");
+        }
+
+        const issuedAtMs = new Date(parsed.issuedAt).getTime();
+        if (Number.isNaN(issuedAtMs)) {
+            throw new BadRequestException("Invalid SIWS issuedAt");
+        }
+        const skewMs = 5 * 60 * 1000;
+        const now = Date.now();
+        if (issuedAtMs > now + skewMs || issuedAtMs < now - skewMs) {
+            throw new UnauthorizedException("SIWS message issuedAt out of acceptable window");
+        }
+
         try {
             const signatureUint8 = bs58.decode(signature);
-            const nonceUint8 = new TextEncoder().encode(wallet.nonce);
+            const messageUint8 = new TextEncoder().encode(message);
             const publicKeyUint8 = bs58.decode(walletAddress);
 
-            const verified = nacl.sign.detached.verify(nonceUint8, signatureUint8, publicKeyUint8);
+            const verified = nacl.sign.detached.verify(messageUint8, signatureUint8, publicKeyUint8);
 
             if (!verified) {
                 throw new UnauthorizedException("Invalid signature");
             }
         } catch (error) {
+            if (error instanceof UnauthorizedException) throw error;
             throw new UnauthorizedException("Signature verification failed");
         }
 
-        // Clear nonce
         await this.walletsService.updateNonce(wallet.id, null);
 
-        let user;
-        if (userId) {
-            // Scenario A: Linking
-            user = await this.userRepository.findById(userId);
-            if (!user) {
-                throw new NotFoundException("User not found");
-            }
-        } else {
-            // Scenario B: Login
-            if (wallet.user) {
-                user = wallet.user;
-            } else {
-                throw new NotFoundException("User not found");
-            }
+        const user = await this.userRepository.findById(userId);
+        if (!user) {
+            throw new NotFoundException("User not found");
         }
 
-        // if (!wallet.userId || wallet.userId !== user.id) {
         await this.walletsService.updateUser(wallet.id, user.id, walletIcon);
-        // }
 
         return {
             success: true,
             message: "Wallet verified and linked successfully"
+        };
+    }
+
+    private parseSiwsMessage(message: string): {
+        domain: string;
+        address: string;
+        uri: string;
+        version: string;
+        chainId: string;
+        nonce: string;
+        issuedAt: string;
+    } {
+        const lines = message.split("\n");
+        const domainLine = lines[0] || "";
+        const domainMatch = domainLine.match(/^(.+?) wants you to sign in/);
+        if (!domainMatch) throw new BadRequestException("Malformed SIWS message: missing domain line");
+        const domain = domainMatch[1].trim();
+
+        const address = (lines[1] || "").trim();
+        if (!address) throw new BadRequestException("Malformed SIWS message: missing address line");
+
+        const fieldRegex = (key: string) => new RegExp(`^${key}:\\s*(.+)$`, "m");
+        const extract = (key: string): string => {
+            const m = message.match(fieldRegex(key));
+            if (!m) throw new BadRequestException(`Malformed SIWS message: missing ${key}`);
+            return m[1].trim();
+        };
+
+        return {
+            domain,
+            address,
+            uri: extract("URI"),
+            version: extract("Version"),
+            chainId: extract("Chain ID"),
+            nonce: extract("Nonce"),
+            issuedAt: extract("Issued At")
         };
     }
 }

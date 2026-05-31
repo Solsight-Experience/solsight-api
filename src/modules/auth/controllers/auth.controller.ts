@@ -82,6 +82,12 @@ export class AuthController {
     @UseGuards(JwtAuthGuard)
     @Post("solana/verify")
     async verifySolanaWallet(@Body() verifySolanaDto: VerifySolanaDto, @Request() req) {
-        return await this.authService.verifySolanaWallet(verifySolanaDto.walletAddress, verifySolanaDto.signature, verifySolanaDto.walletIcon, req.user.id);
+        return await this.authService.verifySolanaWallet(
+            verifySolanaDto.walletAddress,
+            verifySolanaDto.signature,
+            verifySolanaDto.message,
+            verifySolanaDto.walletIcon,
+            req.user.id
+        );
     }
 }

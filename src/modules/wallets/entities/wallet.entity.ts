@@ -31,6 +31,9 @@ export class Wallet {
     @Column({ type: "text", nullable: true })
     nonce: string | null;
 
+    @Column({ type: "timestamptz", nullable: true })
+    nonceExpiresAt: Date | null;
+
     @Column({
         type: "enum",
         enum: WalletType,
