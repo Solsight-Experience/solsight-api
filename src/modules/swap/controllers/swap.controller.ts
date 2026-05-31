@@ -4,6 +4,7 @@ import { JwtAuthGuard } from "../../auth/guards/jwt-auth.guard";
 import { GetQuoteDto } from "../dtos/get-quote.dto";
 import { GetSwapTransactionDto } from "../dtos/get-swap-transaction.dto";
 import { ExecuteSwapDto } from "../dtos/execute-swap.dto";
+import { GetSwapInfoDto } from "../dtos/get-swap-info.dto";
 
 @Controller("swap")
 export class SwapController {
@@ -25,5 +26,11 @@ export class SwapController {
     @Post("execute")
     async executeSwap(@Body() dto: ExecuteSwapDto) {
         return this.swapService.executeSwap(dto);
+    }
+
+    @UseGuards(JwtAuthGuard)
+    @Get("info")
+    async getSwapInfo(@Query() dto: GetSwapInfoDto) {
+        return this.swapService.getSwapInfo(dto);
     }
 }

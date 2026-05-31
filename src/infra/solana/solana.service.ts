@@ -1,8 +1,9 @@
 import { Injectable, Logger } from "@nestjs/common";
-import { LAMPORTS_PER_SOL, PublicKey } from "@solana/web3.js";
+import { AddressLookupTableAccount, LAMPORTS_PER_SOL, PublicKey, RecentPrioritizationFees } from "@solana/web3.js";
 import { TOKEN_PROGRAM_ID, getAssociatedTokenAddress } from "@solana/spl-token";
 import { HeliusResolver } from "./helius.resolver";
 import { ClusterProvider } from "../../common/cluster/cluster.provider";
+import { SubmitAndConfirmOptions } from "./constants/types";
 
 @Injectable()
 export class SolanaService {
@@ -82,5 +83,44 @@ export class SolanaService {
         } catch {
             return false;
         }
+    }
+
+    async submitAndConfirm(signedTransactionBase64: string, options: SubmitAndConfirmOptions = {}): Promise<{ signature: string }> {
+        const rpc = this.heliusResolver.get();
+        const txBuffer = Buffer.from(signedTransactionBase64, "base64");
+        const latestBlockhash = await rpc.getLatestBlockhash();
+        const signature = await rpc.sendRawTransaction(txBuffer, {
+            skipPreflight: options.skipPreflight ?? false,
+            maxRetries: options.maxRetries ?? 3
+        });
+        await rpc.confirmTransaction(
+            {
+                signature,
+                blockhash: latestBlockhash.blockhash,
+                lastValidBlockHeight: latestBlockhash.lastValidBlockHeight
+            },
+            options.commitment ?? "confirmed"
+        );
+        return { signature };
+    }
+
+    async getRecentPrioritizationFees(): Promise<RecentPrioritizationFees[]> {
+        return this.heliusResolver.get().getRecentPrioritizationFees();
+    }
+
+    async resolveAddressLookupTables(accountKeys: PublicKey[]): Promise<AddressLookupTableAccount[]> {
+        if (accountKeys.length === 0) {
+            return [];
+        }
+        const rpc = this.heliusResolver.get();
+        return Promise.all(
+            accountKeys.map(async (key) => {
+                const result = await rpc.getAddressLookupTable(key);
+                if (!result.value) {
+                    throw new Error(`Address lookup table not found: ${key.toBase58()}`);
+                }
+                return result.value;
+            })
+        );
     }
 }

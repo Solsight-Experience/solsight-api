@@ -33,6 +33,10 @@ export default () => ({
         apiKey: process.env.JUPITER_API_KEY
     },
 
+    jito: {
+        tipFloorUrl: process.env.JITO_TIP_FLOOR_URL ?? "https://bundles.jito.wtf/api/v1/bundles/tip_floor"
+    },
+
     executor: {
         provider: process.env.EXECUTOR_PROVIDER || "jupiter"
     },
@@ -40,6 +44,12 @@ export default () => ({
     solsightExecutor: {
         apiUrl: process.env.SOLSIGHT_EXECUTOR_API_URL ?? "http://localhost:8080",
         apiKey: process.env.SOLSIGHT_EXECUTOR_API_KEY
+    },
+
+    kora: {
+        rpcUrl: process.env.KORA_RPC_URL,
+        apiKey: process.env.KORA_API_KEY,
+        hmacSecret: process.env.KORA_HMAC_SECRET
     },
 
     coingecko: {

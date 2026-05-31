@@ -50,4 +50,8 @@ export class GetSwapTransactionDto {
     @IsBoolean()
     @IsOptional()
     wrapAndUnwrapSol?: boolean;
+
+    @IsOptional()
+    @IsSolanaAddress()
+    gaslessFeeToken?: string;
 }

@@ -1,3 +1,5 @@
+import { Commitment, SendOptions } from "@solana/web3.js";
+
 export type RpcResponse<T> = {
     jsonrpc: string;
     id: string;
@@ -259,3 +261,5 @@ export type EnhancedTransaction = {
         setAuthority?: SetAuthorityEvent;
     };
 };
+
+export type SubmitAndConfirmOptions = Pick<SendOptions, "skipPreflight" | "maxRetries"> & { commitment?: Commitment };
