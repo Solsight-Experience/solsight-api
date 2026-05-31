@@ -5,11 +5,11 @@ import { WalletsController } from "./controllers/wallets.controller";
 import { UsersWalletsController } from "./controllers/users-wallets.controller";
 import { WalletsService } from "./services/wallets.service";
 import { SolanaModule } from "../../infra/solana/solana.module";
-import { JupiterModule } from "../../infra/jupiter/jupiter.module";
+import { TokensModule } from "../tokens/tokens.module";
 import { CoinGeckoModule } from "../../infra/coingecko/coingecko.module";
 
 @Module({
-    imports: [TypeOrmModule.forFeature([Wallet]), SolanaModule, JupiterModule, CoinGeckoModule],
+    imports: [TypeOrmModule.forFeature([Wallet]), SolanaModule, TokensModule, CoinGeckoModule],
     controllers: [WalletsController, UsersWalletsController],
     providers: [WalletsService],
     exports: [WalletsService]

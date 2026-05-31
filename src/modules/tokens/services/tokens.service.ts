@@ -149,6 +149,62 @@ export class TokensService {
         return mapTokenEntityToResponseDto(token, this.network);
     }
 
+    /**
+     * Batch-fetch USD price + 24h change for the given token addresses.
+     *
+     * Source priority per token:
+     *   1. Redis hash `price:{mint}:latest` (populated by indexer swap aggregation)
+     *   2. `tokens.price` / `tokens.priceChange24h` columns (CoinGecko-seeded fallback)
+     *
+     * Tokens with no price data resolve to `{ priceUsd: 0, priceChange24h: 0 }`.
+     * Returns a map keyed by mint address so callers can do their own joins.
+     */
+    async getPrices(addresses: string[]): Promise<Map<string, { priceUsd: number; priceChange24h: number }>> {
+        const result = new Map<string, { priceUsd: number; priceChange24h: number }>();
+        if (addresses.length === 0) return result;
+
+        const needFallback: string[] = [];
+
+        await Promise.all(
+            addresses.map(async (addr) => {
+                try {
+                    const cached = await this.redisService.hgetall(`price:${addr}:latest`);
+                    if (cached?.price_usd) {
+                        const priceUsd = parseFloat(cached.price_usd);
+                        if (Number.isFinite(priceUsd) && priceUsd > 0) {
+                            result.set(addr, { priceUsd, priceChange24h: 0 });
+                            return;
+                        }
+                    }
+                } catch (error) {
+                    this.logger.debug(`Redis price lookup failed for ${addr}: ${(error as Error).message}`);
+                }
+                needFallback.push(addr);
+            })
+        );
+
+        if (needFallback.length > 0) {
+            const tokens = await this.tokenRepository.find({
+                where: { address: In(needFallback), network: this.network },
+                select: ["address", "price", "priceChange24h"]
+            });
+
+            for (const t of tokens) {
+                const priceUsd = Number(t.price) || 0;
+                const priceChange24h = Number(t.priceChange24h) || 0;
+                result.set(t.address, { priceUsd, priceChange24h });
+            }
+        }
+
+        for (const addr of addresses) {
+            if (!result.has(addr)) {
+                result.set(addr, { priceUsd: 0, priceChange24h: 0 });
+            }
+        }
+
+        return result;
+    }
+
     async findMany(addresses: string[]): Promise<Map<string, TokenMetadata>> {
         const result = new Map<string, TokenMetadata>();
         if (addresses.length === 0) return result;
