@@ -74,6 +74,7 @@ export function mapTokenEntityToResponseDto(token: Token, network: string): Toke
     const metadata: TokenResponseMetadata = {
         address: token.address,
         symbol: token.symbol,
+        decimals: token.decimals,
         name: token.name,
         logo_uri: token.logoUri ?? null,
         network,
