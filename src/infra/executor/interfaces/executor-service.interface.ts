@@ -9,7 +9,14 @@ import type { JupiterGetSwapQuoteParams, JupiterQuoteResponse, JupiterSwapReques
  */
 export interface QuoteParams extends JupiterGetSwapQuoteParams {}
 export interface QuoteResponse extends JupiterQuoteResponse {}
-export interface SwapRequest extends JupiterSwapRequest {}
+export interface SwapRequest extends JupiterSwapRequest {
+    /**
+     * solsight-executor extension: when set, the executor builds a gasless
+     * transaction with Kora as fee payer and embeds the user→Kora fee-token
+     * payment instruction. Must equal the swap's input or output mint.
+     */
+    feeToken?: string;
+}
 export interface SwapResponse extends JupiterSwapResponse {}
 
 export interface ExecutorService {

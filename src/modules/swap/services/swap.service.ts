@@ -1,5 +1,4 @@
 import { BadRequestException, HttpException, HttpStatus, Inject, Injectable, InternalServerErrorException, Logger } from "@nestjs/common";
-import { AddressLookupTableAccount, TransactionMessage, VersionedTransaction } from "@solana/web3.js";
 import { EXECUTOR_SERVICE } from "../../../infra/executor/constants/executor.token";
 import type { ExecutorService, QuoteResponse, SwapResponse } from "../../../infra/executor/interfaces/executor-service.interface";
 import { SolanaService } from "../../../infra/solana/solana.service";
@@ -74,31 +73,17 @@ export class SwapService {
             throw new BadRequestException(`Fee token ${dto.gaslessFeeToken} is not supported by the paymaster.`);
         }
 
-        const payerPubkey = await this.koraService.getPayerPubkey();
-        if (!payerPubkey) {
-            throw new InternalServerErrorException("Kora is enabled but payer pubkey is unavailable.");
-        }
+        this.logger.log(`Gasless swap requested: feeToken=${this.shortAddr(dto.gaslessFeeToken)}`);
 
-        this.logger.log(`Gasless swap requested: feeToken=${this.shortAddr(dto.gaslessFeeToken)} payer=${this.shortAddr(payerPubkey)}`);
-
-        let jupiterTx: SwapResponse;
         try {
-            jupiterTx = await this.executorService.getSwapTransaction({
+            return await this.executorService.getSwapTransaction({
                 quoteResponse: dto.quoteResponse,
                 userPublicKey: dto.userPublicKey,
                 wrapAndUnwrapSol: dto.wrapAndUnwrapSol ?? true,
-                payer: payerPubkey
+                feeToken: dto.gaslessFeeToken
             });
         } catch (error) {
             throw this.toHttpException(error);
-        }
-
-        try {
-            const finalTransaction = await this.attachKoraPayment(jupiterTx.swapTransaction, dto.gaslessFeeToken, dto.userPublicKey);
-            return { ...jupiterTx, swapTransaction: finalTransaction };
-        } catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
-            throw new InternalServerErrorException(`Failed to attach Kora payment instruction: ${message}`);
         }
     }
 
@@ -147,25 +132,6 @@ export class SwapService {
             const message = error instanceof Error ? error.message : "Swap execution failed.";
             throw new HttpException(message, HttpStatus.BAD_GATEWAY);
         }
-    }
-
-    private async attachKoraPayment(jupiterTxBase64: string, feeToken: string, sourceWallet: string): Promise<string> {
-        const payment = await this.koraService.getPaymentInstruction({
-            transaction: jupiterTxBase64,
-            feeToken,
-            sourceWallet
-        });
-        const tx = VersionedTransaction.deserialize(Buffer.from(jupiterTxBase64, "base64"));
-        const lookupTables = await this.fetchLookupTables(tx);
-        const decompiled = TransactionMessage.decompile(tx.message, { addressLookupTableAccounts: lookupTables });
-        decompiled.instructions.push(payment.paymentInstruction);
-        const newMessage = decompiled.compileToV0Message(lookupTables);
-        const newTx = new VersionedTransaction(newMessage);
-        return Buffer.from(newTx.serialize()).toString("base64");
-    }
-
-    private async fetchLookupTables(tx: VersionedTransaction): Promise<AddressLookupTableAccount[]> {
-        return this.solanaService.resolveAddressLookupTables(tx.message.addressTableLookups.map((lookup) => lookup.accountKey));
     }
 
     private shortAddr(address: string): string {
