@@ -1,14 +1,16 @@
 import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
 import { Cron } from "@nestjs/schedule";
+import { ClsService } from "nestjs-cls";
 import { WalletAlertService } from "./wallet-alert.service";
 import { WalletAlert, WalletAlertType, WalletAlertCondition } from "./entities/wallet-alert.entity";
 import { NotificationsService } from "../notifications/services/notifications.service";
 import { NotificationEventType } from "../notifications/entities/notification.entity";
-import { HeliusService } from "../../infra/solana/helius.service";
+import { HeliusResolver } from "../../infra/solana/helius.resolver";
 import { ZaloSubscriptionService } from "../zalo/services/zalo-subscription.service";
 import { EmailSubscriptionService } from "../email/services/email-subscription.service";
 import { TokensService } from "../tokens/services/tokens.service";
 import { COMMON_TOKEN_MINT } from "../tokens/constants/token.constant";
+import { CLUSTER_CLS_KEY } from "../../common/cluster/cluster.provider";
 
 @Injectable()
 export class WalletAlertCheckerService implements OnModuleInit {
@@ -20,32 +22,34 @@ export class WalletAlertCheckerService implements OnModuleInit {
         private readonly walletAlertService: WalletAlertService,
         private readonly notificationsService: NotificationsService,
         private readonly tokenService: TokensService,
-        private readonly heliusService: HeliusService,
+        private readonly heliusResolver: HeliusResolver,
         private readonly zaloSubscriptionService: ZaloSubscriptionService,
-        private readonly emailSubscriptionService: EmailSubscriptionService
+        private readonly emailSubscriptionService: EmailSubscriptionService,
+        private readonly cls: ClsService
     ) {}
 
     @Cron("*/10 * * * * *")
     async checkAllAlerts(): Promise<void> {
-        const alerts = await this.walletAlertService.getAllActiveAlerts();
-        // this.logger.log(`Checking ${alerts.length} active alert(s)`);
-        if (!alerts.length) return;
+        return this.cls.run(async () => {
+            this.cls.set(CLUSTER_CLS_KEY, "mainnet");
+            const alerts = await this.walletAlertService.getAllActiveAlerts();
+            if (!alerts.length) return;
 
-        // Group alerts by wallet address to batch Helius calls
-        const alertsByWallet = new Map<string, WalletAlert[]>();
-        for (const alert of alerts) {
-            const list = alertsByWallet.get(alert.walletAddress) ?? [];
-            list.push(alert);
-            alertsByWallet.set(alert.walletAddress, list);
-        }
-
-        for (const [walletAddress, walletAlerts] of alertsByWallet) {
-            try {
-                await this.processWallet(walletAddress, walletAlerts);
-            } catch (err) {
-                this.logger.error(`Failed to process alerts for ${walletAddress}`, err);
+            const alertsByWallet = new Map<string, WalletAlert[]>();
+            for (const alert of alerts) {
+                const list = alertsByWallet.get(alert.walletAddress) ?? [];
+                list.push(alert);
+                alertsByWallet.set(alert.walletAddress, list);
             }
-        }
+
+            for (const [walletAddress, walletAlerts] of alertsByWallet) {
+                try {
+                    await this.processWallet(walletAddress, walletAlerts);
+                } catch (err) {
+                    this.logger.error(`Failed to process alerts for ${walletAddress}`, err);
+                }
+            }
+        });
     }
 
     private async processWallet(walletAddress: string, alerts: WalletAlert[]): Promise<void> {
@@ -85,9 +89,8 @@ export class WalletAlertCheckerService implements OnModuleInit {
 
     private async fetchRecentTxs(walletAddress: string): Promise<any[]> {
         try {
-            return await this.heliusService.getEnhancedTransactionsByAddress(walletAddress, { limit: 50 });
+            return await this.heliusResolver.forCluster("mainnet").getEnhancedTransactionsByAddress(walletAddress, { limit: 50 });
         } catch (err) {
-            // this.logger.warn(`Helius fetch failed for ${walletAddress}: ${err instanceof Error ? err.message : err}`);
             return [];
         }
     }

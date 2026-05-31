@@ -2,7 +2,7 @@ import { Injectable, Inject, Logger } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
 import { WalletsService } from "../../wallets/services/wallets.service";
-import { HeliusService } from "../../../infra/solana/helius.service";
+import { HeliusResolver } from "../../../infra/solana/helius.resolver";
 import { SolanaService } from "../../../infra/solana/solana.service";
 import { CoinGeckoService } from "../../../infra/coingecko/coingecko.service";
 import { CACHE_MANAGER } from "@nestjs/cache-manager";
@@ -13,6 +13,7 @@ import { Transaction, TransactionType, TransactionStatus } from "../../transacti
 import { WalletSnapshot } from "../entities/wallet-snapshot.entity";
 import { TokensService } from "src/modules/tokens/services/tokens.service";
 import { TokenMetadata } from "src/modules/tokens/dtos/token.response.dto";
+import { ClusterProvider } from "../../../common/cluster/cluster.provider";
 
 const SOL_COINGECKO_ID = "solana";
 
@@ -21,19 +22,26 @@ const DEX_SOURCES = ["JUPITER", "RAYDIUM", "ORCA", "METEORA", "PHOENIX", "OPENBO
 @Injectable()
 export class PortfolioService {
     private readonly logger = new Logger(PortfolioService.name);
-    private readonly heliusRateLimitRps = 5; // max requests per second
+    private readonly heliusRateLimitRps = 5;
     private heliusRequestTimestamps: number[] = [];
 
     constructor(
         private readonly walletsService: WalletsService,
-        private readonly heliusService: HeliusService,
+        private readonly heliusResolver: HeliusResolver,
         private readonly solanaService: SolanaService,
         private readonly tokenService: TokensService,
         private readonly coinGeckoService: CoinGeckoService,
         @Inject(CACHE_MANAGER) private cacheManager: Cache,
-        @InjectRepository(Transaction) private transactionRepo: Repository<Transaction>,
-        @InjectRepository(WalletSnapshot) private walletSnapshotRepo: Repository<WalletSnapshot>
+        @InjectRepository(Transaction)
+        private readonly transactionRepository: Repository<Transaction>,
+        @InjectRepository(WalletSnapshot)
+        private readonly walletSnapshotRepository: Repository<WalletSnapshot>,
+        private readonly clusterProvider: ClusterProvider
     ) {}
+
+    private get network(): string {
+        return this.clusterProvider.cluster;
+    }
 
     private mapTxType(heliusType: string): TransactionType {
         switch (heliusType) {
@@ -324,8 +332,8 @@ export class PortfolioService {
 
         // Ensure each wallet has data in DB; if empty, trigger a sync via fetchWalletActivities
         for (const wallet of wallets) {
-            const count = await this.transactionRepo.count({
-                where: { signerAddress: wallet.address, type: TransactionType.SWAP }
+            const count = await this.transactionRepository.count({
+                where: { signerAddress: wallet.address, type: TransactionType.SWAP, network: this.network }
             });
             if (count === 0) {
                 await this.fetchWalletActivities(wallet.address, "all", 100);
@@ -333,11 +341,12 @@ export class PortfolioService {
         }
 
         // Read swaps directly from DB, filtered to timeframe
-        const dbTrades = await this.transactionRepo
+        const dbTrades = await this.transactionRepository
             .createQueryBuilder("t")
             .where("t.signerAddress IN (:...addrs)", {
                 addrs: wallets.map((w) => w.address)
             })
+            .andWhere("t.network = :network", { network: this.network })
             .andWhere("t.type = :type", { type: TransactionType.SWAP })
             .andWhere("t.blockTime >= :start", { start: new Date(startTimeSec * 1000) })
             .andWhere("t.blockTime >= :cutoff", { cutoff: new Date(cutoffSec * 1000) })
@@ -433,17 +442,18 @@ export class PortfolioService {
 
         // Save per-wallet balance snapshots (fire-and-forget)
         const snapshotAt = new Date();
+        const snapshotRepo = this.walletSnapshotRepository;
         const allSnapshotEntities = walletTokenAccounts.flatMap(({ wallet, accounts }) =>
             accounts
                 .filter((acc) => acc.account.data.parsed.info.tokenAmount.uiAmount > 0)
                 .map((acc) => {
                     const mint = acc.account.data.parsed.info.mint;
                     const amount = acc.account.data.parsed.info.tokenAmount.uiAmount;
-                    return this.walletSnapshotRepo.create({ walletAddress: wallet.address, tokenMint: mint, amount, snapshotAt });
+                    return snapshotRepo.create({ walletAddress: wallet.address, network: this.network, tokenMint: mint, amount, snapshotAt });
                 })
         );
         if (allSnapshotEntities.length > 0) {
-            this.walletSnapshotRepo.save(allSnapshotEntities).catch((err) => this.logger.error("Failed to save position snapshot:", err));
+            await snapshotRepo.save(allSnapshotEntities).catch((err) => this.logger.error("Failed to save position snapshot:", err));
         }
 
         const allTokenAccounts = walletTokenAccounts.flatMap((w) => w.accounts);
@@ -540,7 +550,7 @@ export class PortfolioService {
 
         try {
             let transactions = await this.rateLimitedHeliusCall(() =>
-                this.heliusService.getEnhancedTransactionsByAddress(walletAddress, {
+                this.heliusResolver.get().getEnhancedTransactionsByAddress(walletAddress, {
                     limit,
                     type: heliusType || undefined,
                     beforeSignature: before
@@ -550,6 +560,7 @@ export class PortfolioService {
             // Save detected swaps/transfers to DB so PnL can use them
             const swapsToSave = transactions.filter((tx) => this.isSwap(tx, walletAddress));
             if (swapsToSave.length > 0) {
+                const txRepo = this.transactionRepository;
                 const entities = swapsToSave.map((tx) => {
                     const allTransfers = [
                         ...(tx.tokenTransfers ?? []),
@@ -562,8 +573,9 @@ export class PortfolioService {
                     ];
                     const tokenOut = allTransfers.find((t: any) => t.fromUserAccount === walletAddress);
                     const tokenIn = allTransfers.find((t: any) => t.toUserAccount === walletAddress);
-                    return this.transactionRepo.create({
+                    return txRepo.create({
                         signature: tx.signature,
+                        network: this.network,
                         type: this.mapTxType(tx.type),
                         status: TransactionStatus.CONFIRMED,
                         amount: tokenOut?.tokenAmount ?? 0,
@@ -577,7 +589,7 @@ export class PortfolioService {
                     });
                 });
                 try {
-                    await this.transactionRepo.createQueryBuilder().insert().into(Transaction).values(entities).orIgnore().execute();
+                    await txRepo.createQueryBuilder().insert().into(Transaction).values(entities).orIgnore().execute();
                 } catch {
                     /* ignore */
                 }
@@ -612,7 +624,7 @@ export class PortfolioService {
 
     private async mapToActivity(tx: any, walletAddress: string, solPrice: number, tokenMetaMap: Map<string, TokenMetadata>) {
         const SOL_MINT = "So11111111111111111111111111111111111111112";
-        const network = this.solanaService.getNetwork();
+        const network = this.network;
 
         const feeSol = tx.fee ? tx.fee / LAMPORTS_PER_SOL : 0;
         const feeUsd = feeSol * solPrice;
@@ -1078,8 +1090,8 @@ export class PortfolioService {
             // }
 
             // L2: DB — get known signatures for this wallet (all types for dedup)
-            const knownRows = await this.transactionRepo.find({
-                where: { signerAddress: wallet.address },
+            const knownRows = await this.transactionRepository.find({
+                where: { signerAddress: wallet.address, network: this.network },
                 select: ["signature"]
             });
             const knownSigs = new Set(knownRows.map((r) => r.signature));
@@ -1116,9 +1128,10 @@ export class PortfolioService {
             }
 
             // Load all trades from DB for this wallet within 2 years (SWAP only for PnL)
-            const dbTrades = await this.transactionRepo
+            const dbTrades = await this.transactionRepository
                 .createQueryBuilder("t")
                 .where("t.signerAddress = :addr", { addr: wallet.address })
+                .andWhere("t.network = :network", { network: this.network })
                 .andWhere("t.type = :type", { type: TransactionType.SWAP })
                 .andWhere("t.blockTime >= :cutoff", { cutoff: new Date(cutoffSec * 1000) })
                 .orderBy("t.blockTime", "DESC")
@@ -1250,7 +1263,7 @@ export class PortfolioService {
                     : await (async () => {
                           try {
                               const fetched = await this.rateLimitedHeliusCall(() =>
-                                  this.heliusService.getEnhancedTransactionsByAddress(wallet.address, { limit: 100 })
+                                  this.heliusResolver.get().getEnhancedTransactionsByAddress(wallet.address, { limit: 100 })
                               );
                               await this.cacheManager.set(cacheKey, fetched, HELIUS_CACHE_TTL);
                               return fetched;
@@ -1268,6 +1281,7 @@ export class PortfolioService {
             // Save fetched transactions to DB (fire-and-forget)
             const toSave = transactions.filter((tx) => this.isSwap(tx, wallet.address));
             if (toSave.length > 0) {
+                const txRepo = this.transactionRepository;
                 const entities = toSave.map((tx) => {
                     const allTransfers = [
                         ...(tx.tokenTransfers ?? []),
@@ -1280,8 +1294,9 @@ export class PortfolioService {
                     ];
                     const tokenOut = allTransfers.find((t: any) => t.fromUserAccount === wallet.address);
                     const tokenIn = allTransfers.find((t: any) => t.toUserAccount === wallet.address);
-                    return this.transactionRepo.create({
+                    return txRepo.create({
                         signature: tx.signature,
+                        network: this.network,
                         type: this.mapTxType(tx.type),
                         status: TransactionStatus.CONFIRMED,
                         amount: tokenOut?.tokenAmount ?? 0,
@@ -1294,7 +1309,7 @@ export class PortfolioService {
                         metadata: { tokenTransfers: allTransfers }
                     });
                 });
-                this.transactionRepo
+                txRepo
                     .createQueryBuilder()
                     .insert()
                     .into(Transaction)
@@ -1527,7 +1542,7 @@ export class PortfolioService {
         await Promise.all(
             candidates.map(async ({ a: activity, i: idx }) => {
                 try {
-                    const data = await this.rateLimitedHeliusCall(() => this.heliusService.getEnhancedTransactions([activity.tx_hash]));
+                    const data = await this.rateLimitedHeliusCall(() => this.heliusResolver.get().getEnhancedTransactions([activity.tx_hash]));
                     const txDetail = Array.isArray(data) ? data[0] : null;
                     if (!txDetail) return;
 
@@ -1631,16 +1646,17 @@ export class PortfolioService {
         const cutoffSec = Math.floor(now / 1000) - TWO_YEARS_SEC;
         const startTimeSec = Math.floor(startTime / 1000);
 
-        const count = await this.transactionRepo.count({
-            where: { signerAddress: walletAddress, type: TransactionType.SWAP }
+        const count = await this.transactionRepository.count({
+            where: { signerAddress: walletAddress, type: TransactionType.SWAP, network: this.network }
         });
         if (count === 0) {
             await this.fetchWalletActivities(walletAddress, "all", 100);
         }
 
-        const dbTrades = await this.transactionRepo
+        const dbTrades = await this.transactionRepository
             .createQueryBuilder("t")
             .where("t.signerAddress = :addr", { addr: walletAddress })
+            .andWhere("t.network = :network", { network: this.network })
             .andWhere("t.type = :type", { type: TransactionType.SWAP })
             .andWhere("t.blockTime >= :start", { start: new Date(startTimeSec * 1000) })
             .andWhere("t.blockTime >= :cutoff", { cutoff: new Date(cutoffSec * 1000) })

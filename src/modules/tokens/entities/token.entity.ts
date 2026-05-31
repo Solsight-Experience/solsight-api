@@ -1,7 +1,8 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, ManyToOne, JoinColumn } from "typeorm";
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, ManyToOne, JoinColumn, Index } from "typeorm";
 import { Category } from "./category.entity";
 
 @Entity("tokens")
+@Index(["address", "network"], { unique: true })
 export class Token {
     @PrimaryGeneratedColumn("uuid")
     id: string;
@@ -21,7 +22,7 @@ export class Token {
     @Column({ nullable: true })
     coingeckoId?: string;
 
-    @Column({ default: "solana" })
+    @Column({ default: "mainnet" })
     network: string;
 
     @Column({ type: "text", nullable: true })

@@ -1,8 +1,7 @@
 import { HttpException, HttpStatus, Inject, Injectable, Logger } from "@nestjs/common";
 import { EXECUTOR_SERVICE } from "../../../infra/executor/constants/executor.token";
 import type { ExecutorService, QuoteResponse, SwapResponse } from "../../../infra/executor/interfaces/executor-service.interface";
-import { SOLANA_RPC_SERVICE } from "../../../infra/solana/constants/solana.token";
-import type { SolanaRpcService } from "../../../infra/solana/interfaces/solana-rpc-service.interface";
+import { HeliusResolver } from "../../../infra/solana/helius.resolver";
 import type { ExecuteSwapDto } from "../dtos/execute-swap.dto";
 import type { GetQuoteDto } from "../dtos/get-quote.dto";
 import type { GetSwapTransactionDto } from "../dtos/get-swap-transaction.dto";
@@ -13,7 +12,7 @@ export class SwapService {
 
     constructor(
         @Inject(EXECUTOR_SERVICE) private readonly executorService: ExecutorService,
-        @Inject(SOLANA_RPC_SERVICE) private readonly rpcService: SolanaRpcService
+        private readonly heliusResolver: HeliusResolver
     ) {}
 
     async getQuote(dto: GetQuoteDto): Promise<QuoteResponse> {
@@ -39,12 +38,13 @@ export class SwapService {
     async executeSwap(dto: ExecuteSwapDto): Promise<{ signature: string }> {
         try {
             const txBuffer = Buffer.from(dto.signedTransaction, "base64");
-            const latestBlockhash = await this.rpcService.getLatestBlockhash();
-            const signature = await this.rpcService.sendRawTransaction(txBuffer, {
+            const rpc = this.heliusResolver.get();
+            const latestBlockhash = await rpc.getLatestBlockhash();
+            const signature = await rpc.sendRawTransaction(txBuffer, {
                 skipPreflight: false,
                 maxRetries: 3
             });
-            await this.rpcService.confirmTransaction(
+            await rpc.confirmTransaction(
                 {
                     signature,
                     blockhash: latestBlockhash.blockhash,

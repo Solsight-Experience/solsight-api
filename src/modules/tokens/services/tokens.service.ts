@@ -17,12 +17,10 @@ import { RedisService } from "src/redis/services/redis.service";
 import { TradeData } from "../types/swap-event.type";
 import { COMMON_TOKEN_MINT } from "../constants/token.constant";
 import { SolPriceResponseDto } from "../dtos/sol-price.response.dto";
+import { ClusterProvider } from "src/common/cluster/cluster.provider";
 
-const TOKEN_META_KEY = (address: string) => `token:meta:${address}`;
-const TOKEN_META_TTL = 24 * 60 * 60; // 24 hours
-// Indexer (holder-aggregation.service) sets EXPIRE = PRICE_TTL_S on each write.
-// We treat the cached entry as stale when remaining TTL < FRESH_MIN_TTL_S,
-// i.e. last write was more than STALE_THRESHOLD_S ago.
+const TOKEN_META_KEY = (network: string, address: string) => `token:meta:${network}:${address}`;
+const TOKEN_META_TTL = 24 * 60 * 60;
 const PRICE_TTL_S = 60 * 60;
 const STALE_THRESHOLD_S = 5 * 60;
 const FRESH_MIN_TTL_S = PRICE_TTL_S - STALE_THRESHOLD_S;
@@ -30,28 +28,25 @@ const FRESH_MIN_TTL_S = PRICE_TTL_S - STALE_THRESHOLD_S;
 @Injectable()
 export class TokensService {
     private readonly logger = new Logger(TokensService.name);
-    private network: string;
 
     constructor(
         @InjectRepository(Token)
         private readonly tokenRepository: Repository<Token>,
         @InjectRepository(OhlcCandle)
         private readonly ohlcCandleRepository: Repository<OhlcCandle>,
+        private readonly clusterProvider: ClusterProvider,
         private readonly solanaService: SolanaService,
         private readonly jupiterService: JupiterService,
         private readonly coinGeckoService: CoinGeckoService,
         private readonly ohlcAggregationService: OhlcAggregationService,
         private readonly statsAggregationService: StatsAggregationService,
         private readonly redisService: RedisService
-    ) {
-        this.network = this.solanaService.getNetwork();
+    ) {}
+
+    private get network(): string {
+        return this.clusterProvider.cluster;
     }
 
-    /**
-     * SOL/USD price for the limit-order panel. Reads the indexer-maintained
-     * Redis hashset; falls back to CoinGecko on miss/stale (does NOT write back —
-     * that's the indexer's job).
-     */
     async getSolPrice(): Promise<SolPriceResponseDto> {
         const priceKey = `price:${COMMON_TOKEN_MINT.SOL}:latest`;
         const cached = await this.redisService.hgetall(priceKey);
@@ -60,7 +55,6 @@ export class TokensService {
             const priceUsd = parseFloat(cached.price_usd);
             if (priceUsd > 0) {
                 const ttl = await this.redisService.ttl(priceKey);
-                // ttl < 0: no expiry set → treat as fresh (or missing, handled above).
                 const isStale = ttl >= 0 && ttl < FRESH_MIN_TTL_S;
                 if (!isStale) {
                     return { price_usd: priceUsd, source: "redis" };
@@ -95,11 +89,11 @@ export class TokensService {
             decimals: token.decimals,
             coingeckoId: token.coingeckoId ?? null
         };
-        await this.redisService.set(TOKEN_META_KEY(token.address), JSON.stringify(meta), TOKEN_META_TTL);
+        await this.redisService.set(TOKEN_META_KEY(this.network, token.address), JSON.stringify(meta), TOKEN_META_TTL);
     }
 
     async getTokenMetadata(address: string): Promise<TokenMetadata | null> {
-        const cached = await this.redisService.get<string>(TOKEN_META_KEY(address));
+        const cached = await this.redisService.get<string>(TOKEN_META_KEY(this.network, address));
         if (cached) {
             try {
                 return JSON.parse(cached) as TokenMetadata;
@@ -109,7 +103,7 @@ export class TokensService {
         }
 
         const token = await this.tokenRepository.findOne({
-            where: { address },
+            where: { address, network: this.network },
             select: ["address", "symbol", "name", "logoUri", "decimals", "coingeckoId"]
         });
 
@@ -123,12 +117,12 @@ export class TokensService {
             decimals: token.decimals,
             coingeckoId: token.coingeckoId ?? null
         };
-        await this.redisService.set(TOKEN_META_KEY(address), JSON.stringify(meta), TOKEN_META_TTL);
+        await this.redisService.set(TOKEN_META_KEY(this.network, address), JSON.stringify(meta), TOKEN_META_TTL);
         return meta;
     }
 
     async findOne(address: string): Promise<TokenResponseDto | null> {
-        let token = await this.tokenRepository.findOneBy({ address });
+        let token = await this.tokenRepository.findOneBy({ address, network: this.network });
 
         if (!token) {
             const jupiterToken = await this.jupiterService.searchToken(address);
@@ -137,14 +131,13 @@ export class TokensService {
             }
             const tokenData = mapJupiterTokenToEntity(jupiterToken);
 
-            // Try to find CoinGecko ID for this token
             const coingeckoId = await this.coinGeckoService.findCoinGeckoId(jupiterToken.symbol, jupiterToken.name);
             if (coingeckoId) {
                 tokenData.coingeckoId = coingeckoId;
             }
 
             await this.updateToken(address, tokenData);
-            token = await this.tokenRepository.findOneBy({ address });
+            token = await this.tokenRepository.findOneBy({ address, network: this.network });
         }
 
         if (!token) {
@@ -160,10 +153,9 @@ export class TokensService {
         const result = new Map<string, TokenMetadata>();
         if (addresses.length === 0) return result;
 
-        // 1. Check Redis cache first
         const uncached: string[] = [];
         for (const addr of addresses) {
-            const cached = await this.redisService.get<string>(TOKEN_META_KEY(addr));
+            const cached = await this.redisService.get<string>(TOKEN_META_KEY(this.network, addr));
             if (cached) {
                 try {
                     result.set(addr, JSON.parse(cached) as TokenMetadata);
@@ -177,9 +169,8 @@ export class TokensService {
 
         if (uncached.length === 0) return result;
 
-        // 2. Query DB for uncached addresses
         const tokens = await this.tokenRepository.find({
-            where: { address: In(uncached) },
+            where: { address: In(uncached), network: this.network },
             select: ["address", "symbol", "name", "logoUri", "decimals", "coingeckoId"]
         });
 
@@ -196,13 +187,12 @@ export class TokensService {
             this.cacheTokenMetadata(t).catch(() => {});
         }
 
-        // 3. For addresses not found in DB, try Jupiter fallback
         const missing = uncached.filter((a) => !result.has(a));
         for (const addr of missing) {
             try {
                 await this.findOne(addr);
                 const token = await this.tokenRepository.findOne({
-                    where: { address: addr },
+                    where: { address: addr, network: this.network },
                     select: ["address", "symbol", "name", "logoUri", "decimals", "coingeckoId"]
                 });
                 if (token) {
@@ -225,7 +215,11 @@ export class TokensService {
 
     async search(query: string, limit: number = 10): Promise<TokenDetailsResponseDto[]> {
         const tokens = await this.tokenRepository.find({
-            where: [{ name: ILike(`%${query}%`) }, { symbol: ILike(`%${query}%`) }, { address: ILike(`%${query}%`) }],
+            where: [
+                { name: ILike(`%${query}%`), network: this.network },
+                { symbol: ILike(`%${query}%`), network: this.network },
+                { address: ILike(`%${query}%`), network: this.network }
+            ],
             take: limit
         });
 
@@ -249,7 +243,7 @@ export class TokensService {
             price_change_24h: "priceChange24h"
         } as const;
         const column = SortByMap[sort_by];
-        const whereConditions: any = {};
+        const whereConditions: any = { network: this.network };
         if (filter?.metrics) {
             const m = filter.metrics;
 
@@ -303,7 +297,11 @@ export class TokensService {
                 : undefined,
             where: [
                 whereConditions,
-                [{ name: ILike(`%${filter.search_query}%`) }, { symbol: ILike(`%${filter.search_query}%`) }, { address: ILike(`%${filter.search_query}%`) }]
+                [
+                    { name: ILike(`%${filter.search_query}%`), network: this.network },
+                    { symbol: ILike(`%${filter.search_query}%`), network: this.network },
+                    { address: ILike(`%${filter.search_query}%`), network: this.network }
+                ]
             ]
         });
 
@@ -326,10 +324,8 @@ export class TokensService {
     private calcDays(interval: string, limit: number): number {
         const totalMs = this.parseIntervalMs(interval) * limit;
         const daysByInterval = Math.max(1, Math.ceil(totalMs / 86_400_000));
-        // CoinGecko trả ~6 candles/ngày ở 4h granularity (days 2-90)
         const daysByCount = Math.ceil(limit / 6);
         const raw = Math.max(daysByInterval, daysByCount);
-        // CoinGecko OHLC chỉ chấp nhận các giá trị cụ thể
         const validDays = [1, 7, 14, 30, 90, 180, 365];
         return validDays.find((d) => d >= raw) ?? 365;
     }
@@ -340,7 +336,6 @@ export class TokensService {
         const { interval, limit = 500 } = query;
         const limitNum = Number(limit);
 
-        // Real-time intervals (10s/1m/5m): serve from Redis
         if (this.REALTIME_INTERVALS.includes(interval as OhlcInterval)) {
             const raw = await this.ohlcAggregationService.getHistoricalOhlc(address, interval as OhlcInterval, limitNum);
             const points = raw.map((p) => ({
@@ -357,14 +352,12 @@ export class TokensService {
             return { interval, points };
         }
 
-        // Historical intervals: CoinGecko + DB
         const days = this.calcDays(interval, limitNum);
         const to = Date.now();
         const from = to - days * 86_400_000;
 
-        // 1. Query DB theo range [from, to]
         const cached = await this.ohlcCandleRepository.find({
-            where: { tokenMint: address, interval, timestamp: Between(from, to) },
+            where: { tokenMint: address, network: this.network, interval, timestamp: Between(from, to) },
             order: { timestamp: "ASC" }
         });
 
@@ -372,22 +365,20 @@ export class TokensService {
             return { interval, points: this.mapCandles(cached.slice(-limitNum)) };
         }
 
-        // 2. Get coingeckoId from token DB
-        const token = await this.tokenRepository.findOne({ where: { address }, select: ["coingeckoId"] });
+        const token = await this.tokenRepository.findOne({ where: { address, network: this.network }, select: ["coingeckoId"] });
         if (!token?.coingeckoId) {
             return { interval, points: this.mapCandles(cached) };
         }
 
-        // 3. Fetch from CoinGecko để bổ sung
         try {
             const raw = await this.coinGeckoService.getOhlc(token.coingeckoId, "usd", days);
             if (raw.length === 0) {
                 return { interval, points: this.mapCandles(cached) };
             }
 
-            // 4. Upsert vào DB (ignore duplicates)
             const candles = raw.map(([timestamp, open, high, low, close]) => ({
                 tokenMint: address,
+                network: this.network,
                 interval,
                 timestamp,
                 open,
@@ -398,9 +389,8 @@ export class TokensService {
             }));
             await this.ohlcCandleRepository.createQueryBuilder().insert().into(OhlcCandle).values(candles).orIgnore().execute();
 
-            // 5. Re-query DB theo cùng range [from, to]
             const fresh = await this.ohlcCandleRepository.find({
-                where: { tokenMint: address, interval, timestamp: Between(from, to) },
+                where: { tokenMint: address, network: this.network, interval, timestamp: Between(from, to) },
                 order: { timestamp: "ASC" }
             });
             return { interval, points: this.mapCandles(fresh.slice(-limitNum)) };
@@ -420,7 +410,6 @@ export class TokensService {
             volume: Number(c.volume)
         }));
 
-        // Ensure close[i] == open[i+1] (candlestick continuity)
         for (let i = 1; i < points.length; i++) {
             points[i].open = points[i - 1].close;
         }
@@ -433,9 +422,8 @@ export class TokensService {
     }
 
     async updateToken(address: string, data: Partial<Token>) {
-        const token = await this.tokenRepository.upsert({ address, ...data }, ["address"]);
-        // Invalidate metadata cache so next read picks up fresh data
-        await this.redisService.del(TOKEN_META_KEY(address));
+        const token = await this.tokenRepository.upsert({ address, network: this.network, ...data }, ["address", "network"]);
+        await this.redisService.del(TOKEN_META_KEY(this.network, address));
         return token;
     }
 }

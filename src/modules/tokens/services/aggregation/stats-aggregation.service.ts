@@ -3,6 +3,7 @@ import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
 import { RedisService } from "../../../../redis/services/redis.service";
 import { Token } from "../../entities/token.entity";
+import { ClusterProvider } from "../../../../common/cluster/cluster.provider";
 import { SwapEvent, TokenStats, SwapPriceResult, TradeData, isValidPrice } from "../../types/swap-event.type";
 
 const TRADES_MAX_SIZE = 500;
@@ -15,7 +16,8 @@ export class StatsAggregationService {
     constructor(
         private readonly redisService: RedisService,
         @InjectRepository(Token)
-        private readonly tokenRepository: Repository<Token>
+        private readonly tokenRepository: Repository<Token>,
+        private readonly clusterProvider: ClusterProvider
     ) {}
 
     async onSwapEvent(swap: SwapEvent, prices: SwapPriceResult): Promise<void> {
@@ -99,7 +101,7 @@ export class StatsAggregationService {
         const latestPriceData = await this.redisService.hgetall(`price:${tokenMint}:latest`);
 
         // Get token from database for other stats
-        const token = await this.tokenRepository.findOneBy({ address: tokenMint });
+        const token = await this.tokenRepository.findOneBy({ address: tokenMint, network: this.clusterProvider.cluster });
 
         // Calculate 24h price change (use USD price)
         const priceUsd = latestPriceData?.price_usd != null ? parseFloat(latestPriceData.price_usd) : null;
@@ -147,7 +149,7 @@ export class StatsAggregationService {
         const cached = await this.redisService.get<number>(cacheKey);
         if (cached != null) return cached;
 
-        const token = await this.tokenRepository.findOneBy({ address: tokenMint });
+        const token = await this.tokenRepository.findOneBy({ address: tokenMint, network: this.clusterProvider.cluster });
         const totalSupply = Number(token?.totalSupply ?? 0);
         await this.redisService.set(cacheKey, totalSupply, 60);
         return totalSupply;
