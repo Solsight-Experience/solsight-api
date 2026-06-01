@@ -61,7 +61,7 @@ export class AdminAnalyticsService {
         const limit = dto.limit ?? 20;
         const startDate = dto.startDate ? new Date(dto.startDate) : undefined;
         const endDate = dto.endDate ? new Date(dto.endDate) : undefined;
-        const { swaps, total } = await this.analyticsRepo.getRecentSwaps(page, limit, startDate, endDate);
+        const { swaps, total } = await this.analyticsRepo.getRecentSwaps(page, limit, startDate, endDate, dto.walletAddress, dto.userId, dto.tokenMint);
         return { swaps, total, page, limit };
     }
 

@@ -1,4 +1,4 @@
-import { IsDateString, IsInt, IsOptional, Max, Min } from "class-validator";
+import { IsDateString, IsInt, IsOptional, IsString, Max, Min } from "class-validator";
 import { Type } from "class-transformer";
 
 export class AnalyticsQueryDto {
@@ -22,4 +22,16 @@ export class AnalyticsQueryDto {
     @IsInt()
     @Min(1)
     page?: number;
+
+    @IsOptional()
+    @IsString()
+    walletAddress?: string;
+
+    @IsOptional()
+    @IsString()
+    userId?: string;
+
+    @IsOptional()
+    @IsString()
+    tokenMint?: string;
 }

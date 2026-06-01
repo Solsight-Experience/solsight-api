@@ -5,6 +5,7 @@ import { Roles } from "../../../common/decorators/roles.decorator";
 import { UserRole } from "../../users/entities/user.entity";
 import { AdminNotificationsService } from "../services/admin-notifications.service";
 import { BroadcastNotificationDto } from "../dtos/broadcast-notification.dto";
+import { NotifyUserByEmailDto } from "../dtos/notify-user-by-email.dto";
 
 @Controller("admin/notifications")
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -20,5 +21,10 @@ export class AdminNotificationsController {
     @Post("user/:userId")
     async notifyUser(@Param("userId") userId: string, @Body() dto: BroadcastNotificationDto): Promise<{ sent: number }> {
         return this.adminNotificationsService.notifyUser(userId, dto);
+    }
+
+    @Post("user-by-email")
+    async notifyUserByEmail(@Body() dto: NotifyUserByEmailDto): Promise<{ sent: number }> {
+        return this.adminNotificationsService.notifyUserByEmail(dto);
     }
 }

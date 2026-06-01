@@ -158,7 +158,15 @@ export class AnalyticsRepository {
         }));
     }
 
-    async getRecentSwaps(page: number, limit: number, startDate?: Date, endDate?: Date): Promise<{ swaps: SwapExecution[]; total: number }> {
+    async getRecentSwaps(
+        page: number,
+        limit: number,
+        startDate?: Date,
+        endDate?: Date,
+        walletAddress?: string,
+        userId?: string,
+        tokenMint?: string
+    ): Promise<{ swaps: SwapExecution[]; total: number }> {
         const qb = this.swapExecutionRepo
             .createQueryBuilder("se")
             .orderBy("se.createdAt", "DESC")
@@ -167,6 +175,9 @@ export class AnalyticsRepository {
 
         if (startDate) qb.andWhere("se.createdAt >= :start", { start: startDate });
         if (endDate) qb.andWhere("se.createdAt <= :end", { end: endDate });
+        if (walletAddress) qb.andWhere("se.walletAddress ILIKE :walletAddress", { walletAddress: `%${walletAddress}%` });
+        if (userId) qb.andWhere("se.userId ILIKE :userId", { userId: `%${userId}%` });
+        if (tokenMint) qb.andWhere("(se.inputMint ILIKE :tokenMint OR se.outputMint ILIKE :tokenMint)", { tokenMint: `%${tokenMint}%` });
 
         const [swaps, total] = await qb.getManyAndCount();
         return { swaps, total };
