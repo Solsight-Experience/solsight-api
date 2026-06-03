@@ -149,11 +149,11 @@ export class TokenSocketService implements OnModuleInit {
             }
 
             case "top_traders": {
-                const traders = await this.traderAggregation.getTopTraders(token, 1);
+                const traders = await this.traderAggregation.getTopTraders(token, 10);
                 if (traders.length === 0) return null;
                 return {
                     token,
-                    data: traders[0]
+                    data: traders
                 };
             }
 
