@@ -76,13 +76,6 @@ export default () => ({
         verifyBaseUrl: process.env.APP_BASE_URL ?? "http://localhost:3000"
     },
 
-    mongodb: {
-        uri: process.env.MONGODB_URI ?? "",
-        db: process.env.MONGODB_DB ?? "solsight_rag",
-        vectorCollection: process.env.MONGODB_VECTOR_COLLECTION ?? "rag_documents",
-        vectorIndex: process.env.MONGODB_VECTOR_INDEX ?? "vector_index"
-    },
-
     embedding: {
         provider: process.env.EMBEDDING_PROVIDER,
         apiKey: process.env.EMBEDDING_API_KEY,

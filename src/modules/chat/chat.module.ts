@@ -17,10 +17,11 @@ import { TypeOrmModule } from "@nestjs/typeorm";
 import { ChatSession } from "./entities/chat-session.entity";
 import { ChatMessage } from "./entities/chat-message.entity";
 import { Wallet } from "../wallets/entities/wallet.entity";
+import { RagDocument } from "./entities/rag-document.entity";
 
 @Module({
     imports: [
-        TypeOrmModule.forFeature([ChatSession, ChatMessage, Wallet]),
+        TypeOrmModule.forFeature([ChatSession, ChatMessage, Wallet, RagDocument]),
         ConfigModule,
         JwtModule.registerAsync({
             imports: [ConfigModule],

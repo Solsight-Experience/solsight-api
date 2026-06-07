@@ -1,10 +1,10 @@
 /**
- * RAG Ingest Script: embed JSON documents and store in MongoDB Atlas Vector Search.
+ * RAG Ingest Script: embed JSON documents and store in PostgreSQL (pgvector).
  *
  * Usage:
  *   pnpm rag:ingest                              — ingest docs/knowledge-base.json
- *   pnpm rag:ingest -- --file ./docs/extra.json  — merge thêm file tùy chỉnh
- *   pnpm rag:ingest:clear                        — xóa hết rồi ingest lại
+ *   pnpm rag:ingest -- --file ./docs/extra.json  — merge additional custom file
+ *   pnpm rag:ingest:clear                        — clear all and ingest again
  *
  * JSON format (array of objects):
  *   [
@@ -15,12 +15,10 @@
 
 import { readFileSync } from "fs";
 import { resolve } from "path";
-import { MongoClient } from "mongodb";
+import { Client } from "pg";
 import OpenAI from "openai";
 
-const MONGODB_URI = process.env.MONGODB_URI ?? "";
-const MONGODB_DB = process.env.MONGODB_DB ?? "solsight_rag";
-const MONGODB_VECTOR_COLLECTION = process.env.MONGODB_VECTOR_COLLECTION ?? "rag_documents";
+const DATABASE_URL = process.env.DATABASE_URL ?? "";
 
 const EMBEDDING_API_KEY = process.env.EMBEDDING_API_KEY ?? "";
 const EMBEDDING_API_URL = process.env.EMBEDDING_API_URL ?? "";
@@ -62,16 +60,16 @@ function loadJsonFile(filePath: string): RawDoc[] {
 }
 
 async function main() {
-    if (!MONGODB_URI) {
-        console.error("MONGODB_URI is not set in .env");
+    if (!DATABASE_URL) {
+        console.error("DATABASE_URL is not set in environment");
         process.exit(1);
     }
     if (!EMBEDDING_API_KEY) {
-        console.error("EMBEDDING_API_KEY is not set in .env");
+        console.error("EMBEDDING_API_KEY is not set in environment");
         process.exit(1);
     }
     if (!EMBEDDING_MODEL) {
-        console.error("EMBEDDING_MODEL is not set in .env");
+        console.error("EMBEDDING_MODEL is not set in environment");
         process.exit(1);
     }
 
@@ -90,39 +88,54 @@ async function main() {
     }
 
     console.log(`Total documents to ingest: ${docs.length}`);
-
     console.log(`Embedding model: ${EMBEDDING_MODEL}${EMBEDDING_API_URL ? ` (URL: ${EMBEDDING_API_URL})` : ""}`);
 
-    const client = new MongoClient(MONGODB_URI);
+    const client = new Client({
+        connectionString: DATABASE_URL,
+        ssl: { rejectUnauthorized: false }
+    });
     await client.connect();
-    console.log("Successfully connected to MongoDB Atlas");
+    console.log("Successfully connected to PostgreSQL");
 
     try {
-        const col = client.db(MONGODB_DB).collection(MONGODB_VECTOR_COLLECTION);
+        // Ensure extension and table exist
+        await client.query("CREATE EXTENSION IF NOT EXISTS vector;");
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS rag_documents (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                content TEXT NOT NULL,
+                embedding VECTOR(3072) NOT NULL,
+                metadata JSONB DEFAULT '{}',
+                "createdAt" TIMESTAMP NOT NULL DEFAULT NOW()
+            );
+        `);
 
         if (shouldClear) {
-            const { deletedCount } = await col.deleteMany({});
-            console.log(`Deleted ${deletedCount} old documents`);
+            const { rowCount } = await client.query("DELETE FROM rag_documents;");
+            console.log(`Deleted ${rowCount ?? 0} old documents`);
         }
 
         let inserted = 0;
         for (const batch of chunks(docs, EMBED_BATCH_SIZE)) {
             const embeddings = await embedBatch(batch.map((d) => d.content));
-            await col.insertMany(
-                batch.map((doc, i) => ({
-                    content: doc.content,
-                    embedding: embeddings[i],
-                    metadata: doc.metadata ?? {},
-                    createdAt: new Date()
-                }))
-            );
+
+            for (let i = 0; i < batch.length; i++) {
+                const doc = batch[i];
+                const embeddingStr = `[${embeddings[i].join(",")}]`;
+                await client.query(
+                    `INSERT INTO rag_documents (content, embedding, metadata, "createdAt")
+                     VALUES ($1, $2::vector, $3, NOW())`,
+                    [doc.content, embeddingStr, JSON.stringify(doc.metadata ?? {})]
+                );
+            }
+
             inserted += batch.length;
             console.log(`  Progress: ${inserted}/${docs.length}`);
         }
 
-        console.log(`\nDone! ${inserted} documents -> ${MONGODB_DB}/${MONGODB_VECTOR_COLLECTION}`);
+        console.log(`\nDone! ${inserted} documents -> PostgreSQL (rag_documents table)`);
     } finally {
-        await client.close();
+        await client.end();
     }
 }
 
