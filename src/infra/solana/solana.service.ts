@@ -88,10 +88,13 @@ export class SolanaService {
     async submitAndConfirm(signedTransactionBase64: string, options: SubmitAndConfirmOptions = {}): Promise<{ signature: string }> {
         const rpc = this.heliusResolver.get();
         const txBuffer = Buffer.from(signedTransactionBase64, "base64");
-        const latestBlockhash = await rpc.getLatestBlockhash();
+        const commitment = options.commitment ?? "confirmed";
+        const latestBlockhash = await rpc.getLatestBlockhash(commitment);
+
         const signature = await rpc.sendRawTransaction(txBuffer, {
             skipPreflight: options.skipPreflight ?? false,
-            maxRetries: options.maxRetries ?? 3
+            maxRetries: options.maxRetries ?? 3,
+            preflightCommitment: commitment
         });
         await rpc.confirmTransaction(
             {
@@ -99,7 +102,7 @@ export class SolanaService {
                 blockhash: latestBlockhash.blockhash,
                 lastValidBlockHeight: latestBlockhash.lastValidBlockHeight
             },
-            options.commitment ?? "confirmed"
+            commitment
         );
         return { signature };
     }
