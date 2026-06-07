@@ -80,6 +80,7 @@ export class TestEnvironment {
 
         const dataSource = this.app.get(DataSource);
         if (dataSource.isInitialized) {
+            await dataSource.query("CREATE EXTENSION IF NOT EXISTS vector;");
             await dataSource.synchronize();
         }
 
