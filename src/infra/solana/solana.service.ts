@@ -51,6 +51,23 @@ export class SolanaService {
         }
     }
 
+    async getMintDecimals(mintAddress: string): Promise<number | null> {
+        try {
+            const result = await this.heliusResolver.get().getParsedAccountInfo(new PublicKey(mintAddress));
+            const data = result.value?.data;
+
+            if (!data || typeof data === "string" || !("parsed" in data)) {
+                return null;
+            }
+
+            const decimals = (data.parsed as { info?: { decimals?: unknown } }).info?.decimals;
+            return typeof decimals === "number" ? decimals : null;
+        } catch (error) {
+            this.logger.debug(`Failed to get mint decimals for ${mintAddress}: ${(error as Error).message}`);
+            return null;
+        }
+    }
+
     async getTransactionHistory(publicKey: PublicKey, limit = 10, before?: string, until?: string) {
         try {
             const rpc = this.heliusResolver.get();
