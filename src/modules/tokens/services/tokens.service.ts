@@ -125,15 +125,9 @@ export class TokensService {
         let token = await this.tokenRepository.findOneBy({ address, network: this.network });
 
         if (!token) {
-            const jupiterToken = await this.jupiterService.searchToken(address);
-            if (!jupiterToken) {
+            const tokenData = await this.resolveTokenData(address);
+            if (!tokenData) {
                 return null;
-            }
-            const tokenData = mapJupiterTokenToEntity(jupiterToken);
-
-            const coingeckoId = await this.coinGeckoService.findCoinGeckoId(jupiterToken.symbol, jupiterToken.name);
-            if (coingeckoId) {
-                tokenData.coingeckoId = coingeckoId;
             }
 
             await this.updateToken(address, tokenData);
@@ -147,6 +141,36 @@ export class TokensService {
         await this.cacheTokenMetadata(token);
 
         return mapTokenEntityToResponseDto(token, this.network);
+    }
+
+    private async resolveTokenData(address: string): Promise<Partial<Token> | null> {
+        const mintDecimals = await this.solanaService.getMintDecimals(address);
+        const jupiterToken = await this.jupiterService.searchToken(address);
+
+        if (!jupiterToken && mintDecimals === null) {
+            return null;
+        }
+
+        const tokenData: Partial<Token> = jupiterToken
+            ? mapJupiterTokenToEntity(jupiterToken)
+            : {
+                  address,
+                  symbol: address.slice(0, 8),
+                  name: address,
+                  logoUri: undefined
+              };
+
+        tokenData.address = address;
+        tokenData.decimals = mintDecimals ?? tokenData.decimals;
+
+        if (jupiterToken) {
+            const coingeckoId = await this.coinGeckoService.findCoinGeckoId(jupiterToken.symbol, jupiterToken.name);
+            if (coingeckoId) {
+                tokenData.coingeckoId = coingeckoId;
+            }
+        }
+
+        return tokenData;
     }
 
     /**

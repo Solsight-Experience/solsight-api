@@ -1,6 +1,7 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable, Logger, Optional } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import axios, { AxiosInstance } from "axios";
+import { ClusterProvider } from "../../common/cluster/cluster.provider";
 import {
     CancelOrderParams,
     CancelOrderResponse,
@@ -25,8 +26,12 @@ export class JupiterService {
     private tokenListCache: JupiterTokenV2[] = [];
     private tokenListCacheTime = 0;
     private readonly CACHE_DURATION = 3600000; // 1 hour
+    private readonly skippedOperationWarnings = new Set<string>();
 
-    constructor(private readonly configService: ConfigService) {
+    constructor(
+        private readonly configService: ConfigService,
+        @Optional() private readonly clusterProvider?: ClusterProvider
+    ) {
         const baseUrl = this.configService.get<string>("jupiter.apiUrl");
         const apiKey = this.configService.get<string>("jupiter.apiKey");
 
@@ -39,7 +44,22 @@ export class JupiterService {
             }
         });
 
-        this.logger.log(`Jupiter API initialized: ${baseUrl}`);
+        this.logger.log(`Jupiter API initialized: ${baseUrl} (mainnet-only; skipped on non-mainnet clusters)`);
+    }
+
+    private canUseJupiter(operation: string): boolean {
+        const cluster = this.clusterProvider?.cluster ?? "mainnet";
+        if (cluster === "mainnet") {
+            return true;
+        }
+
+        const warningKey = `${cluster}:${operation}`;
+        if (!this.skippedOperationWarnings.has(warningKey)) {
+            this.skippedOperationWarnings.add(warningKey);
+            this.logger.warn(`Skipping Jupiter ${operation} on ${cluster}; Jupiter API is mainnet-only`);
+        }
+
+        return false;
     }
 
     /**
@@ -49,6 +69,9 @@ export class JupiterService {
      */
     async getTokenPrices(tokenAddresses: string[]): Promise<Map<string, number>> {
         if (tokenAddresses.length === 0) {
+            return new Map();
+        }
+        if (!this.canUseJupiter("price lookup")) {
             return new Map();
         }
 
@@ -94,6 +117,10 @@ export class JupiterService {
      * Get all verified tokens from Jupiter
      */
     async getTokenList(): Promise<JupiterTokenV2[]> {
+        if (!this.canUseJupiter("token list lookup")) {
+            return [];
+        }
+
         // Return cached data if still valid
         const now = Date.now();
         if (this.tokenListCache.length > 0 && now - this.tokenListCacheTime < this.CACHE_DURATION) {
@@ -119,6 +146,10 @@ export class JupiterService {
     }
 
     async searchTokens(tokenAddresses: string[]): Promise<JupiterTokenMintInformation[]> {
+        if (!this.canUseJupiter("token search")) {
+            return [];
+        }
+
         try {
             const response = await this.apiClient.get<JupiterTokenMintInformation[]>("/tokens/v2/search", {
                 params: {
@@ -151,7 +182,11 @@ export class JupiterService {
     /**
      * Create a limit order on Jupiter
      */
-    async createOrder(params: CreateOrderParams): Promise<CreateOrderResponse> {
+    async createOrder(params: CreateOrderParams): Promise<CreateOrderResponse | null> {
+        if (!this.canUseJupiter("limit order create")) {
+            return null;
+        }
+
         try {
             this.logger.log(`Creating limit order: ${params.inputMint} -> ${params.outputMint}`);
 
@@ -168,7 +203,11 @@ export class JupiterService {
     /**
      * Cancel a single limit order
      */
-    async cancelOrder(cancelOrderParams: CancelOrderParams): Promise<CancelOrderResponse> {
+    async cancelOrder(cancelOrderParams: CancelOrderParams): Promise<CancelOrderResponse | null> {
+        if (!this.canUseJupiter("limit order cancel")) {
+            return null;
+        }
+
         const order = cancelOrderParams.order;
         try {
             this.logger.log(`Canceling order: ${order}`);
@@ -186,7 +225,11 @@ export class JupiterService {
     /**
      * Cancel multiple limit orders (batched in groups of 5)
      */
-    async cancelOrders(maker: string, orders?: string[], computeUnitPrice = "auto"): Promise<CancelOrdersResponse> {
+    async cancelOrders(maker: string, orders?: string[], computeUnitPrice = "auto"): Promise<CancelOrdersResponse | null> {
+        if (!this.canUseJupiter("limit order cancel batch")) {
+            return null;
+        }
+
         try {
             this.logger.log(`Canceling ${orders?.length || "all"} orders for maker: ${maker}`);
 
@@ -223,7 +266,11 @@ export class JupiterService {
         outputMint?: string,
         page = 1,
         includeFailedTx?: boolean
-    ): Promise<any> {
+    ): Promise<any | null> {
+        if (!this.canUseJupiter("limit order lookup")) {
+            return null;
+        }
+
         try {
             const params: {
                 user: string;
@@ -264,7 +311,11 @@ export class JupiterService {
     /**
      * Get a swap quote from Jupiter
      */
-    async getSwapQuote(params: JupiterGetSwapQuoteParams): Promise<JupiterQuoteResponse> {
+    async getSwapQuote(params: JupiterGetSwapQuoteParams): Promise<JupiterQuoteResponse | null> {
+        if (!this.canUseJupiter("swap quote")) {
+            return null;
+        }
+
         try {
             const response = await this.apiClient.get<JupiterQuoteResponse>("/swap/v1/quote", { params });
             return response.data;
@@ -277,7 +328,11 @@ export class JupiterService {
     /**
      * Get an unsigned swap transaction from Jupiter
      */
-    async getSwapTransaction(params: JupiterSwapRequest): Promise<JupiterSwapResponse> {
+    async getSwapTransaction(params: JupiterSwapRequest): Promise<JupiterSwapResponse | null> {
+        if (!this.canUseJupiter("swap transaction")) {
+            return null;
+        }
+
         try {
             const response = await this.apiClient.post<JupiterSwapResponse>("/swap/v1/swap", {
                 ...params,
@@ -293,7 +348,11 @@ export class JupiterService {
     /**
      * Execute a limit order transaction
      */
-    async executeOrder(executeOrderParams: ExecuteParams): Promise<ExecuteResponse> {
+    async executeOrder(executeOrderParams: ExecuteParams): Promise<ExecuteResponse | null> {
+        if (!this.canUseJupiter("limit order execute")) {
+            return null;
+        }
+
         const requestId = executeOrderParams.requestId;
         try {
             this.logger.log(`Executing order with requestId: ${requestId}`);

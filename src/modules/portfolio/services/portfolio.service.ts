@@ -14,6 +14,9 @@ import { WalletSnapshot } from "../entities/wallet-snapshot.entity";
 import { TokensService } from "src/modules/tokens/services/tokens.service";
 import { TokenMetadata } from "src/modules/tokens/dtos/token.response.dto";
 import { ClusterProvider } from "../../../common/cluster/cluster.provider";
+import { PortfolioPositionResponseDto, PortfolioPositionsResponseDto } from "../dtos/portfolio-position.response.dto";
+import { COMMON_TOKEN_MINT } from "src/modules/tokens/constants/token.constant";
+import { AggregatedTokenHolding } from "../types";
 
 const SOL_COINGECKO_ID = "solana";
 
@@ -178,15 +181,18 @@ export class PortfolioService {
         const total_balance_sol = wallets.reduce((acc, w) => acc + Number(w.balance || 0), 0);
         let total_balance_usd = total_balance_sol * solPrice;
 
-        const aggregatedTokens = new Map<string, { amount: number; info?: TokenMetadata }>();
+        const aggregatedTokens = new Map<string, AggregatedTokenHolding>();
 
         for (const acc of allTokenAccounts) {
-            const mint = acc.account.data.parsed.info.mint;
-            const amount = acc.account.data.parsed.info.tokenAmount.uiAmount;
+            const parsedInfo = acc.account.data.parsed.info;
+            const mint = parsedInfo.mint;
+            const tokenAmount = parsedInfo.tokenAmount;
+            const amount = tokenAmount.uiAmount ?? 0;
             if (amount > 0) {
-                const existing = aggregatedTokens.get(mint) || { amount: 0 };
+                const existing = aggregatedTokens.get(mint) || { amount: 0, decimals: tokenAmount.decimals };
                 aggregatedTokens.set(mint, {
-                    amount: existing.amount + amount
+                    amount: existing.amount + amount,
+                    decimals: existing.decimals
                 });
             }
         }
@@ -206,6 +212,7 @@ export class PortfolioService {
             return {
                 mint,
                 ...data.info,
+                decimals: data.decimals,
                 amount: data.amount,
                 price,
                 valueUsd
@@ -220,6 +227,7 @@ export class PortfolioService {
             name: p.name || "Unknown",
             symbol: p.symbol || "???",
             logo: p.logoUri || "",
+            decimals: p.decimals,
             value_usd: p.valueUsd,
             price: p.price,
             change_24h: 0 // Placeholder
@@ -419,7 +427,12 @@ export class PortfolioService {
         return { chart_data: chartData };
     }
 
-    async getPositions(userId: string, walletAddress?: string, sortBy: string = "value_usd", showZeroBalance: boolean = false) {
+    async getPositions(
+        userId: string,
+        walletAddress?: string,
+        sortBy: string = "value_usd",
+        showZeroBalance: boolean = false
+    ): Promise<PortfolioPositionsResponseDto> {
         const wallets = await this.walletsService.findByUserId(userId);
         const targetWallets = walletAddress ? wallets.filter((w) => w.address === walletAddress) : wallets;
 
@@ -458,15 +471,18 @@ export class PortfolioService {
 
         const allTokenAccounts = walletTokenAccounts.flatMap((w) => w.accounts);
 
-        const aggregatedTokens = new Map<string, { amount: number; info?: TokenMetadata }>();
+        const aggregatedTokens = new Map<string, AggregatedTokenHolding>();
 
         for (const acc of allTokenAccounts) {
-            const mint = acc.account.data.parsed.info.mint;
-            const amount = acc.account.data.parsed.info.tokenAmount.uiAmount;
+            const parsedInfo = acc.account.data.parsed.info;
+            const mint = parsedInfo.mint;
+            const tokenAmount = parsedInfo.tokenAmount;
+            const amount = tokenAmount.uiAmount ?? 0;
             if (amount > 0 || showZeroBalance) {
-                const existing = aggregatedTokens.get(mint) || { amount: 0 };
+                const existing = aggregatedTokens.get(mint) || { amount: 0, decimals: tokenAmount.decimals };
                 aggregatedTokens.set(mint, {
-                    amount: existing.amount + amount
+                    amount: existing.amount + amount,
+                    decimals: existing.decimals
                 });
             }
         }
@@ -480,7 +496,7 @@ export class PortfolioService {
 
         const tokenPrices = await this.getTokenPrices(mintAddresses, tokenMetaMap);
 
-        const positions = Array.from(aggregatedTokens.entries()).map(([mint, data]) => {
+        const positions: PortfolioPositionResponseDto[] = Array.from(aggregatedTokens.entries()).map(([mint, data]) => {
             const price = tokenPrices.get(mint) || 0;
             const valueUsd = data.amount * price;
             return {
@@ -488,6 +504,7 @@ export class PortfolioService {
                 name: data.info?.name || "Unknown Token",
                 symbol: data.info?.symbol || "???",
                 logo: data.info?.logoUri || "",
+                decimals: data.decimals,
                 amount: data.amount,
                 price,
                 value_usd: valueUsd,
@@ -502,10 +519,7 @@ export class PortfolioService {
         // Add SOL as a position
         if (totalSolBalance > 0 || showZeroBalance) {
             positions.push({
-                mint: "So11111111111111111111111111111111111111112", // Native SOL mint address
-                name: "Solana",
-                symbol: "SOL",
-                logo: tokenMetaMap.get("So11111111111111111111111111111111111111112")?.logoUri || "",
+                ...this.defaultSolMeta(),
                 amount: totalSolBalance,
                 price: solPrice,
                 value_usd: solValueUsd,
@@ -1390,13 +1404,15 @@ export class PortfolioService {
         ]);
         let total_balance_usd = total_balance_sol * solPrice;
 
-        const aggregatedTokens = new Map<string, { amount: number; info?: TokenMetadata }>();
+        const aggregatedTokens = new Map<string, AggregatedTokenHolding>();
         for (const acc of tokenAccounts) {
-            const mint = acc.account.data.parsed.info.mint;
-            const amount = acc.account.data.parsed.info.tokenAmount.uiAmount;
+            const parsedInfo = acc.account.data.parsed.info;
+            const mint = parsedInfo.mint;
+            const tokenAmount = parsedInfo.tokenAmount;
+            const amount = tokenAmount.uiAmount ?? 0;
             if (amount > 0) {
-                const existing = aggregatedTokens.get(mint) || { amount: 0 };
-                aggregatedTokens.set(mint, { amount: existing.amount + amount });
+                const existing = aggregatedTokens.get(mint) || { amount: 0, decimals: tokenAmount.decimals };
+                aggregatedTokens.set(mint, { amount: existing.amount + amount, decimals: existing.decimals });
             }
         }
 
@@ -1422,6 +1438,7 @@ export class PortfolioService {
                 symbol: data.info?.symbol || "???",
                 name: data.info?.name || "Unknown",
                 logo_uri: data.info?.logoUri || "",
+                decimals: data.decimals,
                 balance: data.amount,
                 value_usd: valueUsd,
                 percent_of_portfolio: 0,
@@ -1457,7 +1474,7 @@ export class PortfolioService {
         };
     }
 
-    async getPositionsByAddress(walletAddress: string, sortBy: string = "value_usd", showZeroBalance: boolean = false) {
+    async getPositionsByAddress(walletAddress: string, sortBy: string = "value_usd", showZeroBalance: boolean = false): Promise<PortfolioPositionsResponseDto> {
         const pubkey = new PublicKey(walletAddress);
         const [solPrice, totalSolBalance, tokenAccounts] = await Promise.all([
             this.getSolPriceUsd(),
@@ -1465,13 +1482,15 @@ export class PortfolioService {
             this.solanaService.getParsedTokenAccountsByOwner(pubkey)
         ]);
 
-        const aggregatedTokens = new Map<string, { amount: number; info?: TokenMetadata }>();
+        const aggregatedTokens = new Map<string, AggregatedTokenHolding>();
         for (const acc of tokenAccounts) {
-            const mint = acc.account.data.parsed.info.mint;
-            const amount = acc.account.data.parsed.info.tokenAmount.uiAmount;
+            const parsedInfo = acc.account.data.parsed.info;
+            const mint = parsedInfo.mint;
+            const tokenAmount = parsedInfo.tokenAmount;
+            const amount = tokenAmount.uiAmount ?? 0;
             if (amount > 0 || showZeroBalance) {
-                const existing = aggregatedTokens.get(mint) || { amount: 0 };
-                aggregatedTokens.set(mint, { amount: existing.amount + amount });
+                const existing = aggregatedTokens.get(mint) || { amount: 0, decimals: tokenAmount.decimals };
+                aggregatedTokens.set(mint, { amount: existing.amount + amount, decimals: existing.decimals });
             }
         }
 
@@ -1484,13 +1503,14 @@ export class PortfolioService {
 
         const tokenPrices = await this.getTokenPrices(mintAddresses, tokenMetaMap);
 
-        const positions: any[] = Array.from(aggregatedTokens.entries()).map(([mint, data]) => {
+        const positions: PortfolioPositionResponseDto[] = Array.from(aggregatedTokens.entries()).map(([mint, data]) => {
             const price = tokenPrices.get(mint) || 0;
             return {
                 mint,
                 name: data.info?.name || "Unknown Token",
                 symbol: data.info?.symbol || "???",
                 logo: data.info?.logoUri || "",
+                decimals: data.decimals,
                 amount: data.amount,
                 price,
                 value_usd: data.amount * price,
@@ -1501,10 +1521,7 @@ export class PortfolioService {
 
         if (totalSolBalance > 0 || showZeroBalance) {
             positions.push({
-                mint: "So11111111111111111111111111111111111111112",
-                name: "Solana",
-                symbol: "SOL",
-                logo: tokenMetaMap.get("So11111111111111111111111111111111111111112")?.logoUri || "",
+                ...this.defaultSolMeta(),
                 amount: totalSolBalance,
                 price: solPrice,
                 value_usd: totalSolBalance * solPrice,
@@ -1519,6 +1536,16 @@ export class PortfolioService {
         return {
             positions,
             summary: { total_value_usd, total_tokens: positions.length, total_pnl: 0 }
+        };
+    }
+
+    private defaultSolMeta() {
+        return {
+            name: "Solana",
+            symbol: "SOL",
+            mint: COMMON_TOKEN_MINT.SOL,
+            logo: "https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/So11111111111111111111111111111111111111112/logo.png",
+            decimals: 9
         };
     }
 
