@@ -14,6 +14,7 @@ import { WalletSnapshot } from "../entities/wallet-snapshot.entity";
 import { TokensService } from "src/modules/tokens/services/tokens.service";
 import { TokenMetadata } from "src/modules/tokens/dtos/token.response.dto";
 import { ClusterProvider } from "../../../common/cluster/cluster.provider";
+import { COMMON_TOKEN_MINT } from "src/modules/tokens/constants/token.constant";
 
 const SOL_COINGECKO_ID = "solana";
 
@@ -360,7 +361,7 @@ export class PortfolioService {
             tokenTransfers: (row.metadata as any)?.tokenTransfers ?? [],
             description: row.memo
         }));
-        const SOL_MINT = "So11111111111111111111111111111111111111112";
+
         // Fetch historical SOL prices for the chart range
         const historyFrom = filteredTrades.length > 0 ? filteredTrades[0].timestamp : startTimeSec;
         const historyTo = Math.floor(now / 1000);
@@ -383,7 +384,7 @@ export class PortfolioService {
                 const tokenIn = (trade.tokenTransfers ?? []).find((t: any) => t.toUserAccount);
                 if (!tokenOut || !tokenIn) continue;
 
-                const isBuy = tokenIn.mint !== SOL_MINT;
+                const isBuy = tokenIn.mint !== COMMON_TOKEN_MINT.SOL;
                 const tokenMint = isBuy ? tokenIn.mint : tokenOut.mint;
                 const solAmount = isBuy ? tokenOut.tokenAmount : tokenIn.tokenAmount;
                 const tokenAmount = isBuy ? tokenIn.tokenAmount : tokenOut.tokenAmount;
@@ -502,10 +503,10 @@ export class PortfolioService {
         // Add SOL as a position
         if (totalSolBalance > 0 || showZeroBalance) {
             positions.push({
-                mint: "So11111111111111111111111111111111111111112", // Native SOL mint address
+                mint: COMMON_TOKEN_MINT.SOL, // Native SOL mint address
                 name: "Solana",
                 symbol: "SOL",
-                logo: tokenMetaMap.get("So11111111111111111111111111111111111111112")?.logoUri || "",
+                logo: tokenMetaMap.get(COMMON_TOKEN_MINT.SOL)?.logoUri || "",
                 amount: totalSolBalance,
                 price: solPrice,
                 value_usd: solValueUsd,
@@ -567,7 +568,7 @@ export class PortfolioService {
                         ...(tx.nativeTransfers ?? []).map((nt: any) => ({
                             fromUserAccount: nt.fromUserAccount,
                             toUserAccount: nt.toUserAccount,
-                            mint: "So11111111111111111111111111111111111111112",
+                            mint: COMMON_TOKEN_MINT.SOL,
                             tokenAmount: nt.amount / 1e9
                         }))
                     ];
@@ -623,7 +624,7 @@ export class PortfolioService {
     }
 
     private async mapToActivity(tx: any, walletAddress: string, solPrice: number, tokenMetaMap: Map<string, TokenMetadata>) {
-        const SOL_MINT = "So11111111111111111111111111111111111111112";
+        const SOL_MINT = COMMON_TOKEN_MINT.SOL;
         const network = this.network;
 
         const feeSol = tx.fee ? tx.fee / LAMPORTS_PER_SOL : 0;
@@ -1192,7 +1193,7 @@ export class PortfolioService {
             const symbolMatch = description.match(/for [\d,.]+ (\w+)/);
             const tradeSymbol = symbolMatch ? symbolMatch[1] : "?";
 
-            const isBuy = tokenIn.mint !== "So11111111111111111111111111111111111111112";
+            const isBuy = tokenIn.mint !== COMMON_TOKEN_MINT.SOL;
             const tokenMint = isBuy ? tokenIn.mint : tokenOut.mint;
             const solAmount = isBuy ? tokenOut.tokenAmount : tokenIn.tokenAmount;
             const tokenAmount = isBuy ? tokenIn.tokenAmount : tokenOut.tokenAmount;
@@ -1288,7 +1289,7 @@ export class PortfolioService {
                         ...(tx.nativeTransfers ?? []).map((nt: any) => ({
                             fromUserAccount: nt.fromUserAccount,
                             toUserAccount: nt.toUserAccount,
-                            mint: "So11111111111111111111111111111111111111112",
+                            mint: COMMON_TOKEN_MINT.SOL,
                             tokenAmount: nt.amount / 1e9
                         }))
                     ];
@@ -1501,10 +1502,10 @@ export class PortfolioService {
 
         if (totalSolBalance > 0 || showZeroBalance) {
             positions.push({
-                mint: "So11111111111111111111111111111111111111112",
+                mint: COMMON_TOKEN_MINT.SOL,
                 name: "Solana",
                 symbol: "SOL",
-                logo: tokenMetaMap.get("So11111111111111111111111111111111111111112")?.logoUri || "",
+                logo: tokenMetaMap.get(COMMON_TOKEN_MINT.SOL)?.logoUri || "",
                 amount: totalSolBalance,
                 price: solPrice,
                 value_usd: totalSolBalance * solPrice,
@@ -1528,14 +1529,12 @@ export class PortfolioService {
      * to detect unclassified swaps (e.g. Jupiter multi-hop routes that split across txs).
      */
     private async enrichActivitiesWithSwapDetails(activities: any[], tokenMetaMap: Map<string, TokenMetadata>): Promise<void> {
-        const SOL_MINT_ADDR = "So11111111111111111111111111111111111111112";
-        const getSymbol = (mint: string) => (mint === SOL_MINT_ADDR ? "SOL" : (tokenMetaMap.get(mint)?.symbol ?? mint.slice(0, 8)));
-        const getLogo = (mint: string) =>
-            mint === SOL_MINT_ADDR
-                ? "https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/So11111111111111111111111111111111111111112/logo.png"
-                : (tokenMetaMap.get(mint)?.logoUri ?? "");
+        const getSymbol = (mint: string) => tokenMetaMap.get(mint)?.symbol ?? mint.slice(0, 8);
+        const getLogo = (mint: string) => tokenMetaMap.get(mint)?.logoUri ?? "";
 
-        const candidates = activities.map((a, i) => ({ a, i })).filter(({ a }) => a.type === "TRANSFER_OUT" && a.token?.address === SOL_MINT_ADDR && !!a.from);
+        const candidates = activities
+            .map((a, i) => ({ a, i }))
+            .filter(({ a }) => a.type === "TRANSFER_OUT" && a.token?.address === COMMON_TOKEN_MINT.SOL && !!a.from);
 
         if (!candidates.length) return;
 
@@ -1547,11 +1546,11 @@ export class PortfolioService {
                     if (!txDetail) return;
 
                     // Find this wallet's accountData to see token balance changes
-                    const walletData = (txDetail.accountData ?? []).find((d: any) => d.account === activity.from);
+                    const walletData = (txDetail.accountData ?? []).find((d) => d.account === activity.from);
                     if (!walletData) return;
 
                     // Any positive tokenBalanceChange means the wallet received a token in this tx
-                    const received = (walletData.tokenBalanceChanges ?? []).find((c: any) => parseFloat(c.rawTokenAmount?.tokenAmount ?? "0") > 0);
+                    const received = (walletData.tokenBalanceChanges ?? []).find((c) => parseFloat(c.rawTokenAmount?.tokenAmount ?? "0") > 0);
                     if (!received) return;
 
                     const decimals: number = received.rawTokenAmount?.decimals ?? 0;
@@ -1559,7 +1558,7 @@ export class PortfolioService {
                     const mint: string = received.mint;
 
                     // Reclassify as SWAP
-                    const updated: any = {
+                    const updated = {
                         ...activity,
                         type: "SWAP",
                         app: { name: "Jupiter", type: "DEX", icon: "" },
@@ -1670,7 +1669,6 @@ export class PortfolioService {
             tokenTransfers: (row.metadata as any)?.tokenTransfers ?? []
         }));
 
-        const SOL_MINT = "So11111111111111111111111111111111111111112";
         const historyFrom = filteredTrades.length > 0 ? filteredTrades[0].timestamp : startTimeSec;
         const solPriceChart = await this.getSolPriceHistory(historyFrom, Math.floor(now / 1000));
 
@@ -1687,7 +1685,7 @@ export class PortfolioService {
                 const tokenOut = (trade.tokenTransfers ?? []).find((t: any) => t.fromUserAccount);
                 const tokenIn = (trade.tokenTransfers ?? []).find((t: any) => t.toUserAccount);
                 if (!tokenOut || !tokenIn) continue;
-                const isBuy = tokenIn.mint !== SOL_MINT;
+                const isBuy = tokenIn.mint !== COMMON_TOKEN_MINT.SOL;
                 const tokenMint = isBuy ? tokenIn.mint : tokenOut.mint;
                 const solAmount = isBuy ? tokenOut.tokenAmount : tokenIn.tokenAmount;
                 const tokenAmount = isBuy ? tokenIn.tokenAmount : tokenOut.tokenAmount;
