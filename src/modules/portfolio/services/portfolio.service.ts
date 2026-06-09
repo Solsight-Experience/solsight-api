@@ -318,6 +318,13 @@ export class PortfolioService {
             return { chart_data: [] };
         }
 
+        const pnlCacheKey = `pnl_chart:${wallets
+            .map((w) => w.address)
+            .sort()
+            .join(",")}:${timeFrame}:${interval}`;
+        const pnlCached = await this.cacheManager.get<any>(pnlCacheKey);
+        if (pnlCached) return pnlCached;
+
         const TWO_YEARS_SEC = 2 * 365 * 24 * 60 * 60;
         const cutoffSec = Math.floor(now / 1000) - TWO_YEARS_SEC;
         const startTimeSec = Math.floor(startTime / 1000);
@@ -407,7 +414,9 @@ export class PortfolioService {
             chartData.push({ timestamp: time, pnl: pnlUsd, balance_usd: pnlUsd });
         }
 
-        return { chart_data: chartData };
+        const pnlResult = { chart_data: chartData };
+        await this.cacheManager.set(pnlCacheKey, pnlResult, 2 * 60 * 1000);
+        return pnlResult;
     }
 
     async getPositions(userId: string, walletAddress?: string, sortBy: string = "value_usd", showZeroBalance: boolean = false) {
@@ -1068,14 +1077,12 @@ export class PortfolioService {
             const cacheKey = `helius-swaps-${wallet.address}`;
 
             // L1: Redis cache
-            // const cached = await this.cacheManager.get<any[]>(cacheKey);
-            // if (cached && Array.isArray(cached)) {
-            //   this.logger.log(
-            //     `[fetchAllTrades] cache hit: ${wallet.address} (${cached.length} swaps)`,
-            //   );
-            //   allSwaps = allSwaps.concat(cached);
-            //   continue;
-            // }
+            const cached = await this.cacheManager.get<any[]>(cacheKey);
+            if (cached && Array.isArray(cached)) {
+                this.logger.log(`[fetchAllTrades] cache hit: ${wallet.address} (${cached.length} swaps)`);
+                allSwaps = allSwaps.concat(cached);
+                continue;
+            }
 
             // L2: DB — get known signatures for this wallet (all types for dedup)
             const knownRows = await this.transactionRepo.find({
@@ -1122,6 +1129,7 @@ export class PortfolioService {
                 .andWhere("t.type = :type", { type: TransactionType.SWAP })
                 .andWhere("t.blockTime >= :cutoff", { cutoff: new Date(cutoffSec * 1000) })
                 .orderBy("t.blockTime", "DESC")
+                .limit(5000)
                 .getMany();
 
             const walletSwaps = dbTrades.map((row) => ({
@@ -1627,6 +1635,10 @@ export class PortfolioService {
                 break;
         }
 
+        const pnlAddrCacheKey = `pnl_chart_addr:${walletAddress}:${timeFrame}:${interval}`;
+        const pnlAddrCached = await this.cacheManager.get<any>(pnlAddrCacheKey);
+        if (pnlAddrCached) return pnlAddrCached;
+
         const TWO_YEARS_SEC = 2 * 365 * 24 * 60 * 60;
         const cutoffSec = Math.floor(now / 1000) - TWO_YEARS_SEC;
         const startTimeSec = Math.floor(startTime / 1000);
@@ -1694,6 +1706,8 @@ export class PortfolioService {
             chartData.push({ timestamp: time, pnl: pnlUsd, balance_usd: pnlUsd });
         }
 
-        return { chart_data: chartData };
+        const pnlAddrResult = { chart_data: chartData };
+        await this.cacheManager.set(pnlAddrCacheKey, pnlAddrResult, 2 * 60 * 1000);
+        return pnlAddrResult;
     }
 }
