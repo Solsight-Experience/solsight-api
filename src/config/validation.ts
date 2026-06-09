@@ -64,17 +64,21 @@ export const validationSchema = Joi.object({
     // CORS — comma-separated list, parsed in configuration.ts
     CORS_ORIGIN: Joi.string().optional(),
 
-    // Jupiter — public URL has a default; key is required (sent on every request)
-    JUPITER_API_URL: Joi.string().uri().optional(),
-    JUPITER_API_KEY: Joi.string().required(),
+    // Jupiter
+    JUPITER_API_URL: Joi.string().uri().default("https://api.jup.ag"),
+    JUPITER_API_KEY: Joi.string().optional(),
+    // Optional separate host/key for swap endpoints (quote + transaction).
+    // If unset, falls back to JUPITER_API_URL / JUPITER_API_KEY.
+    JUPITER_SWAP_API_URL: Joi.string().uri().optional(),
+    JUPITER_SWAP_API_KEY: Joi.string().optional(),
 
     // CoinGecko
     COINGECKO_API_URL: Joi.string().uri().optional(),
-    COINGECKO_API_KEY: Joi.string().required(),
+    COINGECKO_API_KEY: Joi.string().optional(),
     COINGECKO_LIST_API: Joi.string().uri().optional(),
 
     // OpenAI (default AI provider)
-    OPENAI_API_KEY: Joi.string().required(),
+    OPENAI_API_KEY: Joi.string().optional(),
     OPENAI_API_URL: Joi.string().uri().optional(),
     OPENAI_MODEL: Joi.string().optional(),
 

@@ -30,7 +30,9 @@ export default () => ({
 
     jupiter: {
         apiUrl: process.env.JUPITER_API_URL ?? "https://api.jup.ag",
-        apiKey: process.env.JUPITER_API_KEY
+        apiKey: process.env.JUPITER_API_KEY,
+        swapApiUrl: process.env.JUPITER_SWAP_API_URL,
+        swapApiKey: process.env.JUPITER_SWAP_API_KEY
     },
 
     coingecko: {
