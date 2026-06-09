@@ -55,6 +55,7 @@ export class AuthService {
         const isPasswordValid = await bcrypt.compare(loginDto.password, user.password);
         if (!isPasswordValid) throw new BadRequestException("Password is incorrect");
 
+        void this.userRepository.update(user.id, { lastLoginAt: new Date() });
         const accessToken = await this.generateAccessToken(user);
         const { password, ...userWithoutPassword } = user;
         return { user: userWithoutPassword, accessToken };
@@ -118,6 +119,7 @@ export class AuthService {
                 this.logger.log(`Existing user found: ${user.id}`);
             }
 
+            void this.userRepository.update(user.id, { lastLoginAt: new Date() });
             const accessToken = await this.generateAccessToken(user);
             const { password, ...userWithoutPassword } = user;
 

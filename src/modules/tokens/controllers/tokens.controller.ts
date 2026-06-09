@@ -12,7 +12,8 @@ import { TradesQueryDto } from "../dtos/token.trades.dto";
 export class TokensController {
     constructor(
         private readonly tokensService: TokensService,
-        private readonly tokenSummaryService: TokenSummaryService
+        private readonly tokenSummaryService: TokenSummaryService,
+        private readonly traderAggregationService: TraderAggregationService
     ) {}
 
     @Get("search")
@@ -44,6 +45,11 @@ export class TokensController {
     @Get(":address/trades")
     getTrades(@Param("address") address: string, @Query() query: TradesQueryDto) {
         return this.tokensService.getTrades(address, query.limit ?? 50);
+    }
+
+    @Get(":address/top-traders")
+    getTopTraders(@Param("address") address: string) {
+        return this.traderAggregationService.getTopTraders(address, 10);
     }
 
     @Get(":address")

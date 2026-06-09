@@ -1,6 +1,11 @@
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, OneToMany } from "typeorm";
 import { Wallet } from "../../wallets/entities/wallet.entity";
 
+export enum UserRole {
+    USER = "user",
+    ADMIN = "admin"
+}
+
 @Entity("users")
 export class User {
     @PrimaryGeneratedColumn("uuid")
@@ -24,6 +29,9 @@ export class User {
     @Column({ type: "varchar", nullable: true })
     avatar?: string;
 
+    @Column({ type: "enum", enum: UserRole, default: UserRole.USER })
+    role: UserRole;
+
     @Column({ default: true })
     isActive: boolean;
 
@@ -45,6 +53,15 @@ export class User {
     oauthProvider: string;
     @Column({ type: "varchar", length: 255, nullable: true })
     oauthId: string;
+
+    @Column({ type: "timestamp", nullable: true })
+    lastLoginAt?: Date | null;
+
+    @Column({ type: "varchar", nullable: true })
+    banReason?: string | null;
+
+    @Column({ type: "text", nullable: true })
+    adminNote?: string | null;
 
     @UpdateDateColumn()
     updatedAt: Date;

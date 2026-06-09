@@ -28,6 +28,8 @@ import { EmailModule } from "./modules/email/email.module";
 import { SwapModule } from "./modules/swap/swap.module";
 import { KoraModule } from "./infra/kora/kora.module";
 import { JitoModule } from "./infra/jito/jito.module";
+import { AdminAnalyticsModule } from "./modules/admin-analytics/admin-analytics.module";
+
 @Module({
     imports: [
         ConfigModule.forRoot({
@@ -69,7 +71,8 @@ import { JitoModule } from "./infra/jito/jito.module";
         EmailModule,
         SwapModule,
         KoraModule,
-        JitoModule
+        JitoModule,
+        AdminAnalyticsModule
     ],
     controllers: [],
     providers: []
