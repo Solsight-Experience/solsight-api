@@ -1,8 +1,14 @@
-import { IsNumber, IsOptional, IsString } from "class-validator";
+import { IsBase64, IsNumber, IsOptional, IsString } from "class-validator";
+import { IsSolanaAddress } from "../../../common/validators/is-solana-address.validator";
 
 export class ExecuteSwapDto {
+    @IsBase64()
     @IsString()
     signedTransaction: string;
+
+    @IsOptional()
+    @IsSolanaAddress()
+    gaslessFeeToken?: string;
 
     @IsOptional()
     @IsString()

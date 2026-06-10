@@ -1,13 +1,16 @@
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, Index } from "typeorm";
 
 @Entity("ohlc_candles")
-@Index(["tokenMint", "interval", "timestamp"], { unique: true })
+@Index(["tokenMint", "network", "interval", "timestamp"], { unique: true })
 export class OhlcCandle {
     @PrimaryGeneratedColumn("uuid")
     id: string;
 
     @Column()
     tokenMint: string;
+
+    @Column({ default: "mainnet" })
+    network: string;
 
     @Column()
     interval: string;

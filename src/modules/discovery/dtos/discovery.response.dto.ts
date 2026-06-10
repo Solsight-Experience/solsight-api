@@ -4,7 +4,7 @@ export interface TokenOverview {
     symbol: string;
     name: string;
     logo_uri: string;
-    network: "solana";
+    network: string;
     category: string;
     age_seconds: number;
 

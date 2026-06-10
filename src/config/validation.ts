@@ -72,6 +72,19 @@ export const validationSchema = Joi.object({
     JUPITER_SWAP_API_URL: Joi.string().uri().optional(),
     JUPITER_SWAP_API_KEY: Joi.string().optional(),
 
+    // Jito tip-floor feed — public, unauthenticated; default in configuration.ts
+    JITO_TIP_FLOOR_URL: Joi.string().uri().optional(),
+
+    // Executor
+    EXECUTOR_PROVIDER: Joi.string().valid("jupiter", "solsight").optional(),
+    SOLSIGHT_EXECUTOR_API_URL: Joi.string().uri().optional(),
+    SOLSIGHT_EXECUTOR_API_KEY: Joi.string().optional(),
+
+    // Kora paymaster — all optional; service short-circuits when KORA_RPC_URL is unset
+    KORA_RPC_URL: Joi.string().uri().optional(),
+    KORA_API_KEY: Joi.string().optional(),
+    KORA_HMAC_SECRET: Joi.string().optional(),
+
     // CoinGecko
     COINGECKO_API_URL: Joi.string().uri().optional(),
     COINGECKO_API_KEY: Joi.string().optional(),
