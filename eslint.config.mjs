@@ -50,5 +50,29 @@ export default defineConfig(
                 }
             ]
         }
+    },
+    {
+        files: ["src/**/*.{service,controller,gateway,strategy,repository,client,interceptor,guard}.ts"],
+        rules: {
+            "no-restricted-syntax": [
+                "error",
+                {
+                    selector: "Program > TSInterfaceDeclaration",
+                    message: "Move declared interfaces to a dedicated types file."
+                },
+                {
+                    selector: "Program > TSTypeAliasDeclaration",
+                    message: "Move declared type aliases to a dedicated types file."
+                },
+                {
+                    selector: "Program > ExportNamedDeclaration > TSInterfaceDeclaration",
+                    message: "Move exported interfaces to a dedicated types file."
+                },
+                {
+                    selector: "Program > ExportNamedDeclaration > TSTypeAliasDeclaration",
+                    message: "Move exported type aliases to a dedicated types file."
+                }
+            ]
+        }
     }
 );
