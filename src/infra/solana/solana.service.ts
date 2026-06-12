@@ -1,35 +1,10 @@
 import { Injectable, Logger } from "@nestjs/common";
-import { AccountInfo, AddressLookupTableAccount, LAMPORTS_PER_SOL, ParsedAccountData, PublicKey, RecentPrioritizationFees } from "@solana/web3.js";
+import { AddressLookupTableAccount, LAMPORTS_PER_SOL, PublicKey, RecentPrioritizationFees } from "@solana/web3.js";
 import { TOKEN_PROGRAM_ID, getAssociatedTokenAddress } from "@solana/spl-token";
 import { HeliusResolver } from "./helius.resolver";
 import { ClusterProvider } from "../../common/cluster/cluster.provider";
 import { SubmitAndConfirmOptions } from "./constants/types";
-
-export interface ParsedTokenAmountInfo {
-    amount: string;
-    decimals: number;
-    uiAmount: number | null;
-    uiAmountString: string;
-}
-
-export interface ParsedTokenAccountInfo {
-    mint: string;
-    owner: string;
-    state: string;
-    tokenAmount: ParsedTokenAmountInfo;
-}
-
-export interface ParsedTokenAccountData extends ParsedAccountData {
-    parsed: {
-        info: ParsedTokenAccountInfo;
-        type: string;
-    };
-}
-
-export interface ParsedTokenAccount {
-    pubkey: PublicKey;
-    account: AccountInfo<ParsedTokenAccountData>;
-}
+import { ParsedTokenAccount } from "./solana.type";
 
 @Injectable()
 export class SolanaService {
