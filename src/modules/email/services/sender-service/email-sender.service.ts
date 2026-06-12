@@ -1,7 +1,7 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { Resend } from "resend";
-import { BuiltTemplate } from "./template-store";
+import { BuiltTemplate, TemplateArg } from "./template-store";
 
 export interface SendEmailPayload {
     to: string;
@@ -43,7 +43,7 @@ export class EmailSenderService {
         this.logger.log(`Email sent to ${payload.to} (id: ${result?.data?.id})`);
     }
 
-    async sendWithTemplate<T extends unknown[]>(payload: Pick<SendEmailPayload, "to" | "subject">, tpl: BuiltTemplate<T>): Promise<void> {
+    async sendWithTemplate<T extends TemplateArg[]>(payload: Pick<SendEmailPayload, "to" | "subject">, tpl: BuiltTemplate<T>): Promise<void> {
         await this.send({
             ...payload,
             html: tpl.renderHtml(),

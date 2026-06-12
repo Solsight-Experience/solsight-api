@@ -4,6 +4,13 @@ import { ChatService } from "../services/chat.service";
 import { SendMessageDto } from "../dtos/send-message.dto";
 import { ChatResponsePayload } from "../types/chat.types";
 
+interface ChatRequest {
+    user?: {
+        id?: string;
+        walletAddress?: string;
+    };
+}
+
 @Controller("chat")
 @UseGuards(JwtAuthGuard)
 export class ChatController {
@@ -15,7 +22,7 @@ export class ChatController {
     constructor(private readonly chatService: ChatService) {}
 
     @Post("message")
-    async sendMessage(@Body() dto: SendMessageDto, @Request() req: any): Promise<ChatResponsePayload> {
+    async sendMessage(@Body() dto: SendMessageDto, @Request() req: ChatRequest): Promise<ChatResponsePayload> {
         const userId = req.user?.id;
         if (!userId) {
             this.logger.warn(`Unauthorized chat message attempt: no userId in request`, ChatController.name);

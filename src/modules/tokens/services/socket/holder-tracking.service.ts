@@ -92,7 +92,7 @@ export class HolderTrackingService implements OnModuleInit, OnModuleDestroy {
      * Called when a client leaves a holders room.
      * If no subscribers remain, starts a grace period timer before untracking.
      */
-    async onHolderRoomLeave(room: string): Promise<void> {
+    onHolderRoomLeave(room: string): void {
         const mint = this.extractMintFromRoom(room);
         if (!mint) return;
 
@@ -106,15 +106,21 @@ export class HolderTrackingService implements OnModuleInit, OnModuleDestroy {
         if (state.subscriberCount === 0 && state.isTracked) {
             this.logger.debug(`Starting ${UNTRACK_GRACE_PERIOD_MS / 1000}s grace period for ${mint}`);
 
-            state.untrackTimer = setTimeout(async () => {
-                // Double-check no new subscribers joined during grace period
-                const currentState = this.trackedMints.get(mint);
-                if (currentState && currentState.subscriberCount === 0 && currentState.isTracked) {
-                    await this.sendUntrackCommand(mint);
-                    currentState.isTracked = false;
-                    this.trackedMints.delete(mint);
-                }
+            state.untrackTimer = setTimeout(() => {
+                void this.untrackAfterGracePeriod(mint).catch((error) => {
+                    this.logger.error(`Failed to untrack holder mint ${mint}`, error);
+                });
             }, UNTRACK_GRACE_PERIOD_MS);
+        }
+    }
+
+    private async untrackAfterGracePeriod(mint: string): Promise<void> {
+        // Double-check no new subscribers joined during grace period
+        const currentState = this.trackedMints.get(mint);
+        if (currentState && currentState.subscriberCount === 0 && currentState.isTracked) {
+            await this.sendUntrackCommand(mint);
+            currentState.isTracked = false;
+            this.trackedMints.delete(mint);
         }
     }
 

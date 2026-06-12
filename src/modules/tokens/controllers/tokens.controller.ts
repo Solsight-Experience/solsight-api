@@ -2,11 +2,10 @@ import { Controller, Get, Param, NotFoundException, Query, Body, Post } from "@n
 import { TokensService } from "../services/tokens.service";
 import { TokenSummaryService } from "../services/token-summary.service";
 import { SummarizeTokenRequestDto, TokenSummaryResponseDto } from "../dtos/token-summary.dto";
-import { HolderAggregationService } from "../services/aggregation/holder-aggregation.service";
 import { TraderAggregationService } from "../services/aggregation/trader-aggregation.service";
-import { OhlcAggregationService } from "../services/aggregation/ohlc-aggregation.service";
 import { ChartQueryDto } from "../dtos/token.chart.dto";
 import { TradesQueryDto } from "../dtos/token.trades.dto";
+import { TokenFilterConditionDto } from "../dtos/token.filter.dto";
 
 @Controller("tokens")
 export class TokensController {
@@ -27,7 +26,7 @@ export class TokensController {
         @Query("sort_order") sort_order: "asc" | "desc",
         @Query("limit") limit: number = 10,
         @Query("offset") offset: number = 0,
-        @Body() filterDto: any
+        @Body() filterDto: TokenFilterConditionDto
     ) {
         return this.tokensService.filter(filterDto, limit, sort_by, sort_order, offset);
     }
@@ -53,8 +52,8 @@ export class TokensController {
     }
 
     @Get(":address")
-    findOne(@Param("address") address: string) {
-        const data = this.tokensService.findOne(address);
+    async findOne(@Param("address") address: string) {
+        const data = await this.tokensService.findOne(address);
         if (data) return data;
         else throw new NotFoundException("Token not found");
     }

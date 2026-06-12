@@ -9,6 +9,8 @@ import { JwtService } from "@nestjs/jwt";
 import * as bcrypt from "bcrypt";
 import { UserRepository } from "../repositories/user.repository";
 import { randomBytes } from "crypto";
+import { User } from "../../users/entities/user.entity";
+import { WalletIcon } from "../../wallets/entities/wallet.entity";
 export interface LoginDto {
     email: string;
     password: string;
@@ -31,6 +33,20 @@ export interface JwtPayload {
     sub: string;
     email: string;
     username: string;
+}
+
+interface GoogleTokenProfile {
+    email: string;
+    name?: string;
+    given_name?: string;
+    family_name?: string;
+    picture?: string;
+    sub: string;
+}
+
+interface DatabaseError extends Error {
+    code?: string;
+    detail?: string;
 }
 
 @Injectable()
@@ -78,7 +94,7 @@ export class AuthService {
                 throw new BadRequestException("Invalid Google token");
             }
 
-            const profile = await googleRes.json();
+            const profile = (await googleRes.json()) as GoogleTokenProfile;
             this.logger.log(`Google profile: ${JSON.stringify(profile)}`);
 
             if (!profile.email) {
@@ -109,8 +125,9 @@ export class AuthService {
                     });
 
                     this.logger.log(`OAuth user created: ${user.id}`);
-                } catch (dbError) {
-                    this.logger.error(`Database error: ${dbError}`);
+                } catch (error) {
+                    const dbError = error as DatabaseError;
+                    this.logger.error(`Database error: ${dbError.message}`);
                     this.logger.error(`Error code: ${dbError.code}`);
                     this.logger.error(`Error detail: ${dbError.detail}`);
                     throw new BadRequestException(`Failed to create user: ${dbError.message}`);
@@ -131,7 +148,7 @@ export class AuthService {
                 throw error;
             }
 
-            throw new BadRequestException(`OAuth login failed: ${error.message}`);
+            throw new BadRequestException(`OAuth login failed: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
@@ -157,7 +174,7 @@ export class AuthService {
     }
 
     // --- JWT ---
-    async generateAccessToken(user: any): Promise<string> {
+    async generateAccessToken(user: User): Promise<string> {
         const payload: JwtPayload = {
             sub: user.id,
             email: user.email,
@@ -186,7 +203,12 @@ export class AuthService {
         return { nonce };
     }
 
-    async verifySolanaWallet(walletAddress: string, signature: string, walletIcon?: string, userId?: string): Promise<{ success: boolean; message: string }> {
+    async verifySolanaWallet(
+        walletAddress: string,
+        signature: string,
+        walletIcon?: WalletIcon,
+        userId?: string
+    ): Promise<{ success: boolean; message: string }> {
         const wallet = await this.walletsService.findByAddress(walletAddress);
 
         if (!wallet || !wallet.nonce) {
@@ -203,14 +225,14 @@ export class AuthService {
             if (!verified) {
                 throw new UnauthorizedException("Invalid signature");
             }
-        } catch (error) {
+        } catch {
             throw new UnauthorizedException("Signature verification failed");
         }
 
         // Clear nonce
         await this.walletsService.updateNonce(wallet.id, null);
 
-        let user;
+        let user: User | null;
         if (userId) {
             // Scenario A: Linking
             user = await this.userRepository.findById(userId);
@@ -224,6 +246,10 @@ export class AuthService {
             } else {
                 throw new NotFoundException("User not found");
             }
+        }
+
+        if (!user) {
+            throw new NotFoundException("User not found");
         }
 
         // if (!wallet.userId || wallet.userId !== user.id) {

@@ -52,8 +52,12 @@ export class UsersRepository {
     }
 
     async update(id: string, updateData: Partial<User>): Promise<User> {
-        await this.userRepository.update(id, updateData);
-        return (await this.findById(id))!;
+        const user = await this.findById(id);
+        if (!user) {
+            throw new Error(`User ${id} not found`);
+        }
+        this.userRepository.merge(user, updateData);
+        return this.userRepository.save(user);
     }
 
     async delete(id: string): Promise<void> {

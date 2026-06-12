@@ -2,6 +2,7 @@ import { Injectable, Logger, Optional } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import axios, { AxiosInstance } from "axios";
 import { ClusterProvider } from "../../common/cluster/cluster.provider";
+import { JsonValue } from "../../common/types";
 import {
     CancelOrderParams,
     CancelOrderResponse,
@@ -278,7 +279,7 @@ export class JupiterService {
         outputMint?: string,
         page = 1,
         includeFailedTx?: boolean
-    ): Promise<any | null> {
+    ): Promise<JsonValue | null> {
         if (!this.canUseJupiter("limit order lookup")) {
             return null;
         }
@@ -309,7 +310,7 @@ export class JupiterService {
 
             this.logger.log(`Getting ${orderStatus} orders for user: ${user}`);
 
-            const response = await this.apiClient.get("/trigger/v1/getTriggerOrders", {
+            const response = await this.apiClient.get<JsonValue>("/trigger/v1/getTriggerOrders", {
                 params
             });
 

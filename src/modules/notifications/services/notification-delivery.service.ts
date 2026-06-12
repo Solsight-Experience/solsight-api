@@ -26,7 +26,7 @@ export class NotificationDeliveryService {
                     this.deliverViaWebSocket(notification);
                     break;
                 case NotificationChannel.EMAIL:
-                    this.deliverViaEmail(notification);
+                    void this.deliverViaEmail(notification);
                     break;
                 default:
                     this.logger.warn(`Unknown notification channel: ${channel as string}`);

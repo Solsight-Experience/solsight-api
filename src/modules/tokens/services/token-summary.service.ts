@@ -1,7 +1,6 @@
 import { Injectable, Logger, HttpException, HttpStatus } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
-import { TokensService } from "./tokens.service";
 import { PromptBuilderService, TokenContext } from "./prompt-builder.service";
 import { GeminiService } from "../../../infra/gemini/gemini.service";
 import { RedisService } from "../../../redis/services/redis.service";
@@ -71,9 +70,9 @@ export class TokenSummaryService {
         const context: TokenContext = {
             name: token?.name || name,
             symbol: token?.symbol || symbol,
-            description: token?.description,
+            description: token?.description ?? undefined,
             category: token?.category?.name,
-            website: token?.website
+            website: token?.website ?? undefined
         };
 
         const prompt = this.promptBuilderService.buildSummaryPrompt(context);

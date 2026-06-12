@@ -7,6 +7,11 @@ import * as fs from "fs";
 import * as path from "path";
 import * as readline from "readline";
 import { ClusterProvider } from "../../../common/cluster/cluster.provider";
+import { JupiterTokenMintInformation } from "../../../infra/jupiter/types";
+
+interface JupiterSeedToken extends JupiterTokenMintInformation {
+    description?: string | null;
+}
 
 @Injectable()
 export class TokenSeederService implements OnModuleInit {
@@ -23,8 +28,12 @@ export class TokenSeederService implements OnModuleInit {
         return this.clusterProvider.cluster;
     }
 
-    async onModuleInit() {
+    onModuleInit(): void {
         this.logger.log("Initializing TokenSeederService...");
+    }
+
+    private formatError(error: Error): string {
+        return error.message;
     }
 
     async syncProvisionedTokens(force = false, limit?: number) {
@@ -72,7 +81,7 @@ export class TokenSeederService implements OnModuleInit {
                         chunks.push(newAddresses.slice(i, i + JUPITER_CHUNK_SIZE));
                     }
 
-                    const fetchChunk = async (chunk: string[]): Promise<any[]> => {
+                    const fetchChunk = async (chunk: string[]): Promise<JupiterSeedToken[]> => {
                         const MAX_FETCH_RETRIES = 4;
                         for (let attempt = 1; attempt <= MAX_FETCH_RETRIES; attempt++) {
                             try {
@@ -89,9 +98,9 @@ export class TokenSeederService implements OnModuleInit {
                                     this.logger.warn(`[Provisioned sync] Jupiter chunk failed: HTTP ${res.status} ${res.statusText}`);
                                     return [];
                                 }
-                                return await res.json();
-                            } catch (err: any) {
-                                this.logger.warn(`[Provisioned sync] Jupiter chunk error: ${err.message}`);
+                                return (await res.json()) as JupiterSeedToken[];
+                            } catch (error) {
+                                this.logger.warn(`[Provisioned sync] Jupiter chunk error: ${error instanceof Error ? this.formatError(error) : String(error)}`);
                                 return [];
                             }
                         }
@@ -99,7 +108,7 @@ export class TokenSeederService implements OnModuleInit {
                         return [];
                     };
 
-                    const allChunkResults: any[][] = [];
+                    const allChunkResults: JupiterSeedToken[][] = [];
                     for (let ci = 0; ci < chunks.length; ci++) {
                         allChunkResults.push(await fetchChunk(chunks[ci]));
                         if (ci < chunks.length - 1) {
@@ -107,8 +116,8 @@ export class TokenSeederService implements OnModuleInit {
                         }
                     }
                     const results = allChunkResults;
-                    const jupiterData: any[] = results.flat();
-                    const jupiterMap = new Map<string, any>(jupiterData.map((t: any) => [t.id, t]));
+                    const jupiterData = results.flat();
+                    const jupiterMap = new Map<string, JupiterSeedToken>(jupiterData.map((t) => [t.id, t]));
 
                     const notFoundInJupiter = newAddresses.filter((addr) => !jupiterMap.has(addr));
                     if (notFoundInJupiter.length > 0) {
@@ -185,9 +194,13 @@ export class TokenSeederService implements OnModuleInit {
                             }
                             totalInserted += rows.length;
                             break;
-                        } catch (err: any) {
+                        } catch (error) {
                             if (attempt < MAX_RETRIES) {
-                                this.logger.warn(`[Provisioned sync] Upsert failed (attempt ${attempt}/${MAX_RETRIES}), retrying in 5s... ${err.message}`);
+                                this.logger.warn(
+                                    `[Provisioned sync] Upsert failed (attempt ${attempt}/${MAX_RETRIES}), retrying in 5s... ${
+                                        error instanceof Error ? this.formatError(error) : String(error)
+                                    }`
+                                );
                                 await new Promise((r) => setTimeout(r, 5000));
                             } else {
                                 this.logger.warn(`[Provisioned sync] Batch failed, retrying row-by-row to isolate errors...`);
@@ -195,8 +208,12 @@ export class TokenSeederService implements OnModuleInit {
                                     try {
                                         await this.tokenRepository.upsert(row, { conflictPaths: ["address", "network"], skipUpdateIfNoValuesChanged: false });
                                         totalInserted++;
-                                    } catch (rowErr: any) {
-                                        this.logger.error(`[Provisioned sync] Failed to upsert token ${row.address}: ${rowErr.message}`);
+                                    } catch (rowError) {
+                                        this.logger.error(
+                                            `[Provisioned sync] Failed to upsert token ${row.address}: ${
+                                                rowError instanceof Error ? this.formatError(rowError) : String(rowError)
+                                            }`
+                                        );
                                     }
                                 }
                             }
@@ -227,8 +244,8 @@ export class TokenSeederService implements OnModuleInit {
             this.logger.log(
                 `Provisioned token sync complete. Processed ${totalProcessed.toLocaleString()} — inserted ${totalInserted.toLocaleString()} new tokens.`
             );
-        } catch (error: any) {
-            this.logger.error("Failed to sync provisioned tokens", error.stack);
+        } catch (error) {
+            this.logger.error("Failed to sync provisioned tokens", error instanceof Error ? error.stack : String(error));
         }
     }
 
@@ -263,7 +280,7 @@ export class TokenSeederService implements OnModuleInit {
                     chunks.push(batchAddresses.slice(j, j + JUPITER_CHUNK_SIZE));
                 }
 
-                const fetchChunk = async (chunk: string[]): Promise<any[]> => {
+                const fetchChunk = async (chunk: string[]): Promise<JupiterSeedToken[]> => {
                     const MAX_FETCH_RETRIES = 4;
                     for (let attempt = 1; attempt <= MAX_FETCH_RETRIES; attempt++) {
                         try {
@@ -278,9 +295,9 @@ export class TokenSeederService implements OnModuleInit {
                                 this.logger.warn(`[DB sync] Jupiter chunk failed: HTTP ${res.status} ${res.statusText}`);
                                 return [];
                             }
-                            return await res.json();
-                        } catch (err: any) {
-                            this.logger.warn(`[DB sync] Jupiter chunk error: ${err.message}`);
+                            return (await res.json()) as JupiterSeedToken[];
+                        } catch (error) {
+                            this.logger.warn(`[DB sync] Jupiter chunk error: ${error instanceof Error ? this.formatError(error) : String(error)}`);
                             return [];
                         }
                     }
@@ -288,7 +305,7 @@ export class TokenSeederService implements OnModuleInit {
                     return [];
                 };
 
-                const allResults: any[][] = [];
+                const allResults: JupiterSeedToken[][] = [];
                 for (let j = 0; j < chunks.length; j++) {
                     allResults.push(await fetchChunk(chunks[j]));
                     if (j < chunks.length - 1) {
@@ -296,8 +313,8 @@ export class TokenSeederService implements OnModuleInit {
                     }
                 }
                 const results = allResults;
-                const jupiterData: any[] = results.flat();
-                const jupiterMap = new Map<string, any>(jupiterData.map((t: any) => [t.id, t]));
+                const jupiterData = results.flat();
+                const jupiterMap = new Map<string, JupiterSeedToken>(jupiterData.map((t) => [t.id, t]));
                 const notFoundInJupiter = batchAddresses.filter((addr) => !jupiterMap.has(addr));
                 if (notFoundInJupiter.length > 0) {
                     this.logger.warn(`[DB sync] Jupiter returned no data for ${notFoundInJupiter.length} token(s) in this batch.`);
@@ -372,9 +389,13 @@ export class TokenSeederService implements OnModuleInit {
                         }
                         totalUpdated += rows.length;
                         break;
-                    } catch (err: any) {
+                    } catch (error) {
                         if (attempt < MAX_RETRIES) {
-                            this.logger.warn(`[DB sync] Upsert failed (attempt ${attempt}/${MAX_RETRIES}), retrying in 5s... ${err.message}`);
+                            this.logger.warn(
+                                `[DB sync] Upsert failed (attempt ${attempt}/${MAX_RETRIES}), retrying in 5s... ${
+                                    error instanceof Error ? this.formatError(error) : String(error)
+                                }`
+                            );
                             await new Promise((r) => setTimeout(r, 5000));
                         } else {
                             this.logger.warn(`[DB sync] Batch at offset ${i} failed, retrying row-by-row to isolate errors...`);
@@ -382,8 +403,12 @@ export class TokenSeederService implements OnModuleInit {
                                 try {
                                     await this.tokenRepository.upsert(row, { conflictPaths: ["address", "network"], skipUpdateIfNoValuesChanged: false });
                                     totalUpdated++;
-                                } catch (rowErr: any) {
-                                    this.logger.error(`[DB sync] Failed to upsert token ${row.address}: ${rowErr.message}`);
+                                } catch (rowError) {
+                                    this.logger.error(
+                                        `[DB sync] Failed to upsert token ${row.address}: ${
+                                            rowError instanceof Error ? this.formatError(rowError) : String(rowError)
+                                        }`
+                                    );
                                 }
                             }
                         }
@@ -401,8 +426,8 @@ export class TokenSeederService implements OnModuleInit {
             }
 
             this.logger.log(`[DB sync] Complete. ${totalUpdated.toLocaleString()} tokens refreshed.`);
-        } catch (error: any) {
-            this.logger.error("[DB sync] Failed to sync DB tokens", error.stack);
+        } catch (error) {
+            this.logger.error("[DB sync] Failed to sync DB tokens", error instanceof Error ? error.stack : String(error));
         }
     }
 
@@ -434,7 +459,7 @@ export class TokenSeederService implements OnModuleInit {
         this.logger.log("Completed updating all on-chain token data.");
     }
 
-    private safeNum(val: any, fallback = 0): number {
+    private safeNum(val: string | number | null | undefined, fallback = 0): number {
         const n = Number(val);
         return Number.isFinite(n) ? n : fallback;
     }
@@ -445,7 +470,7 @@ export class TokenSeederService implements OnModuleInit {
         try {
             const jupUrl = `${this.configService.get<string>("jupiter.apiUrl")}/tokens/v2/search?query=${addresses.join(",")}`;
 
-            const tokensInfo: any[] = await fetch(jupUrl).then((res) => res.json());
+            const tokensInfo = (await fetch(jupUrl).then((res) => res.json())) as JupiterSeedToken[];
             if (!tokensInfo?.length) return;
 
             const existingTokens = await this.tokenRepository.findBy({
@@ -492,8 +517,8 @@ export class TokenSeederService implements OnModuleInit {
                 skipUpdateIfNoValuesChanged: false
             });
             this.logger.log(`Updated batch of ${addresses.length} tokens.`);
-        } catch (error: any) {
-            this.logger.error("Failed to update batch on-chain data", error.stack);
+        } catch (error) {
+            this.logger.error("Failed to update batch on-chain data", error instanceof Error ? error.stack : String(error));
         }
     }
 }

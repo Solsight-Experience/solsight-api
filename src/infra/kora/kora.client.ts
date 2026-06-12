@@ -11,11 +11,13 @@
 
 import { createHmac } from "crypto";
 
+type KoraFetch = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
+
 export interface KoraClientOptions {
     rpcUrl: string;
     apiKey?: string;
     hmacSecret?: string;
-    fetchImpl?: typeof fetch;
+    fetchImpl?: KoraFetch;
 }
 
 export interface KoraGetPayerSignerResponse {
@@ -69,13 +71,13 @@ export class KoraClient {
     private readonly rpcUrl: string;
     private readonly apiKey?: string;
     private readonly hmacSecret?: string;
-    private readonly fetchImpl: typeof fetch;
+    private readonly fetchImpl: KoraFetch;
 
     constructor(options: KoraClientOptions) {
         this.rpcUrl = options.rpcUrl;
         this.apiKey = options.apiKey;
         this.hmacSecret = options.hmacSecret;
-        this.fetchImpl = options.fetchImpl ?? globalThis.fetch.bind(globalThis);
+        this.fetchImpl = options.fetchImpl ?? ((input, init) => globalThis.fetch(input, init));
     }
 
     getPayerSigner(): Promise<KoraGetPayerSignerResponse> {
@@ -125,7 +127,7 @@ export class KoraClient {
             body
         });
 
-        const json = (await response.json()) as RpcResponse<T>;
+        const json: RpcResponse<T> = (await response.json()) as RpcResponse<T>;
 
         if (json.error) {
             throw new Error(`Kora RPC ${method} failed: [${json.error.code}] ${json.error.message}`);

@@ -1,17 +1,19 @@
-export interface BuiltTemplate<T extends unknown[]> {
+export type TemplateArg = string | number | boolean | null;
+
+export interface BuiltTemplate<T extends TemplateArg[]> {
     args: T;
     renderHtml: () => string;
     renderText: () => string;
 }
 
-function interpolate(template: string, args: unknown[]): string {
+function interpolate(template: string, args: TemplateArg[]): string {
     return template.replace(/\{(\d+)\}/g, (_, index) => {
         const i = Number(index);
         return args[i] !== undefined ? String(args[i]) : "";
     });
 }
 
-function defineTemplate<T extends unknown[]>(html: string, text: string) {
+function defineTemplate<T extends TemplateArg[]>(html: string, text: string) {
     return (args: [...T]): BuiltTemplate<T> => ({
         args,
         renderHtml: () => interpolate(html, args),

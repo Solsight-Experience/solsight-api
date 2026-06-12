@@ -9,6 +9,24 @@ export interface ZaloUpdate {
     date: number;
 }
 
+interface ZaloApiMessage {
+    from?: {
+        id?: string;
+    };
+    chat?: {
+        id?: string;
+    };
+    text?: string;
+    date?: number;
+}
+
+interface ZaloUpdatesResponse {
+    ok?: boolean;
+    result?: {
+        message?: ZaloApiMessage;
+    };
+}
+
 @Injectable()
 export class ZaloApiService {
     private readonly logger = new Logger(ZaloApiService.name);
@@ -38,12 +56,19 @@ export class ZaloApiService {
      */
     async getUpdate(timeoutSec = 25): Promise<ZaloUpdate | null> {
         try {
-            const { data } = await axios.post(`${this.baseUrl}/getUpdates`, { timeout: String(timeoutSec) }, { timeout: (timeoutSec + 5) * 1000 });
+            const { data } = await axios.post<ZaloUpdatesResponse>(
+                `${this.baseUrl}/getUpdates`,
+                { timeout: String(timeoutSec) },
+                { timeout: (timeoutSec + 5) * 1000 }
+            );
             if (!data?.ok || !data?.result?.message) return null;
             const msg = data.result.message;
+            const fromId = msg.from?.id;
+            const chatId = msg.chat?.id ?? fromId;
+            if (!fromId || !chatId) return null;
             return {
-                fromId: msg.from?.id,
-                chatId: msg.chat?.id ?? msg.from?.id,
+                fromId,
+                chatId,
                 text: msg.text ?? "",
                 date: msg.date ?? Date.now()
             };

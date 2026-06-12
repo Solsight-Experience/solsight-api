@@ -14,7 +14,7 @@ const baseConfig = {
 async function runMigrations(): Promise<void> {
     const ds = new DataSource({
         ...baseConfig,
-        entities: ENTITIES as any,
+        entities: ENTITIES,
         migrations: [__dirname + `/migrations/*{.ts,.js}`],
         synchronize: false,
         logging: true

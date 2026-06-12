@@ -1,4 +1,5 @@
-import { IsString, IsOptional } from "class-validator";
+import { IsEnum, IsOptional, IsString } from "class-validator";
+import { WalletIcon } from "../../wallets/entities/wallet.entity";
 
 export class VerifySolanaDto {
     @IsString()
@@ -12,6 +13,6 @@ export class VerifySolanaDto {
     userId?: string;
 
     @IsOptional()
-    @IsString()
-    walletIcon?: string;
+    @IsEnum(WalletIcon)
+    walletIcon?: WalletIcon;
 }

@@ -15,6 +15,15 @@ const INTERVAL_TTL: Record<OhlcInterval, number> = {
     "5m": 24 * 60 * 60 // 24 hours
 };
 
+interface OhlcHistoryPoint {
+    timestamp: number;
+    open: number;
+    high: number;
+    low: number;
+    close: number;
+    volume: number;
+}
+
 @Injectable()
 export class OhlcAggregationService {
     private readonly logger = new Logger(OhlcAggregationService.name);
@@ -178,20 +187,7 @@ export class OhlcAggregationService {
         return Math.floor(now / intervalMs) * intervalMs;
     }
 
-    async getOhlcData(
-        tokenMint: string,
-        interval: string,
-        limit: number = 500
-    ): Promise<
-        Array<{
-            timestamp: number;
-            open: number;
-            high: number;
-            low: number;
-            close: number;
-            volume: number;
-        }>
-    > {
+    async getOhlcData(tokenMint: string, interval: string, limit: number = 500): Promise<OhlcHistoryPoint[]> {
         const redis = this.redisService.getClient();
         if (!redis) return [];
 
@@ -211,7 +207,7 @@ export class OhlcAggregationService {
             const ohlcInterval = intervalMap[interval] || "1m";
             const intervalMs = INTERVAL_MS[ohlcInterval];
             const now = Date.now();
-            const data: Array<any> = [];
+            const data: OhlcHistoryPoint[] = [];
 
             // Fetch historical buckets
             for (let i = limit - 1; i >= 0; i--) {

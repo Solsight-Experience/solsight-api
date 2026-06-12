@@ -6,16 +6,25 @@ import { StatsAggregationService } from "../aggregation/stats-aggregation.servic
 import { OhlcAggregationService } from "../aggregation/ohlc-aggregation.service";
 import { TraderAggregationService } from "../aggregation/trader-aggregation.service";
 import { HolderAggregationService } from "../aggregation/holder-aggregation.service";
-import { SwapEvent, TradeData, HolderData, transformSwapToTradeForToken, calculateSwapPrices } from "../../types/swap-event.type";
+import { EnrichedHolder } from "../aggregation/holder-aggregation.service";
+import { SwapEvent, TradeData, TokenStats, transformSwapToTradeForToken, calculateSwapPrices } from "../../types/swap-event.type";
 
 const REDIS_TRADES_CHANNEL = "trades";
+
+type TokenSocketData =
+    | { token: string; price: string; timestamp: number }
+    | (TokenStats & { token: string })
+    | { token: string; volume: number; timestamp: number }
+    | { token: string; trades: (TradeData & { token: string })[] }
+    | { token: string; data: Awaited<ReturnType<TraderAggregationService["getTopTraders"]>> }
+    | { token: string; changed: EnrichedHolder[]; removed: string[] };
 
 @Injectable()
 export class TokenSocketService implements OnModuleInit {
     private readonly logger = new Logger(TokenSocketService.name);
     private readonly tradesBuffer = new Map<string, (TradeData & { token: string })[]>();
     private readonly lastEmittedClose = new Map<string, number>();
-    private readonly previousHolders = new Map<string, Map<string, HolderData>>();
+    private readonly previousHolders = new Map<string, Map<string, EnrichedHolder>>();
 
     constructor(
         private readonly gateway: TokenSocketGateway,
@@ -43,13 +52,10 @@ export class TokenSocketService implements OnModuleInit {
     private async subscribeToTrades(): Promise<void> {
         this.logger.log(`Subscribing to Redis channel: ${REDIS_TRADES_CHANNEL}`);
 
-        await this.pubSubService.subscribe(REDIS_TRADES_CHANNEL, async (message) => {
-            try {
-                const swap = message as SwapEvent;
-                await this.processSwapEvent(swap);
-            } catch (error) {
+        await this.pubSubService.subscribe<SwapEvent>(REDIS_TRADES_CHANNEL, (swap) => {
+            void this.processSwapEvent(swap).catch((error) => {
                 this.logger.error("Error processing swap event:", error);
-            }
+            });
         });
 
         this.logger.log(`Subscribed to Redis channel: ${REDIS_TRADES_CHANNEL}`);
@@ -93,23 +99,29 @@ export class TokenSocketService implements OnModuleInit {
 
         this.logger.log(`Start scheduler: domain=${domain}, interval=${interval}, emitEvery=${intervalMs}ms`);
 
-        setInterval(async () => {
-            const rooms = this.gateway.listTokenRooms(domain);
-            for (const room of rooms) {
-                if (!room.endsWith(`:${interval}`)) continue;
-
-                if (domain === "priceOHLC") {
-                    await this.emitOhlc(room, interval as OhlcInterval);
-                } else {
-                    const data = await this.buildData(domain, room, interval);
-                    if (!data) continue;
-                    this.gateway.emit(room, domain, data);
-                }
-            }
+        setInterval(() => {
+            void this.emitScheduledRooms(domain, interval).catch((error) => {
+                this.logger.error(`Error emitting scheduled token socket data for ${domain}:${interval}`, error);
+            });
         }, intervalMs);
     }
 
-    private async buildData(domain: RoomDomain, room: string, interval: RoomInterval): Promise<any> {
+    private async emitScheduledRooms(domain: RoomDomain, interval: RoomInterval): Promise<void> {
+        const rooms = this.gateway.listTokenRooms(domain);
+        for (const room of rooms) {
+            if (!room.endsWith(`:${interval}`)) continue;
+
+            if (domain === "priceOHLC") {
+                await this.emitOhlc(room, interval as OhlcInterval);
+            } else {
+                const data = await this.buildData(domain, room, interval);
+                if (!data) continue;
+                this.gateway.emit(room, domain, data);
+            }
+        }
+    }
+
+    private async buildData(domain: RoomDomain, room: string, _interval: RoomInterval): Promise<TokenSocketData | null> {
         const [, token] = room.split(":");
 
         switch (domain) {
@@ -160,8 +172,8 @@ export class TokenSocketService implements OnModuleInit {
             case "holders": {
                 const holders = await this.holderAggregation.getTopHolders(token, 20);
 
-                const prev = this.previousHolders.get(token) ?? new Map();
-                const current = new Map(holders.map((h) => [h.address, h]));
+                const prev = this.previousHolders.get(token) ?? new Map<string, EnrichedHolder>();
+                const current = new Map<string, EnrichedHolder>(holders.map((h) => [h.address, h]));
 
                 const changed = holders.filter((h) => {
                     const prevHolder = prev.get(h.address);

@@ -9,9 +9,19 @@ import { NotificationsService } from "../services/notifications.service";
 
 const USER_ID = "test-user-id";
 
+interface AuthenticatedTestRequest {
+    user?: {
+        id: string;
+    };
+}
+
+interface ErrorResponseBody {
+    message: string;
+}
+
 class AllowAuthGuard implements CanActivate {
     canActivate(context: ExecutionContext): boolean {
-        const req = context.switchToHttp().getRequest();
+        const req = context.switchToHttp().getRequest<AuthenticatedTestRequest>();
         req.user = { id: USER_ID };
         return true;
     }
@@ -141,7 +151,7 @@ describe("NotificationsController API", () => {
 
         const response = await request(app.getHttpServer()).patch("/notifications/not-found/read").expect(404);
 
-        expect(response.body.message).toBe("Notification not found");
+        expect((response.body as ErrorResponseBody).message).toBe("Notification not found");
     });
 
     it("PATCH /notifications/read-all marks all unread notifications as read", async () => {
@@ -158,7 +168,7 @@ describe("NotificationsController API", () => {
 
         const response = await request(app.getHttpServer()).patch("/notifications/read-all").expect(500);
 
-        expect(response.body.message).toBe("Failed to mark notifications as read");
+        expect((response.body as ErrorResponseBody).message).toBe("Failed to mark notifications as read");
     });
 });
 

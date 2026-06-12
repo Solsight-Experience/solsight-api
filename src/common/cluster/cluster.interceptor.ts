@@ -2,6 +2,7 @@ import { Injectable, NestInterceptor, ExecutionContext, CallHandler, BadRequestE
 import { ClsService } from "nestjs-cls";
 import { Observable } from "rxjs";
 import { Request } from "express";
+import { JsonValue } from "../types";
 import { CLUSTERS, Cluster, DEFAULT_CLUSTER } from "./cluster.types";
 import { CLUSTER_CLS_KEY } from "./cluster.provider";
 
@@ -9,7 +10,7 @@ import { CLUSTER_CLS_KEY } from "./cluster.provider";
 export class ClusterInterceptor implements NestInterceptor {
     constructor(private readonly cls: ClsService) {}
 
-    intercept(context: ExecutionContext, next: CallHandler): Observable<any> {
+    intercept(context: ExecutionContext, next: CallHandler<JsonValue>): Observable<JsonValue> {
         const request = context.switchToHttp().getRequest<Request>();
 
         const clusterParam = request.query.cluster as string | undefined;

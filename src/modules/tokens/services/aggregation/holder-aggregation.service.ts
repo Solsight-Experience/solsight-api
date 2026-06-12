@@ -63,20 +63,16 @@ export class HolderAggregationService implements OnModuleInit {
     ) {}
 
     async onModuleInit(): Promise<void> {
-        await this.pubSubService.subscribe("solsight:holder_updates", async (message) => {
-            try {
-                await this.onHolderUpdate(message as HolderUpdateEvent);
-            } catch (error) {
+        await this.pubSubService.subscribe<HolderUpdateEvent>("solsight:holder_updates", (message) => {
+            void this.onHolderUpdate(message).catch((error) => {
                 this.logger.error("Error processing holder update:", error);
-            }
+            });
         });
 
-        await this.pubSubService.subscribe("solsight:price_updates", async (message) => {
-            try {
-                await this.onPriceUpdate(message as PriceUpdateEvent);
-            } catch (error) {
+        await this.pubSubService.subscribe<PriceUpdateEvent>("solsight:price_updates", (message) => {
+            void this.onPriceUpdate(message).catch((error) => {
                 this.logger.error("Error processing price update:", error);
-            }
+            });
         });
     }
 

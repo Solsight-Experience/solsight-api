@@ -3,6 +3,12 @@ import { Reflector } from "@nestjs/core";
 import { UserRole } from "../../modules/users/entities/user.entity";
 import { ROLES_KEY } from "../decorators/roles.decorator";
 
+interface RequestWithUser {
+    user?: {
+        role: UserRole;
+    };
+}
+
 @Injectable()
 export class RolesGuard implements CanActivate {
     constructor(private readonly reflector: Reflector) {}
@@ -12,7 +18,7 @@ export class RolesGuard implements CanActivate {
 
         if (!requiredRoles || requiredRoles.length === 0) return true;
 
-        const { user } = context.switchToHttp().getRequest();
+        const { user } = context.switchToHttp().getRequest<RequestWithUser>();
         if (!user) throw new ForbiddenException();
         if (!requiredRoles.includes(user.role)) {
             throw new ForbiddenException("Admin access required");

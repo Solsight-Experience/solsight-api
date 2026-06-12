@@ -3,6 +3,11 @@ import { ConfigService } from "@nestjs/config";
 import { OpenAIService } from "../openai/openai.service";
 import { GeminiGenerateRequest, GeminiGenerateResponse, GeminiError } from "./types/gemini.types";
 
+interface GeminiApiError extends Error {
+    code?: string | number;
+    status?: number;
+}
+
 @Injectable()
 export class GeminiService {
     private readonly logger = new Logger(GeminiService.name);
@@ -51,13 +56,14 @@ export class GeminiService {
         } catch (error) {
             this.logger.error("Error generating text with OpenAI", error);
 
+            const apiError = error instanceof Error ? (error as GeminiApiError) : undefined;
             const geminiError: GeminiError = {
-                message: error instanceof Error ? error.message : "Failed to generate text",
-                code: error?.code,
-                status: error?.status
+                message: apiError?.message ?? "Failed to generate text",
+                code: apiError?.code != null ? String(apiError.code) : undefined,
+                status: apiError?.status
             };
 
-            throw geminiError;
+            throw new Error(geminiError.message);
         }
     }
 

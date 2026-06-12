@@ -3,6 +3,7 @@ import { JwtAuthGuard } from "../../auth/guards/jwt-auth.guard";
 import { WalletsService } from "../services/wallets.service";
 import { CreateWalletDto } from "../dtos/create-wallet.dto";
 import { User } from "../../users/entities/user.entity";
+import { WalletIcon } from "../entities/wallet.entity";
 import { WalletsResponse, Wallet } from "../dtos/wallet.response.dto";
 
 interface AuthenticatedRequest extends Request {
@@ -38,7 +39,7 @@ export class UsersWalletsController {
             wallet: {
                 address: wallet.address,
                 name: wallet.name,
-                icon: (wallet as any).icon || null,
+                icon: wallet.icon || null,
                 is_default: !!wallet.isDefault,
                 added_at: wallet.createdAt
             }
@@ -47,9 +48,9 @@ export class UsersWalletsController {
 
     @UseGuards(JwtAuthGuard)
     @Patch(":walletAddress")
-    async update(@Request() req: AuthenticatedRequest, @Param("walletAddress") walletAddress: string, @Body() body: { name?: string; icon?: string }) {
+    async update(@Request() req: AuthenticatedRequest, @Param("walletAddress") walletAddress: string, @Body() body: { name?: string; icon?: WalletIcon }) {
         const userId = req.user.id;
-        const updated = await this.walletsService.updateByAddress(userId, walletAddress, body as any);
+        const updated = await this.walletsService.updateByAddress(userId, walletAddress, body);
         return updated;
     }
 
