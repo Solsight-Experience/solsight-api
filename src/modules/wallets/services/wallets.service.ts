@@ -1,12 +1,13 @@
 import { Injectable, Logger, NotFoundException, ConflictException, BadRequestException } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
-import { Wallet } from "../entities/wallet.entity";
+import { Wallet, WalletIcon } from "../entities/wallet.entity";
 import { CreateWalletDto } from "../dtos/create-wallet.dto";
 import { SolanaService } from "../../../infra/solana/solana.service";
 import { PublicKey } from "@solana/web3.js";
+import { ParsedTokenAccount } from "../../../infra/solana/solana.types";
 import { WalletsResponse, Position, WalletSummary, Wallet as WalletDto } from "../dtos/wallet.response.dto";
-import { JupiterService } from "../../../infra/jupiter/jupiter.service";
+import { TokensService } from "../../tokens/services/tokens.service";
 import { CoinGeckoService } from "../../../infra/coingecko/coingecko.service";
 
 @Injectable()
@@ -17,7 +18,7 @@ export class WalletsService {
         @InjectRepository(Wallet)
         private readonly walletRepository: Repository<Wallet>,
         private readonly solanaService: SolanaService,
-        private readonly jupiterService: JupiterService,
+        private readonly tokensService: TokensService,
         private readonly coinGeckoService: CoinGeckoService
     ) {}
 
@@ -34,8 +35,8 @@ export class WalletsService {
         await this.walletRepository.update(walletId, { nonce });
     }
 
-    async updateUser(walletId: string, userId: string, icon?: string): Promise<void> {
-        await this.walletRepository.update(walletId, { userId, icon: icon as any });
+    async updateUser(walletId: string, userId: string, icon?: WalletIcon): Promise<void> {
+        await this.walletRepository.update(walletId, { userId, icon });
     }
 
     async create(userId: string, createWalletDto: CreateWalletDto): Promise<Wallet> {
@@ -55,8 +56,7 @@ export class WalletsService {
 
         const wallet = this.walletRepository.create({
             ...createWalletDto,
-            // cast icon to enum type if provided
-            icon: createWalletDto.icon ? (createWalletDto.icon as any) : undefined,
+            icon: createWalletDto.icon,
             userId
         });
 
@@ -113,7 +113,7 @@ export class WalletsService {
         return {
             address: wallet.address,
             name: wallet.name || "",
-            icon: (wallet as any).icon || "",
+            icon: wallet.icon || "",
             is_default: !!wallet.isDefault,
             is_connected: !!wallet.isConnected,
             added_at: wallet.createdAt,
@@ -127,55 +127,40 @@ export class WalletsService {
     private async getWalletPositions(walletAddress: string): Promise<Position[]> {
         try {
             const publicKey = new PublicKey(walletAddress);
-            const tokenAccounts = await this.solanaService.getParsedTokenAccountsByOwner(publicKey);
+            const tokenAccounts: ParsedTokenAccount[] = await this.solanaService.getParsedTokenAccountsByOwner(publicKey);
 
-            const positions: Position[] = [];
-
+            const holdings: Array<{ mintAddress: string; balance: number }> = [];
             for (const account of tokenAccounts) {
                 const parsedInfo = account.account.data.parsed.info;
-                const mintAddress = parsedInfo.mint;
-                const balance = parsedInfo.tokenAmount.uiAmount;
+                const balance = parsedInfo.tokenAmount.uiAmount ?? 0;
+                if (balance === 0) continue;
+                holdings.push({ mintAddress: parsedInfo.mint, balance });
+            }
 
-                if (balance === 0) continue; // Skip empty accounts
+            if (holdings.length === 0) return [];
 
-                // Get token info from Jupiter
-                let tokenInfo;
-                try {
-                    tokenInfo = await this.jupiterService.searchToken(mintAddress);
-                } catch (error) {
-                    this.logger.error("Failed to get token info from Jupiter", error);
-                }
+            const mints = holdings.map((h) => h.mintAddress);
+            const [metadataMap, priceMap] = await Promise.all([this.tokensService.findMany(mints), this.tokensService.getPrices(mints)]);
 
-                if (!tokenInfo) {
-                    // Skip tokens not found in Jupiter list
-                    continue;
-                }
+            const positions: Position[] = [];
+            for (const { mintAddress, balance } of holdings) {
+                const meta = metadataMap.get(mintAddress);
+                if (!meta) continue;
 
-                // Get price from Jupiter
-                let priceUsd = 0;
-                const priceChange24h = 0; // TODO: Get price change from CoinGecko if needed
-                try {
-                    const price = await this.jupiterService.getTokenPrice(mintAddress);
-                    priceUsd = price || 0;
-                } catch (error) {
-                    this.logger.error("Failed to get price from Jupiter", error);
-                }
-
-                const valueUsd = balance * priceUsd;
+                const { priceUsd, priceChange24h } = priceMap.get(mintAddress) ?? { priceUsd: 0, priceChange24h: 0 };
 
                 positions.push({
                     token_address: mintAddress,
-                    token_symbol: tokenInfo.symbol,
-                    token_name: tokenInfo.name,
-                    token_logo: tokenInfo.icon || "",
+                    token_symbol: meta.symbol,
+                    token_name: meta.name,
+                    token_logo: meta.logoUri ?? "",
                     balance,
                     price_usd: priceUsd,
-                    value_usd: valueUsd,
+                    value_usd: balance * priceUsd,
                     price_change_24h: priceChange24h
                 });
             }
 
-            // Sort by value descending
             return positions.sort((a, b) => b.value_usd - a.value_usd);
         } catch (error) {
             this.logger.error("Failed to get wallet positions", error);
@@ -308,8 +293,8 @@ export class WalletsService {
             }
         }
 
-        await this.walletRepository.update({ id }, updateData);
-        return await this.findById(id);
+        this.walletRepository.merge(wallet, updateData);
+        return await this.walletRepository.save(wallet);
     }
 
     async updateByAddress(userId: string, address: string, updateData: Partial<Wallet>) {
@@ -318,7 +303,8 @@ export class WalletsService {
         });
         if (!wallet) throw new NotFoundException("Wallet not found");
 
-        await this.walletRepository.update({ id: wallet.id }, updateData);
+        this.walletRepository.merge(wallet, updateData);
+        await this.walletRepository.save(wallet);
         return await this.findById(wallet.id);
     }
 

@@ -9,29 +9,9 @@ import { JwtService } from "@nestjs/jwt";
 import * as bcrypt from "bcrypt";
 import { UserRepository } from "../repositories/user.repository";
 import { randomBytes } from "crypto";
-export interface LoginDto {
-    email: string;
-    password: string;
-}
-
-export interface RegisterDto {
-    email: string;
-    username?: string;
-    password: string;
-    firstName?: string;
-    lastName?: string;
-}
-
-export interface OauthLoginDto {
-    provider: "google";
-    token: string;
-}
-
-export interface JwtPayload {
-    sub: string;
-    email: string;
-    username: string;
-}
+import { User } from "../../users/entities/user.entity";
+import { WalletIcon } from "../../wallets/entities/wallet.entity";
+import { DatabaseError, GoogleTokenProfile, JwtPayload, LoginDto, OauthLoginDto, RegisterDto } from "../types/auth.types";
 
 @Injectable()
 export class AuthService {
@@ -55,6 +35,7 @@ export class AuthService {
         const isPasswordValid = await bcrypt.compare(loginDto.password, user.password);
         if (!isPasswordValid) throw new UnauthorizedException("Password is incorrect");
 
+        void this.userRepository.update(user.id, { lastLoginAt: new Date() });
         const accessToken = await this.generateAccessToken(user);
         const { password, ...userWithoutPassword } = user;
         return { user: userWithoutPassword, accessToken };
@@ -77,7 +58,7 @@ export class AuthService {
                 throw new BadRequestException("Invalid Google token");
             }
 
-            const profile = await googleRes.json();
+            const profile = (await googleRes.json()) as GoogleTokenProfile;
             this.logger.log(`Google profile: ${JSON.stringify(profile)}`);
 
             if (!profile.email) {
@@ -108,8 +89,9 @@ export class AuthService {
                     });
 
                     this.logger.log(`OAuth user created: ${user.id}`);
-                } catch (dbError) {
-                    this.logger.error(`Database error: ${dbError}`);
+                } catch (error) {
+                    const dbError = error as DatabaseError;
+                    this.logger.error(`Database error: ${dbError.message}`);
                     this.logger.error(`Error code: ${dbError.code}`);
                     this.logger.error(`Error detail: ${dbError.detail}`);
                     throw new BadRequestException(`Failed to create user: ${dbError.message}`);
@@ -118,6 +100,7 @@ export class AuthService {
                 this.logger.log(`Existing user found: ${user.id}`);
             }
 
+            void this.userRepository.update(user.id, { lastLoginAt: new Date() });
             const accessToken = await this.generateAccessToken(user);
             const { password, ...userWithoutPassword } = user;
 
@@ -129,7 +112,7 @@ export class AuthService {
                 throw error;
             }
 
-            throw new BadRequestException(`OAuth login failed: ${error.message}`);
+            throw new BadRequestException(`OAuth login failed: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
@@ -155,7 +138,7 @@ export class AuthService {
     }
 
     // --- JWT ---
-    async generateAccessToken(user: any): Promise<string> {
+    async generateAccessToken(user: User): Promise<string> {
         const payload: JwtPayload = {
             sub: user.id,
             email: user.email,
@@ -184,7 +167,12 @@ export class AuthService {
         return { nonce };
     }
 
-    async verifySolanaWallet(walletAddress: string, signature: string, walletIcon?: string, userId?: string): Promise<{ success: boolean; message: string }> {
+    async verifySolanaWallet(
+        walletAddress: string,
+        signature: string,
+        walletIcon?: WalletIcon,
+        userId?: string
+    ): Promise<{ success: boolean; message: string }> {
         const wallet = await this.walletsService.findByAddress(walletAddress);
 
         if (!wallet || !wallet.nonce) {
@@ -201,14 +189,14 @@ export class AuthService {
             if (!verified) {
                 throw new UnauthorizedException("Invalid signature");
             }
-        } catch (error) {
+        } catch {
             throw new UnauthorizedException("Signature verification failed");
         }
 
         // Clear nonce
         await this.walletsService.updateNonce(wallet.id, null);
 
-        let user;
+        let user: User | null;
         if (userId) {
             // Scenario A: Linking
             user = await this.userRepository.findById(userId);
@@ -222,6 +210,10 @@ export class AuthService {
             } else {
                 throw new NotFoundException("User not found");
             }
+        }
+
+        if (!user) {
+            throw new NotFoundException("User not found");
         }
 
         // if (!wallet.userId || wallet.userId !== user.id) {

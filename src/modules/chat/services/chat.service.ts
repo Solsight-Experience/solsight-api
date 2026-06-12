@@ -644,7 +644,7 @@ export class ChatService {
 
                     try {
                         args = JSON.parse(toolCall.function.arguments || "{}") as Record<string, unknown>;
-                    } catch (error) {
+                    } catch {
                         this.logger.warn(`Invalid tool arguments for ${toolName}: ${toolCall.function.arguments}`, ChatService.name);
                     }
 
@@ -789,8 +789,13 @@ export class ChatService {
                         const toolName = toolCall.function.name;
                         let args: Record<string, unknown> = {};
                         try {
-                            args = JSON.parse(toolCall.function.arguments || "{}");
-                        } catch {}
+                            args = JSON.parse(toolCall.function.arguments || "{}") as Record<string, unknown>;
+                        } catch {
+                            this.logger.warn(`Invalid tool arguments for ${toolName}: ${toolCall.function.arguments}`, ChatService.name);
+                        }
+
+                        this.logger.log(`Executing tool (stream): ${toolName} args=${JSON.stringify(args)}`, ChatService.name);
+
                         const result = await this.executeTool(toolName, args, walletAddress, userId);
                         await this.messageRepo.save(
                             this.messageRepo.create({
@@ -829,13 +834,13 @@ export class ChatService {
         try {
             switch (toolName) {
                 case "fetch_token_data": {
-                    const address = String(args.address || "");
+                    const address = this.getStringArg(args, "address");
                     const data = await this.tokensService.findOne(address);
                     return JSON.stringify(data);
                 }
 
                 case "search_tokens": {
-                    const query = String(args.query || "");
+                    const query = this.getStringArg(args, "query");
                     const limit = typeof args.limit === "number" && Number.isFinite(args.limit) ? args.limit : 5;
 
                     try {
@@ -878,7 +883,7 @@ export class ChatService {
                 }
 
                 case "fetch_portfolio": {
-                    const resolvedUserId = userId || String(args.userId || "");
+                    const resolvedUserId = userId || this.getStringArg(args, "userId");
 
                     if (!resolvedUserId) {
                         this.logger.warn("fetch_portfolio called without userId", ChatService.name);
@@ -900,27 +905,8 @@ export class ChatService {
                     if (!resolvedUserId) {
                         return JSON.stringify({ error: "User ID required — please log in" });
                     }
-                    const walletAddr = typeof args.walletAddress === "string" ? args.walletAddress : undefined;
-                    const actType = typeof args.type === "string" ? args.type : "all";
-                    const limit = typeof args.limit === "number" && Number.isFinite(args.limit) ? Math.min(args.limit, 20) : 10;
-                    const data = await this.portfolioService.getActivities(resolvedUserId, walletAddr, actType, limit);
-                    return JSON.stringify(data);
-                }
-
-                case "fetch_portfolio_performance": {
-                    const resolvedUserId = userId || String(args.userId || "");
-                    if (!resolvedUserId) {
-                        return JSON.stringify({ error: "User ID required — please log in" });
-                    }
-                    const walletAddresses = Array.isArray(args.walletAddresses) ? args.walletAddresses.filter((v): v is string => typeof v === "string") : [];
-                    const timeFrame = typeof args.timeFrame === "string" ? args.timeFrame : "30d";
-                    const data = await this.portfolioService.getPerformance(resolvedUserId, walletAddresses, timeFrame);
-                    return JSON.stringify(data);
-                }
-
-                case "prepare_swap": {
-                    let inputMint = String(args.inputMint || "");
-                    let outputMint = String(args.outputMint || "");
+                    const inputMint = this.getStringArg(args, "inputMint");
+                    const outputMint = this.getStringArg(args, "outputMint");
                     const amount = Number(args.amount || 0);
 
                     const isAddress = (str: string) => /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(str);
@@ -1001,21 +987,7 @@ export class ChatService {
                 }
 
                 case "navigate_to": {
-                    let route = String(args.route || "");
-
-                    // Normalize common aliases to their actual routes
-                    const ROUTE_ALIASES: Record<string, string> = {
-                        "/discover": "/",
-                        "/discovery": "/",
-                        "/trending": "/",
-                        "/explore": "/",
-                        "/home": "/"
-                    };
-                    if (ROUTE_ALIASES[route]) {
-                        this.logger.log(`navigate_to: aliased "${route}" \u2192 "${ROUTE_ALIASES[route]}"`, ChatService.name);
-                        route = ROUTE_ALIASES[route];
-                    }
-
+                    const route = this.getStringArg(args, "route");
                     const isAllowed = STATIC_ROUTES.includes(route) || TOKEN_ROUTE_REGEX.test(route);
 
                     if (!isAllowed) {
@@ -1040,11 +1012,13 @@ export class ChatService {
         }
     }
 
-    private inferTypedResponseFromTools(recentMessages: ChatMessageEntity[]): ChatResponsePayload | null {
-        const lastUserMsgIndex = recentMessages.reduce((lastIdx, msg, idx) => (msg.role === "user" ? idx : lastIdx), -1);
-        const currentTurnMessages = lastUserMsgIndex >= 0 ? recentMessages.slice(lastUserMsgIndex) : recentMessages;
+    private getStringArg(args: Record<string, unknown>, key: string): string {
+        const value = args[key];
+        return typeof value === "string" ? value : "";
+    }
 
-        const recentToolMessages = [...currentTurnMessages]
+    private inferTypedResponseFromTools(session: ChatSession): ChatResponsePayload | null {
+        const recentToolMessages = [...session.messages]
             .reverse()
             .filter((message) => message.role === "tool")
             .slice(0, 5);

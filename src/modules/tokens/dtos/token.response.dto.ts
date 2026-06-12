@@ -13,6 +13,7 @@ export type TokenMetadata = {
 export type TokenResponseMetadata = {
     address: string;
     symbol: string;
+    decimals: number;
     name: string;
     logo_uri: string | null;
     network: string;

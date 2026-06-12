@@ -1,14 +1,16 @@
 import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
-import { InjectRepository } from "@nestjs/typeorm";
 import { Cron } from "@nestjs/schedule";
+import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
 import { PubSubService } from "../../../redis/services/pubsub.service";
 import { MarketPriceEvent } from "../entities/market-price-event.entity";
 import { Transaction, TransactionStatus, TransactionType } from "../../transactions/entities/transaction.entity";
 import { Token } from "../../tokens/entities/token.entity";
-import { SwapEvent, getTokenMintFromSwap } from "../../tokens/types/swap-event.type";
+import { SwapEvent, getTokenMintFromSwap } from "../../tokens/types/swap-event.types";
+import { TransactionInsertParam, TransactionInsertRow } from "../types/stream-consumer.types";
 
 const TRADES_CHANNEL = "trades";
+const INDEXER_NETWORK = "mainnet";
 
 @Injectable()
 export class StreamConsumerService implements OnModuleInit {
@@ -18,16 +20,15 @@ export class StreamConsumerService implements OnModuleInit {
     constructor(
         private readonly pubSubService: PubSubService,
         @InjectRepository(MarketPriceEvent)
-        private readonly priceEventRepo: Repository<MarketPriceEvent>,
+        private readonly priceEventRepository: Repository<MarketPriceEvent>,
         @InjectRepository(Transaction)
-        private readonly transactionRepo: Repository<Transaction>,
+        private readonly transactionRepository: Repository<Transaction>,
         @InjectRepository(Token)
-        private readonly tokenRepo: Repository<Token>
+        private readonly tokenRepository: Repository<Token>
     ) {}
 
     async onModuleInit(): Promise<void> {
-        await this.pubSubService.subscribe(TRADES_CHANNEL, (message) => {
-            const swap = message as SwapEvent;
+        await this.pubSubService.subscribe<SwapEvent>(TRADES_CHANNEL, (swap) => {
             this.handleSwap(swap).catch((err) => this.logger.error("Error handling swap event:", err));
         });
         this.logger.log(`Subscribed to Redis channel "${TRADES_CHANNEL}" for DB persistence`);
@@ -45,8 +46,9 @@ export class StreamConsumerService implements OnModuleInit {
 
     private async persistPriceEvent(swap: SwapEvent): Promise<void> {
         try {
-            const entity = this.priceEventRepo.create({
+            const entity = this.priceEventRepository.create({
                 tokenMint: getTokenMintFromSwap(swap),
+                network: INDEXER_NETWORK,
                 price: swap.price_usd ?? swap.price_native,
                 slot: String(swap.slot),
                 timestamp: String(swap.timestamp),
@@ -55,7 +57,7 @@ export class StreamConsumerService implements OnModuleInit {
                 eventType: "SWAP"
             });
 
-            await this.priceEventRepo.createQueryBuilder().insert().into(MarketPriceEvent).values(entity).orIgnore().execute();
+            await this.priceEventRepository.createQueryBuilder().insert().into(MarketPriceEvent).values(entity).orIgnore().execute();
         } catch (err) {
             this.logger.error(`Failed to persist price event for sig ${swap.signature}:`, err);
         }
@@ -63,8 +65,9 @@ export class StreamConsumerService implements OnModuleInit {
 
     private async persistTransaction(swap: SwapEvent): Promise<void> {
         try {
-            const entity = this.transactionRepo.create({
+            const entity: TransactionInsertRow = {
                 signature: swap.signature,
+                network: INDEXER_NETWORK,
                 type: TransactionType.SWAP,
                 status: TransactionStatus.CONFIRMED,
                 amount: swap.token_in.amount_ui,
@@ -80,12 +83,49 @@ export class StreamConsumerService implements OnModuleInit {
                     price_usd: swap.price_usd,
                     fee_amount_ui: swap.fee_amount_ui
                 }
-            });
+            };
 
-            await this.transactionRepo.createQueryBuilder().insert().into(Transaction).values(entity).orIgnore().execute();
+            await this.insertTransactionIgnore(entity);
         } catch (err) {
             this.logger.error(`Failed to persist transaction for sig ${swap.signature}:`, err);
         }
+    }
+
+    private async insertTransactionIgnore(row: TransactionInsertRow): Promise<void> {
+        const columns = [
+            "signature",
+            "network",
+            "type",
+            "status",
+            "amount",
+            '"amountOut"',
+            '"tokenMint"',
+            '"tokenMintOut"',
+            '"signerAddress"',
+            '"blockNumber"',
+            '"blockTime"',
+            "metadata"
+        ];
+        const params: TransactionInsertParam[] = [
+            row.signature,
+            row.network,
+            row.type,
+            row.status,
+            row.amount,
+            row.amountOut,
+            row.tokenMint,
+            row.tokenMintOut,
+            row.signerAddress,
+            row.blockNumber,
+            row.blockTime,
+            row.metadata ? JSON.stringify(row.metadata) : null
+        ];
+        const values = columns.map((_, index) => `$${index + 1}`).join(", ");
+
+        await this.transactionRepository.query(
+            `INSERT INTO transactions (${columns.join(", ")}) VALUES (${values}) ON CONFLICT ("signature", "network") DO NOTHING`,
+            params
+        );
     }
 
     @Cron("*/30 * * * * *")
@@ -96,7 +136,7 @@ export class StreamConsumerService implements OnModuleInit {
 
         for (const [address, price] of snapshot) {
             try {
-                await this.tokenRepo.update({ address }, { price });
+                await this.tokenRepository.update({ address, network: INDEXER_NETWORK }, { price });
             } catch (err) {
                 this.logger.error(`Failed to update price for token ${address}:`, err);
             }

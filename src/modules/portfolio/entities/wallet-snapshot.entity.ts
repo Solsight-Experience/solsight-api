@@ -1,13 +1,16 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, Index } from "typeorm";
+import { Entity, PrimaryGeneratedColumn, Column, Index } from "typeorm";
 
 @Entity("wallet_snapshots")
-@Index(["walletAddress", "snapshotAt"])
+@Index(["walletAddress", "network", "snapshotAt"])
 export class WalletSnapshot {
     @PrimaryGeneratedColumn("uuid")
     id: string;
 
     @Column()
     walletAddress: string;
+
+    @Column({ default: "mainnet" })
+    network: string;
 
     @Column()
     tokenMint: string;

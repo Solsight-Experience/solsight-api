@@ -1,6 +1,8 @@
 import { Module } from "@nestjs/common";
 import { ConfigModule } from "@nestjs/config";
 import { ScheduleModule } from "@nestjs/schedule";
+import { ClsModule } from "nestjs-cls";
+import { ClusterModule } from "./common/cluster/cluster.module";
 import { DatabaseModule } from "./database/database.module";
 import { LoggerModule } from "./common/logger/logger.module";
 import { WebsocketModule } from "./websocket/websocket.module";
@@ -24,6 +26,10 @@ import { WatchlistModule } from "./modules/watchlist/watchlist.module";
 import { ZaloModule } from "./modules/zalo/zalo.module";
 import { EmailModule } from "./modules/email/email.module";
 import { SwapModule } from "./modules/swap/swap.module";
+import { KoraModule } from "./infra/kora/kora.module";
+import { JitoModule } from "./infra/jito/jito.module";
+import { AdminAnalyticsModule } from "./modules/admin-analytics/admin-analytics.module";
+
 @Module({
     imports: [
         ConfigModule.forRoot({
@@ -36,9 +42,14 @@ import { SwapModule } from "./modules/swap/swap.module";
             }
         }),
         ScheduleModule.forRoot(),
+        ClsModule.forRoot({
+            global: true,
+            middleware: { mount: true }
+        }),
         CacheModule.register({
             isGlobal: true
         }),
+        ClusterModule,
         WebsocketModule,
         RedisModule,
         DatabaseModule,
@@ -58,7 +69,10 @@ import { SwapModule } from "./modules/swap/swap.module";
         WatchlistModule,
         ZaloModule,
         EmailModule,
-        SwapModule
+        SwapModule,
+        KoraModule,
+        JitoModule,
+        AdminAnalyticsModule
     ],
     controllers: [],
     providers: []

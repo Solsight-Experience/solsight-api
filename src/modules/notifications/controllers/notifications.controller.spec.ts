@@ -6,12 +6,13 @@ import { JwtAuthGuard } from "../../auth/guards/jwt-auth.guard";
 import { NotificationEventType } from "../entities/notification.entity";
 import { NotificationsController } from "./notifications.controller";
 import { NotificationsService } from "../services/notifications.service";
+import { AuthenticatedTestRequest, ErrorResponseBody } from "../types/notification-test.types";
 
 const USER_ID = "test-user-id";
 
 class AllowAuthGuard implements CanActivate {
     canActivate(context: ExecutionContext): boolean {
-        const req = context.switchToHttp().getRequest();
+        const req = context.switchToHttp().getRequest<AuthenticatedTestRequest>();
         req.user = { id: USER_ID };
         return true;
     }
@@ -141,7 +142,7 @@ describe("NotificationsController API", () => {
 
         const response = await request(app.getHttpServer()).patch("/notifications/not-found/read").expect(404);
 
-        expect(response.body.message).toBe("Notification not found");
+        expect((response.body as ErrorResponseBody).message).toBe("Notification not found");
     });
 
     it("PATCH /notifications/read-all marks all unread notifications as read", async () => {
@@ -158,7 +159,7 @@ describe("NotificationsController API", () => {
 
         const response = await request(app.getHttpServer()).patch("/notifications/read-all").expect(500);
 
-        expect(response.body.message).toBe("Failed to mark notifications as read");
+        expect((response.body as ErrorResponseBody).message).toBe("Failed to mark notifications as read");
     });
 });
 

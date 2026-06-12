@@ -1,28 +1,9 @@
 {
-  "moduleFileExtensions": [
-    "js",
-    "json",
-    "ts"
-  ],
-  "rootDir": ".",
-  "testEnvironment": "node",
-  "testRegex": ".e2e-spec.ts$",
-  "transform": {
-    "^.+\\.(t|j)s$": "ts-jest"
-  },
-  "moduleNameMapper": {
-    "^src/(.*)$": "<rootDir>/../src/$1"
-  },
-  "modulePaths": [
-    "<rootDir>/../"
-  ],
-  "transformIgnorePatterns": [
-    "node_modules/(?!(@solana|@noble|@faker-js|bs58|tweetnacl))"
-  ],
-  "setupFiles": [
-    "<rootDir>/setup.ts"
-  ],
-  "maxWorkers": 1,
-  "clearMocks": true,
-  "restoreMocks": true
+    "moduleFileExtensions": ["js", "json", "ts"],
+    "rootDir": ".",
+    "testEnvironment": "node",
+    "testRegex": ".e2e-spec.ts$",
+    "transform": {
+        "^.+\\.(t|j)s$": "ts-jest"
+    }
 }

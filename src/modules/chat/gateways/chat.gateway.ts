@@ -17,7 +17,9 @@ export class ChatGateway {
         private chatService: ChatService,
         private readonly jwtService: JwtService
     ) {
-        this.gateway.register("chat:message", this.handleMessage.bind(this));
+        this.gateway.register<SendMessagePayload>("chat:message", (client, payload) => {
+            void this.handleMessage(client, payload);
+        });
         this.logger.log("ChatGateway registered handler for chat:message", ChatGateway.name);
     }
 

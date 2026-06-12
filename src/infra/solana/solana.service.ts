@@ -1,35 +1,27 @@
-import { Inject, Injectable, Logger } from "@nestjs/common";
-import { ConfigService } from "@nestjs/config";
-import { Commitment, LAMPORTS_PER_SOL, PublicKey } from "@solana/web3.js";
+import { Injectable, Logger } from "@nestjs/common";
+import { AddressLookupTableAccount, LAMPORTS_PER_SOL, PublicKey, RecentPrioritizationFees } from "@solana/web3.js";
 import { TOKEN_PROGRAM_ID, getAssociatedTokenAddress } from "@solana/spl-token";
-import { SOLANA_RPC_SERVICE } from "./constants/solana.token";
-import { SolanaRpcService } from "./interfaces/solana-rpc-service.interface";
+import { HeliusResolver } from "./helius.resolver";
+import { ClusterProvider } from "../../common/cluster/cluster.provider";
+import { SubmitAndConfirmOptions } from "./constants/types";
+import { ParsedTokenAccount } from "./solana.types";
 
 @Injectable()
 export class SolanaService {
     private readonly logger = new Logger(SolanaService.name);
-    private readonly network: string;
 
     constructor(
-        private readonly configService: ConfigService,
-        @Inject(SOLANA_RPC_SERVICE) private readonly rpcService: SolanaRpcService
-    ) {
-        const network = this.configService.get<string>("solana.network");
-        if (!network) {
-            throw new Error("Solana network is required");
-        }
-        this.network = network;
-
-        this.logger.log(`Connected to Solana ${this.network} network`);
-    }
+        private readonly heliusResolver: HeliusResolver,
+        private readonly clusterProvider: ClusterProvider
+    ) {}
 
     getNetwork(): string {
-        return this.network;
+        return this.clusterProvider.cluster;
     }
 
     async getBalance(publicKey: PublicKey): Promise<number> {
         try {
-            const balance = await this.rpcService.getBalance(publicKey);
+            const balance = await this.heliusResolver.get().getBalance(publicKey);
             return balance / LAMPORTS_PER_SOL;
         } catch (error) {
             this.logger.error(`Failed to get balance for ${publicKey.toString()}`, error);
@@ -40,7 +32,7 @@ export class SolanaService {
     async getTokenBalance(walletAddress: PublicKey, mintAddress: PublicKey): Promise<number> {
         try {
             const tokenAccount = await getAssociatedTokenAddress(mintAddress, walletAddress);
-            const tokenBalance = await this.rpcService.getTokenAccountBalance(tokenAccount);
+            const tokenBalance = await this.heliusResolver.get().getTokenAccountBalance(tokenAccount);
             return tokenBalance.value.uiAmount || 0;
         } catch (error) {
             this.logger.error(`Failed to get token balance`, error);
@@ -48,25 +40,43 @@ export class SolanaService {
         }
     }
 
-    async getParsedTokenAccountsByOwner(owner: PublicKey) {
+    async getParsedTokenAccountsByOwner(owner: PublicKey): Promise<ParsedTokenAccount[]> {
         try {
-            const result = await this.rpcService.getParsedTokenAccountsByOwner(owner, {
+            const result = await this.heliusResolver.get().getParsedTokenAccountsByOwner(owner, {
                 programId: TOKEN_PROGRAM_ID
             });
-            return result.value;
+            return result.value as ParsedTokenAccount[];
         } catch (error) {
             this.logger.error(`Failed to get parsed token accounts for ${owner.toString()}`, error);
             throw error;
         }
     }
 
+    async getMintDecimals(mintAddress: string): Promise<number | null> {
+        try {
+            const result = await this.heliusResolver.get().getParsedAccountInfo(new PublicKey(mintAddress));
+            const data = result.value?.data;
+
+            if (!data || typeof data === "string" || !("parsed" in data)) {
+                return null;
+            }
+
+            const decimals = (data.parsed as { info?: { decimals?: unknown } }).info?.decimals;
+            return typeof decimals === "number" ? decimals : null;
+        } catch (error) {
+            this.logger.debug(`Failed to get mint decimals for ${mintAddress}: ${(error as Error).message}`);
+            return null;
+        }
+    }
+
     async getTransactionHistory(publicKey: PublicKey, limit = 10, before?: string, until?: string) {
         try {
+            const rpc = this.heliusResolver.get();
             const options = { limit, before, until };
-            const signatures = await this.rpcService.getSignaturesForAddress(publicKey, options);
+            const signatures = await rpc.getSignaturesForAddress(publicKey, options);
             const transactions = await Promise.all(
                 signatures.map(async (sig) => {
-                    const tx = await this.rpcService.getTransaction(sig.signature, {
+                    const tx = await rpc.getTransaction(sig.signature, {
                         maxSupportedTransactionVersion: 0
                     });
                     return {
@@ -91,5 +101,47 @@ export class SolanaService {
         } catch {
             return false;
         }
+    }
+
+    async submitAndConfirm(signedTransactionBase64: string, options: SubmitAndConfirmOptions = {}): Promise<{ signature: string }> {
+        const rpc = this.heliusResolver.get();
+        const txBuffer = Buffer.from(signedTransactionBase64, "base64");
+        const commitment = options.commitment ?? "confirmed";
+        const latestBlockhash = await rpc.getLatestBlockhash(commitment);
+
+        const signature = await rpc.sendRawTransaction(txBuffer, {
+            skipPreflight: options.skipPreflight ?? false,
+            maxRetries: options.maxRetries ?? 3,
+            preflightCommitment: commitment
+        });
+        await rpc.confirmTransaction(
+            {
+                signature,
+                blockhash: latestBlockhash.blockhash,
+                lastValidBlockHeight: latestBlockhash.lastValidBlockHeight
+            },
+            commitment
+        );
+        return { signature };
+    }
+
+    async getRecentPrioritizationFees(): Promise<RecentPrioritizationFees[]> {
+        return this.heliusResolver.get().getRecentPrioritizationFees();
+    }
+
+    async resolveAddressLookupTables(accountKeys: PublicKey[]): Promise<AddressLookupTableAccount[]> {
+        if (accountKeys.length === 0) {
+            return [];
+        }
+        const rpc = this.heliusResolver.get();
+        return Promise.all(
+            accountKeys.map(async (key) => {
+                const result = await rpc.getAddressLookupTable(key);
+                if (!result.value) {
+                    throw new Error(`Address lookup table not found: ${key.toBase58()}`);
+                }
+                return result.value;
+            })
+        );
     }
 }

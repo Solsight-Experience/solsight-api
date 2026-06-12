@@ -1,162 +1,75 @@
-// import {
-//   Injectable,
-//   ConflictException,
-//   NotFoundException,
-//   BadRequestException,
-// } from '@nestjs/common';
-// import { UsersRepository } from '../repositories/users.repository';
-// import { CreateUserDto } from '../dtos/create-user.dto';
-// import { User } from '../entities/user.entity';
-// import * as bcrypt from 'bcrypt';
-// import * as crypto from 'crypto';
+import { Injectable, ConflictException, NotFoundException } from "@nestjs/common";
+import * as bcrypt from "bcrypt";
+import { UsersRepository } from "../repositories/users.repository";
+import { CreateUserDto } from "../dtos/create-user.dto";
+import { UpdateUserDto } from "../dtos/update-user.dto";
+import { UserFilterDto } from "../dtos/user-filter.dto";
+import { User, UserRole } from "../entities/user.entity";
 
-// @Injectable()
-// export class UsersService {
-//   constructor(private readonly usersRepository: UsersRepository) {}
+@Injectable()
+export class UsersService {
+    constructor(private readonly usersRepository: UsersRepository) {}
 
-//   async create(createUserDto: CreateUserDto): Promise<User> {
-//     // Check if user already exists
-//     const existingEmail = await this.usersRepository.findByEmail(
-//       createUserDto.email,
-//     );
-//     if (existingEmail) {
-//       throw new ConflictException('Email already exists');
-//     }
+    async findAll(filters: UserFilterDto): Promise<{ users: User[]; total: number; page: number; limit: number }> {
+        const { page, limit, ...rest } = filters;
+        const [users, total] = await this.usersRepository.findAll(page, limit, rest);
+        return { users, total, page, limit };
+    }
 
-//     const existingUsername = await this.usersRepository.findByUsername(
-//       createUserDto.username,
-//     );
-//     if (existingUsername) {
-//       throw new ConflictException('Username already exists');
-//     }
+    async findById(id: string): Promise<User> {
+        const user = await this.usersRepository.findById(id);
+        if (!user) throw new NotFoundException("User not found");
+        return user;
+    }
 
-//     // Hash password
-//     const hashedPassword = await bcrypt.hash(createUserDto.password, 10);
+    async create(dto: CreateUserDto): Promise<User> {
+        const existingEmail = await this.usersRepository.findByEmail(dto.email);
+        if (existingEmail) throw new ConflictException("Email already exists");
 
-//     // Generate email verification token
-//     const emailVerificationToken = crypto.randomBytes(32).toString('hex');
+        if (dto.username) {
+            const existingUsername = await this.usersRepository.findByUsername(dto.username);
+            if (existingUsername) throw new ConflictException("Username already exists");
+        }
 
-//     const user = await this.usersRepository.create({
-//       ...createUserDto,
-//       password: hashedPassword,
-//       emailVerificationToken,
-//     });
+        const hashedPassword = await bcrypt.hash(dto.password, 10);
+        const user = await this.usersRepository.create({ ...dto, password: hashedPassword });
+        const { password: _, ...result } = user;
+        return result as User;
+    }
 
-//     // Remove password from response
-//     const { password, ...userWithoutPassword } = user;
-//     return userWithoutPassword;
-//   }
+    async update(id: string, dto: UpdateUserDto): Promise<User> {
+        await this.findById(id);
+        return this.usersRepository.update(id, dto);
+    }
 
-//   async findById(id: string): Promise<User> {
-//     const user = await this.usersRepository.findById(id);
-//     if (!user) {
-//       throw new NotFoundException('User not found');
-//     }
-//     return user;
-//   }
+    async delete(id: string): Promise<{ message: string }> {
+        await this.findById(id);
+        await this.usersRepository.delete(id);
+        return { message: "User deleted successfully" };
+    }
 
-//   async findByEmail(email: string): Promise<User> {
-//     const user = await this.usersRepository.findByEmail(email);
-//     if (!user) {
-//       throw new NotFoundException('User not found');
-//     }
-//     return user;
-//   }
+    async ban(id: string, reason: string): Promise<User> {
+        await this.findById(id);
+        return this.usersRepository.update(id, { isActive: false, banReason: reason });
+    }
 
-//   async findAll(
-//     page = 1,
-//     limit = 10,
-//   ): Promise<{ users: User[]; total: number; page: number; limit: number }> {
-//     const [users, total] = await this.usersRepository.findAll(page, limit);
-//     return {
-//       users,
-//       total,
-//       page,
-//       limit,
-//     };
-//   }
+    async unban(id: string): Promise<User> {
+        await this.findById(id);
+        return this.usersRepository.update(id, { isActive: true, banReason: null });
+    }
 
-//   async update(id: string, updateData: Partial<User>): Promise<User> {
-//     const user = await this.findById(id);
+    async changeRole(id: string, role: UserRole): Promise<User> {
+        await this.findById(id);
+        return this.usersRepository.update(id, { role });
+    }
 
-//     if (updateData.email && updateData.email !== user.email) {
-//       const existingEmail = await this.usersRepository.findByEmail(
-//         updateData.email,
-//       );
-//       if (existingEmail) {
-//         throw new ConflictException('Email already exists');
-//       }
-//     }
+    async getUserWallets(id: string) {
+        await this.findById(id);
+        return this.usersRepository.getUserWallets(id);
+    }
 
-//     if (updateData.username && updateData.username !== user.username) {
-//       const existingUsername = await this.usersRepository.findByUsername(
-//         updateData.username,
-//       );
-//       if (existingUsername) {
-//         throw new ConflictException('Username already exists');
-//       }
-//     }
-
-//     if (updateData.password) {
-//       updateData.password = await bcrypt.hash(updateData.password, 10);
-//     }
-
-//     return await this.usersRepository.update(id, updateData);
-//   }
-
-//   async delete(id: string): Promise<void> {
-//     await this.findById(id); // Check if user exists
-//     await this.usersRepository.delete(id);
-//   }
-
-//   async verifyEmail(token: string): Promise<User> {
-//     const user = await this.usersRepository.findByEmailVerificationToken(token);
-//     if (!user) {
-//       throw new BadRequestException('Invalid verification token');
-//     }
-
-//     return await this.usersRepository.update(user.id, {
-//       isEmailVerified: true,
-//       emailVerificationToken: null,
-//     });
-//   }
-
-//   async generatePasswordResetToken(email: string): Promise<string> {
-//     const user = await this.findByEmail(email);
-//     const resetToken = crypto.randomBytes(32).toString('hex');
-//     const resetExpires = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
-
-//     await this.usersRepository.update(user.id, {
-//       passwordResetToken: resetToken,
-//       passwordResetExpires: resetExpires,
-//     });
-
-//     return resetToken;
-//   }
-
-//   async resetPassword(token: string, newPassword: string): Promise<User> {
-//     const user = await this.usersRepository.findByPasswordResetToken(token);
-//     if (
-//       !user ||
-//       !user.passwordResetExpires ||
-//       user.passwordResetExpires < new Date()
-//     ) {
-//       throw new BadRequestException('Invalid or expired reset token');
-//     }
-
-//     const hashedPassword = await bcrypt.hash(newPassword, 10);
-
-//     return await this.usersRepository.update(user.id, {
-//       password: hashedPassword,
-//       passwordResetToken: null,
-//       passwordResetExpires: null,
-//     });
-//   }
-
-//   async validatePassword(
-//     password: string,
-//     hashedPassword: string,
-//   ): Promise<boolean> {
-//     return await bcrypt.compare(password, hashedPassword);
-//   }
-// }
+    async getUserSwapStats(id: string) {
+        await this.findById(id);
+        return this.usersRepository.getUserSwapStats(id);
+    }
+}

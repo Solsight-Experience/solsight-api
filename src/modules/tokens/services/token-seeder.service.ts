@@ -6,6 +6,8 @@ import { ConfigService } from "@nestjs/config";
 import * as fs from "fs";
 import * as path from "path";
 import * as readline from "readline";
+import { ClusterProvider } from "../../../common/cluster/cluster.provider";
+import { JupiterSeedToken } from "../types/token-seeder.types";
 
 @Injectable()
 export class TokenSeederService implements OnModuleInit {
@@ -14,16 +16,20 @@ export class TokenSeederService implements OnModuleInit {
     constructor(
         private readonly configService: ConfigService,
         @InjectRepository(Token)
-        private readonly tokenRepository: Repository<Token>
+        private readonly tokenRepository: Repository<Token>,
+        private readonly clusterProvider: ClusterProvider
     ) {}
 
-    async onModuleInit() {
+    private get network(): string {
+        return this.clusterProvider.cluster;
+    }
+
+    onModuleInit(): void {
         this.logger.log("Initializing TokenSeederService...");
-        // Run sequentially so both syncs don't overlap and double the Jupiter request rate
-        // setTimeout(async () => {
-        //     await this.syncProvisionedTokens(true);
-        //     await this.syncDbTokens();
-        // }, 10_000);
+    }
+
+    private formatError(error: Error): string {
+        return error.message;
     }
 
     async syncProvisionedTokens(force = false, limit?: number) {
@@ -35,20 +41,20 @@ export class TokenSeederService implements OnModuleInit {
             }
 
             this.logger.log("Syncing provisioned tokens from file...");
-            const JUPITER_CHUNK_SIZE = 100; // max addresses per Jupiter query
-            const BATCH_SIZE = JUPITER_CHUNK_SIZE * 30; // 3000 addresses per cycle
-            const CHUNK_DELAY_MS = 2100; // 1 request per 2s to respect Jupiter rate limit
+            const JUPITER_CHUNK_SIZE = 100;
+            const BATCH_SIZE = JUPITER_CHUNK_SIZE * 30;
+            const CHUNK_DELAY_MS = 2100;
             const DELAY_MS = 2100;
             const MAX_RETRIES = 3;
-            const UPSERT_CHUNK_SIZE = 1500; // floor(65535 / ~41 fields per token)
+            const UPSERT_CHUNK_SIZE = 1500;
             let buffer: string[] = [];
             let totalProcessed = 0;
             let totalInserted = 0;
 
             const jupBaseUrl = `${this.configService.get<string>("jupiter.apiUrl")}/tokens/v2/search?query=`;
+            const network = this.network;
 
             const processBatch = async (addresses: string[]) => {
-                // 1. Filter out addresses already in DB (skip when force=true)
                 let newAddresses: string[];
                 if (force) {
                     newAddresses = addresses;
@@ -57,6 +63,7 @@ export class TokenSeederService implements OnModuleInit {
                         .createQueryBuilder("t")
                         .select("t.address")
                         .where("t.address IN (:...addresses)", { addresses })
+                        .andWhere("t.network = :network", { network })
                         .getMany();
                     const existingSet = new Set(existing.map((t) => t.address));
                     newAddresses = addresses.filter((a) => !existingSet.has(a));
@@ -65,13 +72,12 @@ export class TokenSeederService implements OnModuleInit {
                 totalProcessed += addresses.length;
 
                 if (newAddresses.length) {
-                    // 2. Fetch full metadata from Jupiter API — sequential, 1 request per 2s
                     const chunks: string[][] = [];
                     for (let i = 0; i < newAddresses.length; i += JUPITER_CHUNK_SIZE) {
                         chunks.push(newAddresses.slice(i, i + JUPITER_CHUNK_SIZE));
                     }
 
-                    const fetchChunk = async (chunk: string[]): Promise<any[]> => {
+                    const fetchChunk = async (chunk: string[]): Promise<JupiterSeedToken[]> => {
                         const MAX_FETCH_RETRIES = 4;
                         for (let attempt = 1; attempt <= MAX_FETCH_RETRIES; attempt++) {
                             try {
@@ -88,9 +94,9 @@ export class TokenSeederService implements OnModuleInit {
                                     this.logger.warn(`[Provisioned sync] Jupiter chunk failed: HTTP ${res.status} ${res.statusText}`);
                                     return [];
                                 }
-                                return await res.json();
-                            } catch (err: any) {
-                                this.logger.warn(`[Provisioned sync] Jupiter chunk error: ${err.message}`);
+                                return (await res.json()) as JupiterSeedToken[];
+                            } catch (error) {
+                                this.logger.warn(`[Provisioned sync] Jupiter chunk error: ${error instanceof Error ? this.formatError(error) : String(error)}`);
                                 return [];
                             }
                         }
@@ -98,7 +104,7 @@ export class TokenSeederService implements OnModuleInit {
                         return [];
                     };
 
-                    const allChunkResults: any[][] = [];
+                    const allChunkResults: JupiterSeedToken[][] = [];
                     for (let ci = 0; ci < chunks.length; ci++) {
                         allChunkResults.push(await fetchChunk(chunks[ci]));
                         if (ci < chunks.length - 1) {
@@ -106,21 +112,18 @@ export class TokenSeederService implements OnModuleInit {
                         }
                     }
                     const results = allChunkResults;
-                    const jupiterData: any[] = results.flat();
-                    const jupiterMap = new Map<string, any>(jupiterData.map((t: any) => [t.id, t]));
+                    const jupiterData = results.flat();
+                    const jupiterMap = new Map<string, JupiterSeedToken>(jupiterData.map((t) => [t.id, t]));
 
-                    // Log addresses Jupiter returned no data for
                     const notFoundInJupiter = newAddresses.filter((addr) => !jupiterMap.has(addr));
                     if (notFoundInJupiter.length > 0) {
                         this.logger.warn(`[Provisioned sync] Jupiter returned no data for ${notFoundInJupiter.length} token(s) in this batch.`);
                     }
 
-                    // 3. Build rows — enrich with Jupiter data when available, fallback to placeholders
                     const rows = newAddresses.map((addr) => {
                         const jup = jupiterMap.get(addr);
                         const hasSocial = !!(jup?.twitter || jup?.telegram || jup?.discord || jup?.website);
 
-                        // Calculate age from token creation or first pool creation
                         let ageSeconds = 0;
                         const createdAtSource = jup?.createdAt || jup?.firstPool?.createdAt;
                         if (createdAtSource) {
@@ -129,6 +132,7 @@ export class TokenSeederService implements OnModuleInit {
 
                         return {
                             address: addr,
+                            network,
                             symbol: jup?.symbol ?? addr.substring(0, 8),
                             name: jup?.name ?? addr.substring(0, 16),
                             decimals: jup?.decimals ?? 9,
@@ -180,24 +184,32 @@ export class TokenSeederService implements OnModuleInit {
                         try {
                             for (let i = 0; i < rows.length; i += UPSERT_CHUNK_SIZE) {
                                 await this.tokenRepository.upsert(rows.slice(i, i + UPSERT_CHUNK_SIZE), {
-                                    conflictPaths: ["address"],
+                                    conflictPaths: ["address", "network"],
                                     skipUpdateIfNoValuesChanged: false
                                 });
                             }
                             totalInserted += rows.length;
                             break;
-                        } catch (err: any) {
+                        } catch (error) {
                             if (attempt < MAX_RETRIES) {
-                                this.logger.warn(`[Provisioned sync] Upsert failed (attempt ${attempt}/${MAX_RETRIES}), retrying in 5s... ${err.message}`);
+                                this.logger.warn(
+                                    `[Provisioned sync] Upsert failed (attempt ${attempt}/${MAX_RETRIES}), retrying in 5s... ${
+                                        error instanceof Error ? this.formatError(error) : String(error)
+                                    }`
+                                );
                                 await new Promise((r) => setTimeout(r, 5000));
                             } else {
                                 this.logger.warn(`[Provisioned sync] Batch failed, retrying row-by-row to isolate errors...`);
                                 for (const row of rows) {
                                     try {
-                                        await this.tokenRepository.upsert(row, { conflictPaths: ["address"], skipUpdateIfNoValuesChanged: false });
+                                        await this.tokenRepository.upsert(row, { conflictPaths: ["address", "network"], skipUpdateIfNoValuesChanged: false });
                                         totalInserted++;
-                                    } catch (rowErr: any) {
-                                        this.logger.error(`[Provisioned sync] Failed to upsert token ${row.address}: ${rowErr.message}`);
+                                    } catch (rowError) {
+                                        this.logger.error(
+                                            `[Provisioned sync] Failed to upsert token ${row.address}: ${
+                                                rowError instanceof Error ? this.formatError(rowError) : String(rowError)
+                                            }`
+                                        );
                                     }
                                 }
                             }
@@ -228,32 +240,27 @@ export class TokenSeederService implements OnModuleInit {
             this.logger.log(
                 `Provisioned token sync complete. Processed ${totalProcessed.toLocaleString()} — inserted ${totalInserted.toLocaleString()} new tokens.`
             );
-        } catch (error: any) {
-            this.logger.error("Failed to sync provisioned tokens", error.stack);
+        } catch (error) {
+            this.logger.error("Failed to sync provisioned tokens", error instanceof Error ? error.stack : String(error));
         }
     }
 
-    /**
-     * Re-fetch and upsert metadata for ALL tokens currently in the DB.
-     * Useful to refresh tokens that were seeded from other sources (discovery, portfolio, etc.)
-     * and may have stale or missing fields.
-     */
     async syncDbTokens(fromRow?: number, toRow?: number) {
         try {
             const rangeLabel = fromRow != null || toRow != null ? ` (rows ${fromRow ?? 0}–${toRow ?? "end"})` : "";
             this.logger.log(`[DB sync] Starting metadata refresh for all DB tokens${rangeLabel}...`);
 
             const JUPITER_CHUNK_SIZE = 100;
-            const BATCH_SIZE = JUPITER_CHUNK_SIZE * 30; // 3000 addresses per outer loop
-            const CHUNK_DELAY_MS = 2100; // 1 request per 2s to respect Jupiter rate limit
+            const BATCH_SIZE = JUPITER_CHUNK_SIZE * 30;
+            const CHUNK_DELAY_MS = 2100;
             const DELAY_MS = 2100;
             const MAX_RETRIES = 3;
             const UPSERT_CHUNK_SIZE = 1500;
+            const network = this.network;
 
             const jupBaseUrl = `${this.configService.get<string>("jupiter.apiUrl")}/tokens/v2/search?query=`;
 
-            // Load all addresses from DB
-            const dbTokens = await this.tokenRepository.createQueryBuilder("t").select("t.address").getMany();
+            const dbTokens = await this.tokenRepository.createQueryBuilder("t").select("t.address").where("t.network = :network", { network }).getMany();
             const allAddresses = dbTokens.map((t) => t.address).slice(fromRow ?? 0, toRow ?? undefined);
 
             this.logger.log(`[DB sync] Found ${allAddresses.length.toLocaleString()} tokens to refresh (total in DB: ${dbTokens.length.toLocaleString()}).`);
@@ -264,13 +271,12 @@ export class TokenSeederService implements OnModuleInit {
             for (let i = 0; i < allAddresses.length; i += BATCH_SIZE) {
                 const batchAddresses = allAddresses.slice(i, i + BATCH_SIZE);
 
-                // Fetch from Jupiter in parallel chunks
                 const chunks: string[][] = [];
                 for (let j = 0; j < batchAddresses.length; j += JUPITER_CHUNK_SIZE) {
                     chunks.push(batchAddresses.slice(j, j + JUPITER_CHUNK_SIZE));
                 }
 
-                const fetchChunk = async (chunk: string[]): Promise<any[]> => {
+                const fetchChunk = async (chunk: string[]): Promise<JupiterSeedToken[]> => {
                     const MAX_FETCH_RETRIES = 4;
                     for (let attempt = 1; attempt <= MAX_FETCH_RETRIES; attempt++) {
                         try {
@@ -285,9 +291,9 @@ export class TokenSeederService implements OnModuleInit {
                                 this.logger.warn(`[DB sync] Jupiter chunk failed: HTTP ${res.status} ${res.statusText}`);
                                 return [];
                             }
-                            return await res.json();
-                        } catch (err: any) {
-                            this.logger.warn(`[DB sync] Jupiter chunk error: ${err.message}`);
+                            return (await res.json()) as JupiterSeedToken[];
+                        } catch (error) {
+                            this.logger.warn(`[DB sync] Jupiter chunk error: ${error instanceof Error ? this.formatError(error) : String(error)}`);
                             return [];
                         }
                     }
@@ -295,8 +301,7 @@ export class TokenSeederService implements OnModuleInit {
                     return [];
                 };
 
-                // Fetch chunks sequentially — 1 request per 2s to respect Jupiter rate limit
-                const allResults: any[][] = [];
+                const allResults: JupiterSeedToken[][] = [];
                 for (let j = 0; j < chunks.length; j++) {
                     allResults.push(await fetchChunk(chunks[j]));
                     if (j < chunks.length - 1) {
@@ -304,15 +309,13 @@ export class TokenSeederService implements OnModuleInit {
                     }
                 }
                 const results = allResults;
-                const jupiterData: any[] = results.flat();
-                const jupiterMap = new Map<string, any>(jupiterData.map((t: any) => [t.id, t]));
-                // Log addresses Jupiter returned no data for
+                const jupiterData = results.flat();
+                const jupiterMap = new Map<string, JupiterSeedToken>(jupiterData.map((t) => [t.id, t]));
                 const notFoundInJupiter = batchAddresses.filter((addr) => !jupiterMap.has(addr));
                 if (notFoundInJupiter.length > 0) {
                     this.logger.warn(`[DB sync] Jupiter returned no data for ${notFoundInJupiter.length} token(s) in this batch.`);
                 }
 
-                // Build rows for all addresses in this batch (use existing DB values as fallback)
                 const rows = batchAddresses.map((addr) => {
                     const jup = jupiterMap.get(addr);
                     const hasSocial = !!(jup?.twitter || jup?.telegram || jup?.discord || jup?.website);
@@ -325,6 +328,7 @@ export class TokenSeederService implements OnModuleInit {
 
                     return {
                         address: addr,
+                        network,
                         symbol: jup?.symbol ?? addr.substring(0, 8),
                         name: jup?.name ?? addr.substring(0, 16),
                         decimals: jup?.decimals ?? 9,
@@ -371,30 +375,36 @@ export class TokenSeederService implements OnModuleInit {
                     };
                 });
 
-                // Upsert with retries — on permanent failure, bisect to find the offending token
                 for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
                     try {
                         for (let k = 0; k < rows.length; k += UPSERT_CHUNK_SIZE) {
                             await this.tokenRepository.upsert(rows.slice(k, k + UPSERT_CHUNK_SIZE), {
-                                conflictPaths: ["address"],
+                                conflictPaths: ["address", "network"],
                                 skipUpdateIfNoValuesChanged: false
                             });
                         }
                         totalUpdated += rows.length;
                         break;
-                    } catch (err: any) {
+                    } catch (error) {
                         if (attempt < MAX_RETRIES) {
-                            this.logger.warn(`[DB sync] Upsert failed (attempt ${attempt}/${MAX_RETRIES}), retrying in 5s... ${err.message}`);
+                            this.logger.warn(
+                                `[DB sync] Upsert failed (attempt ${attempt}/${MAX_RETRIES}), retrying in 5s... ${
+                                    error instanceof Error ? this.formatError(error) : String(error)
+                                }`
+                            );
                             await new Promise((r) => setTimeout(r, 5000));
                         } else {
                             this.logger.warn(`[DB sync] Batch at offset ${i} failed, retrying row-by-row to isolate errors...`);
-                            // Upsert row-by-row to isolate the problematic token
                             for (const row of rows) {
                                 try {
-                                    await this.tokenRepository.upsert(row, { conflictPaths: ["address"], skipUpdateIfNoValuesChanged: false });
+                                    await this.tokenRepository.upsert(row, { conflictPaths: ["address", "network"], skipUpdateIfNoValuesChanged: false });
                                     totalUpdated++;
-                                } catch (rowErr: any) {
-                                    this.logger.error(`[DB sync] Failed to upsert token ${row.address}: ${rowErr.message}`);
+                                } catch (rowError) {
+                                    this.logger.error(
+                                        `[DB sync] Failed to upsert token ${row.address}: ${
+                                            rowError instanceof Error ? this.formatError(rowError) : String(rowError)
+                                        }`
+                                    );
                                 }
                             }
                         }
@@ -412,8 +422,8 @@ export class TokenSeederService implements OnModuleInit {
             }
 
             this.logger.log(`[DB sync] Complete. ${totalUpdated.toLocaleString()} tokens refreshed.`);
-        } catch (error: any) {
-            this.logger.error("[DB sync] Failed to sync DB tokens", error.stack);
+        } catch (error) {
+            this.logger.error("[DB sync] Failed to sync DB tokens", error instanceof Error ? error.stack : String(error));
         }
     }
 
@@ -425,11 +435,9 @@ export class TokenSeederService implements OnModuleInit {
             "2wpTofQ8SkACrkZWrZDjXPitYa8AwWgX8AfxdeBRRVLX"
         ];
 
-        // --- Giai đoạn 1: 4 token quan trọng ---
         await this.updateBatchTokens(importantAddresses);
 
-        // --- Giai đoạn 2: batch 60 token mỗi 70 giây ---
-        const allTokens = await this.tokenRepository.find();
+        const allTokens = await this.tokenRepository.find({ where: { network: this.network } });
         const remainingTokens = allTokens.map((t) => t.address).filter((addr) => !importantAddresses.includes(addr));
 
         const BATCH_SIZE = 60;
@@ -447,7 +455,7 @@ export class TokenSeederService implements OnModuleInit {
         this.logger.log("Completed updating all on-chain token data.");
     }
 
-    private safeNum(val: any, fallback = 0): number {
+    private safeNum(val: string | number | null | undefined, fallback = 0): number {
         const n = Number(val);
         return Number.isFinite(n) ? n : fallback;
     }
@@ -458,11 +466,12 @@ export class TokenSeederService implements OnModuleInit {
         try {
             const jupUrl = `${this.configService.get<string>("jupiter.apiUrl")}/tokens/v2/search?query=${addresses.join(",")}`;
 
-            const tokensInfo: any[] = await fetch(jupUrl).then((res) => res.json());
+            const tokensInfo = (await fetch(jupUrl).then((res) => res.json())) as JupiterSeedToken[];
             if (!tokensInfo?.length) return;
 
             const existingTokens = await this.tokenRepository.findBy({
-                address: In(addresses)
+                address: In(addresses),
+                network: this.network
             });
 
             const existingMap = new Map(existingTokens.map((t) => [t.address, t]));
@@ -474,60 +483,38 @@ export class TokenSeederService implements OnModuleInit {
 
                     return {
                         ...exist,
-                        // supply
                         totalSupply: info.totalSupply != null ? this.safeNum(info.totalSupply) : exist.totalSupply,
                         circulatingSupply: info.circSupply != null ? this.safeNum(info.circSupply) : exist.circulatingSupply,
-
-                        // price
                         price: info.usdPrice != null ? this.safeNum(info.usdPrice) : exist.price,
-
                         priceChange1h: info.stats1h?.priceChange != null ? this.safeNum(info.stats1h.priceChange) : exist.priceChange1h,
-
                         priceChange24h: info.stats24h?.priceChange != null ? this.safeNum(info.stats24h.priceChange) : exist.priceChange24h,
-
                         priceChange7d: info.stats7d?.priceChange != null ? this.safeNum(info.stats7d.priceChange) : exist.priceChange7d,
-
-                        // market
                         marketCap: info.mcap != null ? this.safeNum(info.mcap) : exist.marketCap,
                         marketCapChange24h:
                             info.stats24h?.priceChange != null && info.circSupply ? this.safeNum(info.stats24h.priceChange) : exist.marketCapChange24h,
-
                         fdv: info.fdv != null ? this.safeNum(info.fdv) : exist.fdv,
-
-                        // liquidity
                         liquidity: info.liquidity != null ? this.safeNum(info.liquidity) : exist.liquidity,
                         liquidityChange24h: info.stats24h?.liquidityChange != null ? this.safeNum(info.stats24h.liquidityChange) : exist.liquidityChange24h,
-
-                        // volume
                         volume24h: this.safeNum(info.stats24h?.buyVolume) + this.safeNum(info.stats24h?.sellVolume) || exist.volume24h,
-
                         volumeChange24h: info.stats24h?.volumeChange != null ? this.safeNum(info.stats24h.volumeChange) : exist.volumeChange24h,
-
-                        // audits
                         mintAuthorityDisabled: info.audit?.mintAuthorityDisabled ?? exist.mintAuthorityDisabled,
-
                         freezeAuthorityDisabled: info.audit?.freezeAuthorityDisabled ?? exist.freezeAuthorityDisabled,
-
-                        // holder metrics
                         holdersChange24h: info.stats24h?.holderChange != null ? this.safeNum(info.stats24h.holderChange) : exist.holdersChange24h,
                         uniqueWallets24h: info.stats24h?.numTraders != null ? this.safeNum(info.stats24h.numTraders) : exist.uniqueWallets24h,
                         top10Percent: info.audit?.topHoldersPercentage != null ? this.safeNum(info.audit.topHoldersPercentage) : exist.top10Percent,
-
-                        // risk
                         riskScore: info.organicScore != null ? Math.max(0, 100 - info.organicScore) : exist.riskScore,
-
                         updatedAt: new Date()
                     };
                 });
 
             if (!updates.length) return;
             await this.tokenRepository.upsert(updates, {
-                conflictPaths: ["address"],
+                conflictPaths: ["address", "network"],
                 skipUpdateIfNoValuesChanged: false
             });
             this.logger.log(`Updated batch of ${addresses.length} tokens.`);
-        } catch (error: any) {
-            this.logger.error("Failed to update batch on-chain data", error.stack);
+        } catch (error) {
+            this.logger.error("Failed to update batch on-chain data", error instanceof Error ? error.stack : String(error));
         }
     }
 }

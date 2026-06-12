@@ -7,8 +7,8 @@ export class NotificationGateway {
     private readonly logger = new Logger(NotificationGateway.name);
 
     constructor(private readonly gateway: WebsocketGateway) {
-        this.gateway.register("notification:subscribe", this.handleSubscribe.bind(this));
-        this.gateway.register("notification:unsubscribe", this.handleUnsubscribe.bind(this));
+        this.gateway.register<{ userId: string }>("notification:subscribe", (client, payload) => this.handleSubscribe(client, payload));
+        this.gateway.register<{ userId: string }>("notification:unsubscribe", (client, payload) => this.handleUnsubscribe(client, payload));
     }
 
     handleSubscribe(client: Socket, payload: { userId: string }): void {
@@ -18,7 +18,7 @@ export class NotificationGateway {
         }
 
         const room = `user:${payload.userId}`;
-        client.join(room);
+        void client.join(room);
         this.logger.debug(`Client ${client.id} joined room ${room}`);
     }
 
@@ -28,7 +28,7 @@ export class NotificationGateway {
         }
 
         const room = `user:${payload.userId}`;
-        client.leave(room);
+        void client.leave(room);
         this.logger.debug(`Client ${client.id} left room ${room}`);
     }
 }

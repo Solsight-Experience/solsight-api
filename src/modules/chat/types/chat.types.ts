@@ -24,6 +24,13 @@ export interface SendMessagePayload {
     pageContext?: PageContext;
 }
 
+export interface ChatRequest {
+    user?: {
+        id?: string;
+        walletAddress?: string;
+    };
+}
+
 export interface ChatResponsePayload {
     sessionId: string;
     type: "text" | "token_brief" | "portfolio_summary" | "portfolio_activities" | "portfolio_performance" | "navigation" | "trade_intent" | "slippage_action";

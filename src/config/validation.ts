@@ -64,17 +64,34 @@ export const validationSchema = Joi.object({
     // CORS — comma-separated list, parsed in configuration.ts
     CORS_ORIGIN: Joi.string().optional(),
 
-    // Jupiter — public URL has a default; key is required (sent on every request)
-    JUPITER_API_URL: Joi.string().uri().optional(),
-    JUPITER_API_KEY: Joi.string().required(),
+    // Jupiter
+    JUPITER_API_URL: Joi.string().uri().default("https://api.jup.ag"),
+    JUPITER_API_KEY: Joi.string().optional(),
+    // Optional separate host/key for swap endpoints (quote + transaction).
+    // If unset, falls back to JUPITER_API_URL / JUPITER_API_KEY.
+    JUPITER_SWAP_API_URL: Joi.string().uri().optional(),
+    JUPITER_SWAP_API_KEY: Joi.string().optional(),
+
+    // Jito tip-floor feed — public, unauthenticated; default in configuration.ts
+    JITO_TIP_FLOOR_URL: Joi.string().uri().optional(),
+
+    // Executor
+    EXECUTOR_PROVIDER: Joi.string().valid("jupiter", "solsight").optional(),
+    SOLSIGHT_EXECUTOR_API_URL: Joi.string().uri().optional(),
+    SOLSIGHT_EXECUTOR_API_KEY: Joi.string().optional(),
+
+    // Kora paymaster — all optional; service short-circuits when KORA_RPC_URL is unset
+    KORA_RPC_URL: Joi.string().uri().optional(),
+    KORA_API_KEY: Joi.string().optional(),
+    KORA_HMAC_SECRET: Joi.string().optional(),
 
     // CoinGecko
     COINGECKO_API_URL: Joi.string().uri().optional(),
-    COINGECKO_API_KEY: Joi.string().required(),
+    COINGECKO_API_KEY: Joi.string().optional(),
     COINGECKO_LIST_API: Joi.string().uri().optional(),
 
     // OpenAI (default AI provider)
-    OPENAI_API_KEY: Joi.string().required(),
+    OPENAI_API_KEY: Joi.string().optional(),
     OPENAI_API_URL: Joi.string().uri().optional(),
     OPENAI_MODEL: Joi.string().optional(),
 

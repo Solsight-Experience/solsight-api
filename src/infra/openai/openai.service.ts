@@ -15,7 +15,7 @@ import { Stream } from "openai/streaming";
 @Injectable()
 export class OpenAIService {
     private readonly logger = new Logger(OpenAIService.name);
-    private readonly client: OpenAI;
+    private readonly client: OpenAI | null = null;
     private readonly model: string;
     private readonly embeddingClient: OpenAI;
     private readonly embeddingModel: string;
@@ -24,23 +24,16 @@ export class OpenAIService {
         // Chat client config
         const apiKey = this.configService.get<string>("openai.apiKey") || "";
         const baseURL = this.configService.get<string>("openai.apiUrl");
-        const model = this.configService.get<string>("openai.model");
-
-        if (!apiKey) {
-            this.logger.warn("OpenAI API key or model not configured for default client");
-        }
-
-        if (!model) {
-            throw new Error("OpenAI model is not configured!");
-        }
+        const model = this.configService.get<string>("openai.model") ?? "gpt-4o";
 
         this.model = model;
 
-        this.client = new OpenAI({
-            apiKey: apiKey,
-            baseURL: baseURL
-        });
+        if (!apiKey) {
+            this.logger.warn("OPENAI_API_KEY not set — OpenAI features will be unavailable");
+            return;
+        }
 
+        this.client = new OpenAI({ apiKey, baseURL });
         this.logger.log(`Initialized OpenAI client: baseURL=${baseURL}, model=${this.model}`);
 
         // Embedding client config
@@ -75,6 +68,9 @@ export class OpenAIService {
         body: Omit<ChatCompletionCreateParams, "model">,
         options?: RequestOptions<unknown>
     ): APIPromise<ChatCompletion | Stream<ChatCompletionChunk>> {
+        if (!this.client) {
+            throw new Error("OpenAI client is not configured — set OPENAI_API_KEY to use this feature");
+        }
         return this.client.chat.completions.create(
             {
                 model: this.model,
