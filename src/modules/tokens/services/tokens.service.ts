@@ -14,7 +14,7 @@ import { OhlcAggregationService } from "./aggregation/ohlc-aggregation.service";
 import { StatsAggregationService } from "./aggregation/stats-aggregation.service";
 import { OhlcInterval } from "./socket/room/room.constants";
 import { RedisService } from "src/redis/services/redis.service";
-import { TradeData } from "../types/swap-event.type";
+import { TradeData } from "../types/swap-event.types";
 import { COMMON_TOKEN_MINT } from "../constants/token.constant";
 import { SolPriceResponseDto } from "../dtos/sol-price.response.dto";
 import { ClusterProvider } from "src/common/cluster/cluster.provider";
