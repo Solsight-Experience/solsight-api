@@ -1,13 +1,10 @@
-import { Controller, Get, Post, Patch, Delete, Body, Param, UseGuards, Request } from "@nestjs/common";
+import { Controller, Get, Post, Patch, Delete, Body, Param, UseGuards } from "@nestjs/common";
 import { JwtAuthGuard } from "../../auth/guards/jwt-auth.guard";
 import { WalletsService } from "../services/wallets.service";
 import { CreateWalletDto } from "../dtos/create-wallet.dto";
-import { User } from "../../users/entities/user.entity";
+import { WalletIcon } from "../entities/wallet.entity";
 import { WalletsResponse, Wallet } from "../dtos/wallet.response.dto";
-
-interface AuthenticatedRequest extends Request {
-    user: User;
-}
+import { CurrentUser, CurrentUserPayload } from "../../../common/decorators/current-user.decorator";
 
 @Controller({ path: "users/me/wallets" })
 export class UsersWalletsController {
@@ -15,30 +12,27 @@ export class UsersWalletsController {
 
     @UseGuards(JwtAuthGuard)
     @Get()
-    async list(@Request() req: AuthenticatedRequest): Promise<WalletsResponse> {
-        const userId = req.user.id;
-        return await this.walletsService.listForUser(userId);
+    async list(@CurrentUser() user: CurrentUserPayload): Promise<WalletsResponse> {
+        return await this.walletsService.listForUser(user.id);
     }
 
     @UseGuards(JwtAuthGuard)
     @Get(":walletAddress")
-    async getDetail(@Request() req: AuthenticatedRequest, @Param("walletAddress") walletAddress: string): Promise<Wallet> {
-        const userId = req.user.id;
-        return await this.walletsService.getWalletByAddress(userId, walletAddress);
+    async getDetail(@CurrentUser() user: CurrentUserPayload, @Param("walletAddress") walletAddress: string): Promise<Wallet> {
+        return await this.walletsService.getWalletByAddress(user.id, walletAddress);
     }
 
     @UseGuards(JwtAuthGuard)
     @Post()
-    async create(@Request() req: AuthenticatedRequest, @Body() body: Partial<CreateWalletDto>) {
-        const userId = req.user.id;
-        const wallet = await this.walletsService.create(userId, body as CreateWalletDto);
+    async create(@CurrentUser() user: CurrentUserPayload, @Body() body: Partial<CreateWalletDto>) {
+        const wallet = await this.walletsService.create(user.id, body as CreateWalletDto);
 
         return {
             success: true,
             wallet: {
                 address: wallet.address,
                 name: wallet.name,
-                icon: (wallet as any).icon || null,
+                icon: wallet.icon || null,
                 is_default: !!wallet.isDefault,
                 added_at: wallet.createdAt
             }
@@ -47,33 +41,29 @@ export class UsersWalletsController {
 
     @UseGuards(JwtAuthGuard)
     @Patch(":walletAddress")
-    async update(@Request() req: AuthenticatedRequest, @Param("walletAddress") walletAddress: string, @Body() body: { name?: string; icon?: string }) {
-        const userId = req.user.id;
-        const updated = await this.walletsService.updateByAddress(userId, walletAddress, body as any);
+    async update(@CurrentUser() user: CurrentUserPayload, @Param("walletAddress") walletAddress: string, @Body() body: { name?: string; icon?: WalletIcon }) {
+        const updated = await this.walletsService.updateByAddress(user.id, walletAddress, body);
         return updated;
     }
 
     @UseGuards(JwtAuthGuard)
     @Delete()
-    async removeAll(@Request() req: AuthenticatedRequest) {
-        const userId = req.user.id;
-        await this.walletsService.deleteAllByUserId(userId);
+    async removeAll(@CurrentUser() user: CurrentUserPayload) {
+        await this.walletsService.deleteAllByUserId(user.id);
         return { message: "All wallets deleted successfully" };
     }
 
     @UseGuards(JwtAuthGuard)
     @Delete(":walletAddress")
-    async remove(@Request() req: AuthenticatedRequest, @Param("walletAddress") walletAddress: string) {
-        const userId = req.user.id;
-        await this.walletsService.deleteByAddress(userId, walletAddress);
+    async remove(@CurrentUser() user: CurrentUserPayload, @Param("walletAddress") walletAddress: string) {
+        await this.walletsService.deleteByAddress(user.id, walletAddress);
         return { message: "Wallet deleted successfully" };
     }
 
     @UseGuards(JwtAuthGuard)
     @Patch(":walletAddress/set-default")
-    async setDefault(@Request() req: AuthenticatedRequest, @Param("walletAddress") walletAddress: string) {
-        const userId = req.user.id;
-        const wallet = await this.walletsService.setDefaultForAddress(userId, walletAddress);
+    async setDefault(@CurrentUser() user: CurrentUserPayload, @Param("walletAddress") walletAddress: string) {
+        const wallet = await this.walletsService.setDefaultForAddress(user.id, walletAddress);
         return wallet;
     }
 }

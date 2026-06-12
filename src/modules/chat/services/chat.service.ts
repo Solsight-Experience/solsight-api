@@ -339,7 +339,7 @@ export class ChatService {
 
                     try {
                         args = JSON.parse(toolCall.function.arguments || "{}") as Record<string, unknown>;
-                    } catch (error) {
+                    } catch {
                         this.logger.warn(`Invalid tool arguments for ${toolName}: ${toolCall.function.arguments}`, ChatService.name);
                     }
 
@@ -484,7 +484,7 @@ export class ChatService {
 
                         try {
                             args = JSON.parse(toolCall.function.arguments || "{}") as Record<string, unknown>;
-                        } catch (error) {
+                        } catch {
                             this.logger.warn(`Invalid tool arguments for ${toolName}: ${toolCall.function.arguments}`, ChatService.name);
                         }
 
@@ -530,13 +530,13 @@ export class ChatService {
         try {
             switch (toolName) {
                 case "fetch_token_data": {
-                    const address = String(args.address || "");
+                    const address = this.getStringArg(args, "address");
                     const data = await this.tokensService.findOne(address);
                     return JSON.stringify(data);
                 }
 
                 case "search_tokens": {
-                    const query = String(args.query || "");
+                    const query = this.getStringArg(args, "query");
                     const limit = typeof args.limit === "number" && Number.isFinite(args.limit) ? args.limit : 5;
 
                     try {
@@ -579,7 +579,7 @@ export class ChatService {
                 }
 
                 case "fetch_portfolio": {
-                    const resolvedUserId = userId || String(args.userId || "");
+                    const resolvedUserId = userId || this.getStringArg(args, "userId");
 
                     if (!resolvedUserId) {
                         this.logger.warn("fetch_portfolio called without userId", ChatService.name);
@@ -604,8 +604,8 @@ export class ChatService {
                             message: "No wallet connected. Please connect a wallet to swap tokens."
                         });
                     }
-                    const inputMint = String(args.inputMint || "");
-                    const outputMint = String(args.outputMint || "");
+                    const inputMint = this.getStringArg(args, "inputMint");
+                    const outputMint = this.getStringArg(args, "outputMint");
                     const amount = Number(args.amount || 0);
 
                     return JSON.stringify({
@@ -618,7 +618,7 @@ export class ChatService {
                 }
 
                 case "navigate_to": {
-                    const route = String(args.route || "");
+                    const route = this.getStringArg(args, "route");
                     const isAllowed = STATIC_ROUTES.includes(route) || TOKEN_ROUTE_REGEX.test(route);
 
                     if (!isAllowed) {
@@ -641,6 +641,11 @@ export class ChatService {
             this.logger.error(`Tool execution failed for ${toolName}: ${message}`, error instanceof Error ? error.stack : undefined, ChatService.name);
             return JSON.stringify({ error: `Tool execution failed: ${toolName}` });
         }
+    }
+
+    private getStringArg(args: Record<string, unknown>, key: string): string {
+        const value = args[key];
+        return typeof value === "string" ? value : "";
     }
 
     private inferTypedResponseFromTools(session: ChatSession): ChatResponsePayload | null {

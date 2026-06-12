@@ -9,7 +9,7 @@ const dataSource = new DataSource({
     username: process.env.DATABASE_USERNAME || "postgres",
     password: process.env.DATABASE_PASSWORD || "password",
     database: process.env.DATABASE_NAME || "flaxh_trade",
-    entities: ENTITIES as any,
+    entities: ENTITIES,
     migrations: [__dirname + "/migrations/*{.ts,.js}"],
     synchronize: false
 });

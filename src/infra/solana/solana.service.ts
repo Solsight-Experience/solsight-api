@@ -4,6 +4,7 @@ import { TOKEN_PROGRAM_ID, getAssociatedTokenAddress } from "@solana/spl-token";
 import { HeliusResolver } from "./helius.resolver";
 import { ClusterProvider } from "../../common/cluster/cluster.provider";
 import { SubmitAndConfirmOptions } from "./constants/types";
+import { ParsedTokenAccount } from "./solana.types";
 
 @Injectable()
 export class SolanaService {
@@ -39,12 +40,12 @@ export class SolanaService {
         }
     }
 
-    async getParsedTokenAccountsByOwner(owner: PublicKey) {
+    async getParsedTokenAccountsByOwner(owner: PublicKey): Promise<ParsedTokenAccount[]> {
         try {
             const result = await this.heliusResolver.get().getParsedTokenAccountsByOwner(owner, {
                 programId: TOKEN_PROGRAM_ID
             });
-            return result.value;
+            return result.value as ParsedTokenAccount[];
         } catch (error) {
             this.logger.error(`Failed to get parsed token accounts for ${owner.toString()}`, error);
             throw error;

@@ -1,6 +1,6 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { Between, FindOptionsOrderValue, ILike, In, Repository } from "typeorm";
+import { Between, FindOptionsOrder, FindOptionsOrderValue, FindOptionsWhere, ILike, In, Repository } from "typeorm";
 import { Token } from "../entities/token.entity";
 import { OhlcCandle } from "../entities/ohlc-candle.entity";
 import { TokenResponseDto, TokenDetailsResponseDto, TokenMetadata } from "../dtos/token.response.dto";
@@ -14,7 +14,7 @@ import { OhlcAggregationService } from "./aggregation/ohlc-aggregation.service";
 import { StatsAggregationService } from "./aggregation/stats-aggregation.service";
 import { OhlcInterval } from "./socket/room/room.constants";
 import { RedisService } from "src/redis/services/redis.service";
-import { TradeData } from "../types/swap-event.type";
+import { TradeData } from "../types/swap-event.types";
 import { COMMON_TOKEN_MINT } from "../constants/token.constant";
 import { SolPriceResponseDto } from "../dtos/sol-price.response.dto";
 import { ClusterProvider } from "src/common/cluster/cluster.provider";
@@ -322,8 +322,8 @@ export class TokensService {
             age: "ageSeconds",
             price_change_24h: "priceChange24h"
         } as const;
-        const column = SortByMap[sort_by];
-        const whereConditions: any = { network: this.network };
+        const column = SortByMap[sort_by as keyof typeof SortByMap];
+        const whereConditions: FindOptionsWhere<Token> = { network: this.network };
         if (filter?.metrics) {
             const m = filter.metrics;
 
@@ -366,23 +366,20 @@ export class TokensService {
                 whereConditions.insiderPercent = Between(0, h.insider_max_percent);
             }
         }
+        const where = filter?.search_query
+            ? [
+                  { ...whereConditions, name: ILike(`%${filter.search_query}%`) },
+                  { ...whereConditions, symbol: ILike(`%${filter.search_query}%`) },
+                  { ...whereConditions, address: ILike(`%${filter.search_query}%`) }
+              ]
+            : whereConditions;
+
         const tokens = await this.tokenRepository.find({
             take: limit,
             skip: offset,
             relations: ["category"],
-            order: column
-                ? {
-                      [column]: orderValue
-                  }
-                : undefined,
-            where: [
-                whereConditions,
-                [
-                    { name: ILike(`%${filter.search_query}%`), network: this.network },
-                    { symbol: ILike(`%${filter.search_query}%`), network: this.network },
-                    { address: ILike(`%${filter.search_query}%`), network: this.network }
-                ]
-            ]
+            order: column ? ({ [column]: orderValue } as FindOptionsOrder<Token>) : undefined,
+            where
         });
 
         const responseTokens = tokens.map((token) => mapTokenEntityToOverviewDto(token, this.network));

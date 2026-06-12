@@ -1,6 +1,6 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { RedisService } from "../../../../redis/services/redis.service";
-import { SwapEvent, TopTrader } from "../../types/swap-event.type";
+import { SwapEvent, TopTrader } from "../../types/swap-event.types";
 
 const TRADER_TTL = 24 * 60 * 60; // 24 hours
 
@@ -32,8 +32,28 @@ export class TraderAggregationService {
             // Update trader stats
             if (isBuy) {
                 await redis.hincrbyfloat(traderKey, "total_bought", volumeUsd);
+                await redis.hincrbyfloat(traderKey, "total_tokens_held", tokenAmount);
+                await redis.hincrbyfloat(traderKey, "total_cost_usd", volumeUsd);
             } else {
                 await redis.hincrbyfloat(traderKey, "total_sold", volumeUsd);
+
+                const tokensHeld = parseFloat((await redis.hget(traderKey, "total_tokens_held")) || "0");
+                const costUsd = parseFloat((await redis.hget(traderKey, "total_cost_usd")) || "0");
+
+                if (tokensHeld > 0) {
+                    const avgCostPerToken = costUsd / tokensHeld;
+                    const costBasis = tokenAmount * avgCostPerToken;
+                    const tradePnl = volumeUsd - costBasis;
+
+                    await redis.hincrbyfloat(traderKey, "pnl", tradePnl);
+                    await redis.hset(traderKey, "total_tokens_held", Math.max(0, tokensHeld - tokenAmount));
+                    await redis.hset(traderKey, "total_cost_usd", Math.max(0, costUsd - costBasis));
+
+                    if (tradePnl > 0) {
+                        await redis.hincrby(traderKey, "win_trades", 1);
+                    }
+                }
+                await redis.hincrby(traderKey, "total_sell_trades", 1);
             }
 
             await redis.hincrby(traderKey, "trades_count", 1);
@@ -68,14 +88,19 @@ export class TraderAggregationService {
                 const data = await redis.hgetall(traderKey);
 
                 if (data && Object.keys(data).length > 0) {
+                    const totalBought = parseFloat(data.total_bought || "0");
+                    const pnl = parseFloat(data.pnl || "0");
+                    const winTrades = parseInt(data.win_trades || "0", 10);
+                    const totalSellTrades = parseInt(data.total_sell_trades || "0", 10);
+
                     traders.push({
                         address,
-                        name: null, // No name resolution without RPC
-                        total_pnl: 0, // Would need price tracking
-                        roi_percent: 0, // Would need price tracking
-                        total_bought: parseFloat(data.total_bought || "0"),
+                        name: null,
+                        total_pnl: pnl,
+                        roi_percent: totalBought > 0 ? (pnl / totalBought) * 100 : 0,
+                        total_bought: totalBought,
                         total_sold: parseFloat(data.total_sold || "0"),
-                        win_rate: 0, // Would need outcome tracking
+                        win_rate: totalSellTrades > 0 ? (winTrades / totalSellTrades) * 100 : 0,
                         trades_count: parseInt(data.trades_count || "0", 10)
                     });
                 }
@@ -100,14 +125,19 @@ export class TraderAggregationService {
                 return null;
             }
 
+            const totalBought = parseFloat(data.total_bought || "0");
+            const pnl = parseFloat(data.pnl || "0");
+            const winTrades = parseInt(data.win_trades || "0", 10);
+            const totalSellTrades = parseInt(data.total_sell_trades || "0", 10);
+
             return {
                 address,
                 name: null,
-                total_pnl: 0,
-                roi_percent: 0,
-                total_bought: parseFloat(data.total_bought || "0"),
+                total_pnl: pnl,
+                roi_percent: totalBought > 0 ? (pnl / totalBought) * 100 : 0,
+                total_bought: totalBought,
                 total_sold: parseFloat(data.total_sold || "0"),
-                win_rate: 0,
+                win_rate: totalSellTrades > 0 ? (winTrades / totalSellTrades) * 100 : 0,
                 trades_count: parseInt(data.trades_count || "0", 10)
             };
         } catch (error) {

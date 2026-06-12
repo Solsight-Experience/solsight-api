@@ -10,72 +10,29 @@
  */
 
 import { createHmac } from "crypto";
-
-export interface KoraClientOptions {
-    rpcUrl: string;
-    apiKey?: string;
-    hmacSecret?: string;
-    fetchImpl?: typeof fetch;
-}
-
-export interface KoraGetPayerSignerResponse {
-    payment_address: string;
-    signer_address: string;
-}
-
-export interface KoraGetSupportedTokensResponse {
-    tokens: string[];
-}
-
-export interface KoraEstimateTransactionFeeRequest {
-    transaction: string;
-    fee_token?: string;
-    sig_verify?: boolean;
-    signer_key?: string;
-}
-
-export interface KoraEstimateTransactionFeeResponse {
-    fee_in_lamports: number;
-    fee_in_token?: number;
-    payment_address: string;
-    signer_pubkey: string;
-}
-
-export interface KoraSignTransactionRequest {
-    transaction: string;
-    sig_verify?: boolean;
-    signer_key?: string;
-    user_id?: string;
-}
-
-export interface KoraSignTransactionResponse {
-    signed_transaction: string;
-    signer_pubkey: string;
-}
-
-interface RpcError {
-    code: number;
-    message: string;
-}
-
-interface RpcResponse<T> {
-    jsonrpc: "2.0";
-    id: number;
-    result?: T;
-    error?: RpcError;
-}
+import {
+    KoraClientOptions,
+    KoraEstimateTransactionFeeRequest,
+    KoraEstimateTransactionFeeResponse,
+    KoraFetch,
+    KoraGetPayerSignerResponse,
+    KoraGetSupportedTokensResponse,
+    KoraRpcResponse,
+    KoraSignTransactionRequest,
+    KoraSignTransactionResponse
+} from "./kora.types";
 
 export class KoraClient {
     private readonly rpcUrl: string;
     private readonly apiKey?: string;
     private readonly hmacSecret?: string;
-    private readonly fetchImpl: typeof fetch;
+    private readonly fetchImpl: KoraFetch;
 
     constructor(options: KoraClientOptions) {
         this.rpcUrl = options.rpcUrl;
         this.apiKey = options.apiKey;
         this.hmacSecret = options.hmacSecret;
-        this.fetchImpl = options.fetchImpl ?? globalThis.fetch.bind(globalThis);
+        this.fetchImpl = options.fetchImpl ?? ((input, init) => globalThis.fetch(input, init));
     }
 
     getPayerSigner(): Promise<KoraGetPayerSignerResponse> {
@@ -125,7 +82,7 @@ export class KoraClient {
             body
         });
 
-        const json = (await response.json()) as RpcResponse<T>;
+        const json: KoraRpcResponse<T> = (await response.json()) as KoraRpcResponse<T>;
 
         if (json.error) {
             throw new Error(`Kora RPC ${method} failed: [${json.error.code}] ${json.error.message}`);

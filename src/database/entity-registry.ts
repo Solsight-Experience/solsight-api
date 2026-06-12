@@ -1,4 +1,3 @@
-import { EntityTarget } from "typeorm";
 import { Token } from "../modules/tokens/entities/token.entity";
 import { OhlcCandle } from "../modules/tokens/entities/ohlc-candle.entity";
 import { Category } from "../modules/tokens/entities/category.entity";
@@ -14,7 +13,23 @@ import { ZaloSubscription } from "../modules/zalo/entities/zalo-subscription.ent
 import { WalletAlert } from "../modules/watchlist/entities/wallet-alert.entity";
 import { WatchedWallet } from "../modules/watchlist/entities/watched-wallet.entity";
 
-export const ENTITIES: EntityTarget<any>[] = [
+export type AppEntity =
+    | Token
+    | OhlcCandle
+    | Category
+    | Transaction
+    | SwapTrade
+    | WalletSnapshot
+    | MarketPriceEvent
+    | User
+    | Wallet
+    | EmailSubscription
+    | Notification
+    | ZaloSubscription
+    | WalletAlert
+    | WatchedWallet;
+
+export const ENTITIES = [
     Token,
     OhlcCandle,
     Category,

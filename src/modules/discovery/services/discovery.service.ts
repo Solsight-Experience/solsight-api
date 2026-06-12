@@ -2,7 +2,7 @@ import { Injectable, Logger } from "@nestjs/common";
 import { Cron, CronExpression } from "@nestjs/schedule";
 import { InjectRepository } from "@nestjs/typeorm";
 import { ClsService } from "nestjs-cls";
-import { Repository } from "typeorm";
+import { IsNull, Not, Repository } from "typeorm";
 import { Token } from "../../tokens/entities/token.entity";
 import { Category } from "../../tokens/entities/category.entity";
 import { GetTrendingDto, SortByTrending, TimeFrame } from "../dtos/get-trending.dto";
@@ -15,6 +15,7 @@ import { SolanaService } from "../../../infra/solana/solana.service";
 import { TokenOverview, CategoryOverview, PaginatedCategoriesResponse } from "../dtos/discovery.response.dto";
 import { RedisService } from "../../../redis";
 import { ClusterProvider, CLUSTER_CLS_KEY } from "../../../common/cluster/cluster.provider";
+import { JupiterTokenV2 } from "../../../infra/jupiter/types";
 
 const TRENDING_TTL = 60;
 const CATEGORIES_TTL = 300;
@@ -182,7 +183,7 @@ export class DiscoveryService {
 
                 this.logger.log(`Fetched ${trendingData.coins.length} trending coins from CoinGecko`);
 
-                let solanaTokenMap = new Map<string, any>();
+                let solanaTokenMap = new Map<string, JupiterTokenV2>();
                 try {
                     const jupiterTokens = await this.jupiterService.getTokenList();
                     if (jupiterTokens.length > 0) {
@@ -212,7 +213,7 @@ export class DiscoveryService {
                     tokensToUpsert.push({
                         symbol,
                         name: item.item.name,
-                        address: jupiterToken.address,
+                        address: jupiterToken.id,
                         network: this.network,
                         price: market.current_price || 0,
                         priceChange1h: market.price_change_percentage_1h_in_currency || 0,
@@ -292,7 +293,7 @@ export class DiscoveryService {
                     return;
                 }
 
-                let solanaTokenMap = new Map<string, any>();
+                let solanaTokenMap = new Map<string, JupiterTokenV2>();
                 try {
                     const jupiterTokens = await this.jupiterService.getTokenList();
                     if (jupiterTokens.length > 0) {
@@ -309,7 +310,7 @@ export class DiscoveryService {
                     if (!jupiterToken) continue;
 
                     tokensToUpsert.push({
-                        address: jupiterToken.address,
+                        address: jupiterToken.id,
                         network: this.network,
                         name: coin.name,
                         symbol: coin.symbol.toUpperCase(),
@@ -481,7 +482,7 @@ export class DiscoveryService {
                 return;
             }
 
-            let solanaTokenMap = new Map<string, any>();
+            let solanaTokenMap = new Map<string, JupiterTokenV2>();
             try {
                 const jupiterTokens = await this.jupiterService.getTokenList();
                 if (jupiterTokens.length > 0) {
@@ -500,7 +501,7 @@ export class DiscoveryService {
                 }
 
                 const tokenData = {
-                    address: jupiterToken.address,
+                    address: jupiterToken.id,
                     network: this.network,
                     name: coin.name,
                     symbol: coin.symbol.toUpperCase(),
@@ -547,7 +548,7 @@ export class DiscoveryService {
 
         if (type === GainersLosersType.GAINERS || type === GainersLosersType.BOTH) {
             gainers = await this.tokenRepository.find({
-                where: { network: this.network },
+                where: { network: this.network, [orderByField]: Not(IsNull()) },
                 order: { [orderByField]: "DESC" },
                 take: limit,
                 relations: ["category"]
@@ -556,7 +557,7 @@ export class DiscoveryService {
 
         if (type === GainersLosersType.LOSERS || type === GainersLosersType.BOTH) {
             losers = await this.tokenRepository.find({
-                where: { network: this.network },
+                where: { network: this.network, [orderByField]: Not(IsNull()) },
                 order: { [orderByField]: "ASC" },
                 take: limit,
                 relations: ["category"]

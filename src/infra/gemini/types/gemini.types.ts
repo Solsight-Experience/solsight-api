@@ -20,3 +20,8 @@ export interface GeminiError {
     code?: string;
     status?: number;
 }
+
+export interface GeminiApiError extends Error {
+    code?: string | number;
+    status?: number;
+}

@@ -2,6 +2,7 @@ import { Injectable, Logger, Optional } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import axios, { AxiosInstance } from "axios";
 import { ClusterProvider } from "../../common/cluster/cluster.provider";
+import { JsonValue } from "../../common/types";
 import {
     CancelOrderParams,
     CancelOrderResponse,
@@ -23,6 +24,7 @@ import {
 export class JupiterService {
     private readonly logger = new Logger(JupiterService.name);
     private readonly apiClient: AxiosInstance;
+    private readonly swapApiClient: AxiosInstance;
     private tokenListCache: JupiterTokenV2[] = [];
     private tokenListCacheTime = 0;
     private readonly CACHE_DURATION = 3600000; // 1 hour
@@ -34,13 +36,24 @@ export class JupiterService {
     ) {
         const baseUrl = this.configService.get<string>("jupiter.apiUrl");
         const apiKey = this.configService.get<string>("jupiter.apiKey");
+        const swapBaseUrl = this.configService.get<string>("jupiter.swapApiUrl") ?? baseUrl;
+        const swapApiKey = this.configService.get<string>("jupiter.swapApiKey") ?? apiKey;
 
         this.apiClient = axios.create({
             baseURL: baseUrl,
             timeout: 15000,
             headers: {
                 "Content-Type": "application/json",
-                "x-api-key": apiKey
+                ...(apiKey ? { "x-api-key": apiKey } : {})
+            }
+        });
+
+        this.swapApiClient = axios.create({
+            baseURL: swapBaseUrl,
+            timeout: 15000,
+            headers: {
+                "Content-Type": "application/json",
+                ...(swapApiKey ? { "x-api-key": swapApiKey } : {})
             }
         });
 
@@ -266,7 +279,7 @@ export class JupiterService {
         outputMint?: string,
         page = 1,
         includeFailedTx?: boolean
-    ): Promise<any | null> {
+    ): Promise<JsonValue | null> {
         if (!this.canUseJupiter("limit order lookup")) {
             return null;
         }
@@ -297,7 +310,7 @@ export class JupiterService {
 
             this.logger.log(`Getting ${orderStatus} orders for user: ${user}`);
 
-            const response = await this.apiClient.get("/trigger/v1/getTriggerOrders", {
+            const response = await this.apiClient.get<JsonValue>("/trigger/v1/getTriggerOrders", {
                 params
             });
 
@@ -317,7 +330,7 @@ export class JupiterService {
         }
 
         try {
-            const response = await this.apiClient.get<JupiterQuoteResponse>("/swap/v1/quote", { params });
+            const response = await this.swapApiClient.get<JupiterQuoteResponse>("/swap/v1/quote", { params });
             return response.data;
         } catch (error) {
             this.logger.error("Failed to get swap quote", error);
@@ -334,7 +347,7 @@ export class JupiterService {
         }
 
         try {
-            const response = await this.apiClient.post<JupiterSwapResponse>("/swap/v1/swap", {
+            const response = await this.swapApiClient.post<JupiterSwapResponse>("/swap/v1/swap", {
                 ...params,
                 wrapAndUnwrapSol: params.wrapAndUnwrapSol ?? true
             });

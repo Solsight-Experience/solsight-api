@@ -1,5 +1,5 @@
 import { IsString, IsOptional, IsEnum, IsBoolean } from "class-validator";
-import { WalletType } from "../entities/wallet.entity";
+import { WalletIcon, WalletType } from "../entities/wallet.entity";
 
 export class CreateWalletDto {
     @IsString()
@@ -26,6 +26,6 @@ export class CreateWalletDto {
     isActive?: boolean;
 
     @IsOptional()
-    @IsString()
-    icon?: string;
+    @IsEnum(WalletIcon)
+    icon?: WalletIcon;
 }

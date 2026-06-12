@@ -1,14 +1,20 @@
 import { BadRequestException, HttpException, HttpStatus, Inject, Injectable, InternalServerErrorException, Logger } from "@nestjs/common";
+import { InjectRepository } from "@nestjs/typeorm";
+import { Repository } from "typeorm";
+import { CoinGeckoService } from "../../../infra/coingecko/coingecko.service";
 import { EXECUTOR_SERVICE } from "../../../infra/executor/constants/executor.token";
 import type { ExecutorService, QuoteResponse, SwapResponse } from "../../../infra/executor/interfaces/executor-service.interface";
-import { SolanaService } from "../../../infra/solana/solana.service";
-import { KoraService } from "../../../infra/kora/kora.service";
 import { JitoService } from "../../../infra/jito/jito.service";
+import { JupiterService } from "../../../infra/jupiter/jupiter.service";
+import { KoraService } from "../../../infra/kora/kora.service";
+import { SolanaService } from "../../../infra/solana/solana.service";
 import { RedisService } from "../../../redis/services/redis.service";
+import { SwapExecution } from "../../admin-analytics/entities/swap-execution.entity";
 import type { ExecuteSwapDto } from "../dtos/execute-swap.dto";
 import type { GetQuoteDto } from "../dtos/get-quote.dto";
-import type { GetSwapTransactionDto } from "../dtos/get-swap-transaction.dto";
 import type { GetSwapInfoDto, SwapInfoResponse } from "../dtos/get-swap-info.dto";
+import type { GetSwapTransactionDto } from "../dtos/get-swap-transaction.dto";
+import { CachedFeeFields, CachedGaslessFields } from "../types/swap-cache.types";
 
 const FEE_FALLBACK_PRIORITY_LAMPORTS = 100_000;
 const TIP_FALLBACK_LAMPORTS = 50_000;
@@ -19,18 +25,6 @@ const FEE_CACHE_TTL_SECONDS = 5;
 const KORA_CACHE_KEY = "swap:info:gasless:v1";
 const KORA_CACHE_TTL_SECONDS = 60;
 
-interface CachedFeeFields {
-    autoPriorityFeeLamports: number;
-    autoTipLamports: number;
-    maxAutoFeeLamports: number;
-}
-
-interface CachedGaslessFields {
-    gaslessEnabled: boolean;
-    gaslessSupportedTokens: string[];
-    payerPubkey: string | null;
-}
-
 @Injectable()
 export class SwapService {
     private readonly logger = new Logger(SwapService.name);
@@ -40,7 +34,11 @@ export class SwapService {
         private readonly solanaService: SolanaService,
         private readonly koraService: KoraService,
         private readonly jitoService: JitoService,
-        private readonly redisService: RedisService
+        private readonly redisService: RedisService,
+        private readonly jupiterService: JupiterService,
+        private readonly coinGeckoService: CoinGeckoService,
+        @InjectRepository(SwapExecution)
+        private readonly swapExecutionRepo: Repository<SwapExecution>
     ) {}
 
     async getQuote(dto: GetQuoteDto): Promise<QuoteResponse> {
@@ -87,7 +85,7 @@ export class SwapService {
         }
     }
 
-    async executeSwap(dto: ExecuteSwapDto): Promise<{ signature: string }> {
+    async executeSwap(dto: ExecuteSwapDto, userId: string | null = null): Promise<{ signature: string }> {
         let signedTransaction = dto.signedTransaction;
 
         if (dto.gaslessFeeToken) {
@@ -106,7 +104,9 @@ export class SwapService {
             }
         }
 
-        return this.submitSignedTransaction(signedTransaction);
+        const result = await this.submitSignedTransaction(signedTransaction);
+        this.persistSwapExecution(result.signature, dto, userId);
+        return result;
     }
 
     async getSwapInfo(_dto: GetSwapInfoDto): Promise<SwapInfoResponse> {
@@ -124,6 +124,21 @@ export class SwapService {
         };
     }
 
+    async getSolPrice(): Promise<{ usd: number }> {
+        try {
+            const prices = await this.coinGeckoService.getSimplePrice(["solana"]);
+            return { usd: (prices as Record<string, { usd?: number }>)["solana"]?.usd ?? 0 };
+        } catch {
+            return { usd: 0 };
+        }
+    }
+
+    async getTokenInfo(mint: string): Promise<{ decimals: number } | null> {
+        const token = await this.jupiterService.searchToken(mint);
+        if (!token) return null;
+        return { decimals: token.decimals };
+    }
+
     private async submitSignedTransaction(signedTransactionBase64: string): Promise<{ signature: string }> {
         try {
             return await this.solanaService.submitAndConfirm(signedTransactionBase64);
@@ -132,6 +147,25 @@ export class SwapService {
             const message = error instanceof Error ? error.message : "Swap execution failed.";
             throw new HttpException(message, HttpStatus.BAD_GATEWAY);
         }
+    }
+
+    private persistSwapExecution(signature: string, dto: ExecuteSwapDto, userId: string | null): void {
+        if (!dto.walletAddress || !dto.inputMint || !dto.outputMint || !dto.inAmount || !dto.outAmount) {
+            return;
+        }
+
+        this.swapExecutionRepo
+            .save({
+                userId,
+                walletAddress: dto.walletAddress,
+                signature,
+                inputMint: dto.inputMint,
+                outputMint: dto.outputMint,
+                inAmount: dto.inAmount,
+                outAmount: dto.outAmount,
+                volumeUsd: dto.volumeUsd ?? null
+            })
+            .catch((err) => this.logger.warn("Failed to persist swap execution", err));
     }
 
     private shortAddr(address: string): string {

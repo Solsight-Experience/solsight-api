@@ -16,11 +16,25 @@ import { TokenMetadata } from "src/modules/tokens/dtos/token.response.dto";
 import { ClusterProvider } from "../../../common/cluster/cluster.provider";
 import { PortfolioPositionResponseDto, PortfolioPositionsResponseDto } from "../dtos/portfolio-position.response.dto";
 import { COMMON_TOKEN_MINT } from "src/modules/tokens/constants/token.constant";
-import { AggregatedTokenHolding } from "../types";
+import { ParsedTokenAccount } from "../../../infra/solana/solana.types";
+import {
+    ActivityApp,
+    ActivityToken,
+    AggregatedTokenHolding,
+    AllocationItem,
+    OverviewToken,
+    PortfolioActivity,
+    PortfolioTrade,
+    TransactionInsertParam,
+    TransactionInsertRow
+} from "../types";
+import { EnhancedTransaction, NativeTransfer, TokenTransfer } from "../../../infra/solana/constants/types";
+import { Wallet } from "../../wallets/entities/wallet.entity";
 
 const SOL_COINGECKO_ID = "solana";
 
 const DEX_SOURCES = ["JUPITER", "RAYDIUM", "ORCA", "METEORA", "PHOENIX", "OPENBOOK", "SOLFI"];
+const SOL_MINT = "So11111111111111111111111111111111111111112";
 
 @Injectable()
 export class PortfolioService {
@@ -76,6 +90,69 @@ export class PortfolioService {
         return fn();
     }
 
+    private getStoredTokenTransfers(metadata: Transaction["metadata"]): TokenTransfer[] {
+        const stored = metadata as { tokenTransfers?: TokenTransfer[] } | null;
+        return stored?.tokenTransfers ?? [];
+    }
+
+    private nativeTransferToTokenTransfer(transfer: NativeTransfer): TokenTransfer {
+        return {
+            fromUserAccount: transfer.fromUserAccount,
+            toUserAccount: transfer.toUserAccount,
+            fromTokenAccount: "",
+            toTokenAccount: "",
+            mint: SOL_MINT,
+            tokenAmount: transfer.amount / LAMPORTS_PER_SOL
+        };
+    }
+
+    private async insertTransactionsIgnore(rows: TransactionInsertRow[]): Promise<void> {
+        if (rows.length === 0) return;
+
+        const columns = [
+            "signature",
+            "network",
+            "type",
+            "status",
+            "amount",
+            '"amountOut"',
+            '"tokenMint"',
+            '"tokenMintOut"',
+            '"signerAddress"',
+            '"blockNumber"',
+            '"blockTime"',
+            "memo",
+            "metadata"
+        ];
+        const params: TransactionInsertParam[] = [];
+        const values = rows
+            .map((row, rowIndex) => {
+                const offset = rowIndex * columns.length;
+                params.push(
+                    row.signature,
+                    row.network,
+                    row.type,
+                    row.status,
+                    row.amount,
+                    row.amountOut ?? null,
+                    row.tokenMint ?? null,
+                    row.tokenMintOut ?? null,
+                    row.signerAddress,
+                    row.blockNumber ?? null,
+                    row.blockTime,
+                    row.memo,
+                    row.metadata ? JSON.stringify(row.metadata) : null
+                );
+                return `(${columns.map((_, columnIndex) => `$${offset + columnIndex + 1}`).join(", ")})`;
+            })
+            .join(", ");
+
+        await this.transactionRepository.query(
+            `INSERT INTO transactions (${columns.join(", ")}) VALUES ${values} ON CONFLICT ("signature", "network") DO NOTHING`,
+            params
+        );
+    }
+
     private async getSolPriceUsd(): Promise<number> {
         try {
             const data = await this.coinGeckoService.getSimplePrice([SOL_COINGECKO_ID]);
@@ -116,9 +193,9 @@ export class PortfolioService {
         return latest;
     }
 
-    private async getAvgHistoricalSolPrice(trades: any[], fallback: number): Promise<number> {
+    private async getAvgHistoricalSolPrice(trades: PortfolioTrade[], fallback: number): Promise<number> {
         if (trades.length === 0) return fallback;
-        const timestamps = trades.map((t) => t.timestamp as number);
+        const timestamps = trades.map((t) => t.timestamp);
         const minTs = Math.min(...timestamps);
         const maxTs = Math.max(...timestamps);
         const priceChart = await this.getSolPriceHistory(minTs, maxTs);
@@ -166,17 +243,19 @@ export class PortfolioService {
         }
     }
 
-    async getOverview(userId: string, walletAddresses?: string[], timeFrame?: string) {
+    async getOverview(userId: string, walletAddresses?: string[], _timeFrame?: string) {
         let wallets = await this.walletsService.findByUserId(userId);
 
         if (walletAddresses && walletAddresses.length > 0) {
             wallets = wallets.filter((w) => walletAddresses.includes(w.address));
         }
 
-        const [solPrice, allTokenAccounts] = await Promise.all([
-            this.getSolPriceUsd(),
-            Promise.all(wallets.map((w) => this.solanaService.getParsedTokenAccountsByOwner(new PublicKey(w.address)))).then((r) => r.flat())
-        ]);
+        const tokenAccountGroups: ParsedTokenAccount[][] = await Promise.all(
+            wallets.map((wallet) => this.solanaService.getParsedTokenAccountsByOwner(new PublicKey(wallet.address)))
+        );
+        const allTokenAccounts: ParsedTokenAccount[] = tokenAccountGroups.reduce((accumulator, group) => accumulator.concat(group), [] as ParsedTokenAccount[]);
+
+        const [solPrice] = await Promise.all([this.getSolPriceUsd(), Promise.resolve(allTokenAccounts)]);
 
         const total_balance_sol = wallets.reduce((acc, w) => acc + Number(w.balance || 0), 0);
         let total_balance_usd = total_balance_sol * solPrice;
@@ -334,6 +413,13 @@ export class PortfolioService {
             return { chart_data: [] };
         }
 
+        const pnlCacheKey = `pnl_chart:${wallets
+            .map((w) => w.address)
+            .sort()
+            .join(",")}:${timeFrame}:${interval}`;
+        const pnlCached = await this.cacheManager.get<{ chart_data: { timestamp: number; pnl: number; balance_usd: number }[] }>(pnlCacheKey);
+        if (pnlCached) return pnlCached;
+
         const TWO_YEARS_SEC = 2 * 365 * 24 * 60 * 60;
         const cutoffSec = Math.floor(now / 1000) - TWO_YEARS_SEC;
         const startTimeSec = Math.floor(startTime / 1000);
@@ -365,7 +451,7 @@ export class PortfolioService {
             signature: row.signature,
             timestamp: row.blockTime ? Math.floor(row.blockTime.getTime() / 1000) : 0,
             type: "SWAP",
-            tokenTransfers: (row.metadata as any)?.tokenTransfers ?? [],
+            tokenTransfers: this.getStoredTokenTransfers(row.metadata),
             description: row.memo
         }));
         const SOL_MINT = "So11111111111111111111111111111111111111112";
@@ -387,8 +473,8 @@ export class PortfolioService {
                 const trade = filteredTrades[tradeIndex++];
                 if (trade.type !== "SWAP") continue;
 
-                const tokenOut = (trade.tokenTransfers ?? []).find((t: any) => t.fromUserAccount);
-                const tokenIn = (trade.tokenTransfers ?? []).find((t: any) => t.toUserAccount);
+                const tokenOut = trade.tokenTransfers.find((t) => t.fromUserAccount);
+                const tokenIn = trade.tokenTransfers.find((t) => t.toUserAccount);
                 if (!tokenOut || !tokenIn) continue;
 
                 const isBuy = tokenIn.mint !== SOL_MINT;
@@ -424,7 +510,9 @@ export class PortfolioService {
             chartData.push({ timestamp: time, pnl: pnlUsd, balance_usd: pnlUsd });
         }
 
-        return { chart_data: chartData };
+        const pnlResult = { chart_data: chartData };
+        await this.cacheManager.set(pnlCacheKey, pnlResult, 2 * 60 * 1000);
+        return pnlResult;
     }
 
     async getPositions(
@@ -458,10 +546,10 @@ export class PortfolioService {
         const snapshotRepo = this.walletSnapshotRepository;
         const allSnapshotEntities = walletTokenAccounts.flatMap(({ wallet, accounts }) =>
             accounts
-                .filter((acc) => acc.account.data.parsed.info.tokenAmount.uiAmount > 0)
+                .filter((acc) => (acc.account.data.parsed.info.tokenAmount.uiAmount ?? 0) > 0)
                 .map((acc) => {
                     const mint = acc.account.data.parsed.info.mint;
-                    const amount = acc.account.data.parsed.info.tokenAmount.uiAmount;
+                    const amount = acc.account.data.parsed.info.tokenAmount.uiAmount ?? 0;
                     return snapshotRepo.create({ walletAddress: wallet.address, network: this.network, tokenMint: mint, amount, snapshotAt });
                 })
         );
@@ -554,7 +642,7 @@ export class PortfolioService {
         };
     }
 
-    private async fetchWalletActivities(walletAddress: string, type: string, limit: number, before?: string) {
+    private async fetchWalletActivities(walletAddress: string, type: string, limit: number, before?: string): Promise<EnhancedTransaction[]> {
         let heliusType = "";
         if (type === "buy" || type === "sell") {
             heliusType = "SWAP";
@@ -574,20 +662,12 @@ export class PortfolioService {
             // Save detected swaps/transfers to DB so PnL can use them
             const swapsToSave = transactions.filter((tx) => this.isSwap(tx, walletAddress));
             if (swapsToSave.length > 0) {
-                const txRepo = this.transactionRepository;
-                const entities = swapsToSave.map((tx) => {
-                    const allTransfers = [
-                        ...(tx.tokenTransfers ?? []),
-                        ...(tx.nativeTransfers ?? []).map((nt: any) => ({
-                            fromUserAccount: nt.fromUserAccount,
-                            toUserAccount: nt.toUserAccount,
-                            mint: "So11111111111111111111111111111111111111112",
-                            tokenAmount: nt.amount / 1e9
-                        }))
-                    ];
-                    const tokenOut = allTransfers.find((t: any) => t.fromUserAccount === walletAddress);
-                    const tokenIn = allTransfers.find((t: any) => t.toUserAccount === walletAddress);
-                    return txRepo.create({
+                const entities: TransactionInsertRow[] = swapsToSave.map((tx) => {
+                    const allTransfers = [...(tx.tokenTransfers ?? []), ...(tx.nativeTransfers ?? []).map((nt) => this.nativeTransferToTokenTransfer(nt))];
+                    const tokenOut = allTransfers.find((t) => t.fromUserAccount === walletAddress);
+                    const tokenIn = allTransfers.find((t) => t.toUserAccount === walletAddress);
+                    const metadata: Transaction["metadata"] = { tokenTransfers: allTransfers };
+                    return {
                         signature: tx.signature,
                         network: this.network,
                         type: this.mapTxType(tx.type),
@@ -599,11 +679,11 @@ export class PortfolioService {
                         signerAddress: walletAddress,
                         blockTime: new Date(tx.timestamp * 1000),
                         memo: tx.description ?? null,
-                        metadata: { tokenTransfers: allTransfers }
-                    });
+                        metadata
+                    };
                 });
                 try {
-                    await txRepo.createQueryBuilder().insert().into(Transaction).values(entities).orIgnore().execute();
+                    await this.insertTransactionsIgnore(entities);
                 } catch {
                     /* ignore */
                 }
@@ -612,12 +692,12 @@ export class PortfolioService {
             if (type === "buy") {
                 transactions = transactions.filter((tx) => {
                     if (tx.type !== "SWAP" && !(tx.type === "UNKNOWN" && DEX_SOURCES.includes(tx.source))) return false;
-                    return !tx.tokenTransfers.find((t: any) => t.fromUserAccount === walletAddress);
+                    return !tx.tokenTransfers.find((t) => t.fromUserAccount === walletAddress);
                 });
             } else if (type === "sell") {
                 transactions = transactions.filter((tx) => {
                     if (tx.type !== "SWAP" && !(tx.type === "UNKNOWN" && DEX_SOURCES.includes(tx.source))) return false;
-                    return !!tx.tokenTransfers.find((t: any) => t.fromUserAccount === walletAddress);
+                    return !!tx.tokenTransfers.find((t) => t.fromUserAccount === walletAddress);
                 });
             }
 
@@ -636,8 +716,12 @@ export class PortfolioService {
         return source.charAt(0) + source.slice(1).toLowerCase().replace(/_/g, " ");
     }
 
-    private async mapToActivity(tx: any, walletAddress: string, solPrice: number, tokenMetaMap: Map<string, TokenMetadata>) {
-        const SOL_MINT = "So11111111111111111111111111111111111111112";
+    private async mapToActivity(
+        tx: EnhancedTransaction,
+        walletAddress: string,
+        solPrice: number,
+        _tokenMetaMap: Map<string, TokenMetadata>
+    ): Promise<PortfolioActivity | null> {
         const network = this.network;
 
         const feeSol = tx.fee ? tx.fee / LAMPORTS_PER_SOL : 0;
@@ -647,7 +731,7 @@ export class PortfolioService {
 
         const isDexSwap = tx.type === "SWAP" || (tx.type === "UNKNOWN" && DEX_SOURCES.includes(tx.source));
 
-        let app = {
+        let app: ActivityApp = {
             name: this.formatSourceName(tx.source),
             type: isDexSwap ? "DEX" : "PROGRAM",
             icon: ""
@@ -659,9 +743,9 @@ export class PortfolioService {
         if (tx.source && tx.source !== "UNKNOWN") tags.push(tx.source);
 
         let type: string = isDexSwap ? "SWAP" : tx.type;
-        let token_in: any;
-        let token_out: any;
-        let token: any;
+        let token_in: ActivityToken | undefined;
+        let token_out: ActivityToken | undefined;
+        let token: ActivityToken | undefined;
         let from: string | undefined;
         let to: string | undefined;
 
@@ -669,7 +753,7 @@ export class PortfolioService {
             const swapEvent = tx.events?.swap;
             if (swapEvent) {
                 if (swapEvent.nativeInput) {
-                    const amount = swapEvent.nativeInput.amount / LAMPORTS_PER_SOL;
+                    const amount = Number(swapEvent.nativeInput.amount) / LAMPORTS_PER_SOL;
                     token_in = {
                         address: SOL_MINT,
                         symbol: "SOL",
@@ -691,7 +775,7 @@ export class PortfolioService {
                 }
 
                 if (swapEvent.nativeOutput) {
-                    const amount = swapEvent.nativeOutput.amount / LAMPORTS_PER_SOL;
+                    const amount = Number(swapEvent.nativeOutput.amount) / LAMPORTS_PER_SOL;
                     token_out = {
                         address: SOL_MINT,
                         symbol: "SOL",
@@ -712,8 +796,8 @@ export class PortfolioService {
                     };
                 }
             } else {
-                const sold = (tx.tokenTransfers ?? []).find((t: any) => t.fromUserAccount === walletAddress);
-                const bought = (tx.tokenTransfers ?? []).find((t: any) => t.toUserAccount === walletAddress);
+                const sold = (tx.tokenTransfers ?? []).find((t) => t.fromUserAccount === walletAddress);
+                const bought = (tx.tokenTransfers ?? []).find((t) => t.toUserAccount === walletAddress);
                 if (sold) {
                     const inMeta = await this.tokenService.findOne(sold.mint);
                     token_in = {
@@ -725,7 +809,7 @@ export class PortfolioService {
                     };
                 }
                 if (bought) {
-                    const outMeta = await this.tokenService.findOne(sold.mint);
+                    const outMeta = await this.tokenService.findOne(bought.mint);
 
                     token_out = {
                         address: bought.mint,
@@ -740,21 +824,21 @@ export class PortfolioService {
             // Only show transfers where the user's wallet is the direct sender or receiver.
             // Intermediate routing hops (program accounts as from/to) are filtered out as noise.
             const allXfers = [...(tx.tokenTransfers ?? []), ...(tx.nativeTransfers ?? [])];
-            const isDirectlyInvolved = allXfers.some((t: any) => t.fromUserAccount === walletAddress || t.toUserAccount === walletAddress);
+            const isDirectlyInvolved = allXfers.some((t) => t.fromUserAccount === walletAddress || t.toUserAccount === walletAddress);
             if (!isDirectlyInvolved) return null;
 
             // Implicit swap detection: Jupiter multi-hop routes sometimes surface as TRANSFER
             // when SOL + token transfers appear in the same tx (e.g. SOL→USDT→MEDIA).
-            const implicitTokenIn = (tx.tokenTransfers ?? []).find((t: any) => t.toUserAccount === walletAddress);
-            const implicitTokenOut = (tx.tokenTransfers ?? []).find((t: any) => t.fromUserAccount === walletAddress);
-            const implicitSolOut = (tx.nativeTransfers ?? []).find((t: any) => t.fromUserAccount === walletAddress && t.amount >= 1000);
-            const implicitSolIn = (tx.nativeTransfers ?? []).find((t: any) => t.toUserAccount === walletAddress && t.amount >= 1000);
+            const implicitTokenIn = (tx.tokenTransfers ?? []).find((t) => t.toUserAccount === walletAddress);
+            const implicitTokenOut = (tx.tokenTransfers ?? []).find((t) => t.fromUserAccount === walletAddress);
+            const implicitSolOut = (tx.nativeTransfers ?? []).find((t) => t.fromUserAccount === walletAddress && t.amount >= 1000);
+            const implicitSolIn = (tx.nativeTransfers ?? []).find((t) => t.toUserAccount === walletAddress && t.amount >= 1000);
 
             // Fallback: check accountData.tokenBalanceChanges for tokens received by the wallet
             // (Helius omits them from tokenTransfers for some Jupiter multi-hop routes)
             let accountDataTokenIn: { mint: string; tokenAmount: number } | undefined;
             let accountDataTokenOut: { mint: string; tokenAmount: number } | undefined;
-            const walletAccountData = (tx.accountData ?? []).find((d: any) => d.account === walletAddress);
+            const walletAccountData = (tx.accountData ?? []).find((d) => d.account === walletAddress);
             if (walletAccountData?.tokenBalanceChanges) {
                 for (const c of walletAccountData.tokenBalanceChanges) {
                     const rawAmt = parseFloat(c.rawTokenAmount?.tokenAmount ?? "0");
@@ -832,10 +916,9 @@ export class PortfolioService {
             } else {
                 // Normal transfer: pick the transfer directly involving the wallet
                 const tokenTransfer =
-                    (tx.tokenTransfers ?? []).find((t: any) => t.fromUserAccount === walletAddress || t.toUserAccount === walletAddress) ??
+                    (tx.tokenTransfers ?? []).find((t) => t.fromUserAccount === walletAddress || t.toUserAccount === walletAddress) ??
                     (tx.tokenTransfers ?? [])[0];
-                const nativeTransfer =
-                    (tx.nativeTransfers ?? []).find((t: any) => t.fromUserAccount === walletAddress || t.toUserAccount === walletAddress) ?? null;
+                const nativeTransfer = (tx.nativeTransfers ?? []).find((t) => t.fromUserAccount === walletAddress || t.toUserAccount === walletAddress) ?? null;
 
                 // Filter dust: native SOL transfers < 1000 lamports are ATA rent noise
                 if (!tokenTransfer && nativeTransfer && nativeTransfer.amount < 1000) return null;
@@ -940,7 +1023,7 @@ export class PortfolioService {
         const results = await Promise.all(
             targetAddresses.map(async (addr) => {
                 const txs = await this.fetchWalletActivities(addr, type, limit, walletAddress ? before : undefined);
-                return txs.map((tx: any) => ({ tx, addr }));
+                return txs.map((tx) => ({ tx, addr }));
             })
         );
 
@@ -963,9 +1046,8 @@ export class PortfolioService {
         }
         const tokenMetaMap = await this.tokenService.findMany(Array.from(uniqueMints));
 
-        const activities = await Promise.all(
-            sliced.map(({ tx, addr }) => this.mapToActivity(tx, addr, solPrice, tokenMetaMap)).filter((a): a is NonNullable<typeof a> => a !== null)
-        );
+        const mappedActivities = await Promise.all(sliced.map(({ tx, addr }) => this.mapToActivity(tx, addr, solPrice, tokenMetaMap)));
+        const activities = mappedActivities.filter((a): a is PortfolioActivity => a !== null);
 
         await this.enrichActivitiesWithSwapDetails(activities, tokenMetaMap);
 
@@ -984,7 +1066,7 @@ export class PortfolioService {
     async getPerformance(
         userId: string,
         walletAddresses: string[],
-        timeFrame: string // TODO: filter fetchAllTrades by timeFrame (currently fetches last 100 per wallet)
+        _timeFrame: string // TODO: filter fetchAllTrades by timeFrame (currently fetches last 100 per wallet)
     ) {
         let wallets = await this.walletsService.findByUserId(userId);
         if (walletAddresses && walletAddresses.length > 0) {
@@ -1075,33 +1157,31 @@ export class PortfolioService {
         };
     }
 
-    private isSwap(tx: any, walletAddress: string): boolean {
+    private isSwap(tx: EnhancedTransaction, walletAddress: string): boolean {
         if (tx.type === "SWAP" || tx.type === "TRANSFER") return true;
         if (tx.events?.swap) return true;
-        const transfers: any[] = tx.tokenTransfers ?? [];
+        const transfers = tx.tokenTransfers ?? [];
         const sent = transfers.find((t) => t.fromUserAccount === walletAddress);
         const received = transfers.find((t) => t.toUserAccount === walletAddress);
         return !!(sent && received && sent.mint !== received.mint);
     }
 
-    private async fetchAllTrades(wallets: any[]): Promise<any[]> {
+    private async fetchAllTrades(wallets: Wallet[]): Promise<PortfolioTrade[]> {
         const HELIUS_CACHE_TTL = 2 * 60 * 1000;
         const TWO_YEARS_SEC = 2 * 365 * 24 * 60 * 60;
         const cutoffSec = Math.floor(Date.now() / 1000) - TWO_YEARS_SEC;
-        let allSwaps: any[] = [];
+        let allSwaps: PortfolioTrade[] = [];
 
         for (const wallet of wallets) {
             const cacheKey = `helius-swaps-${wallet.address}`;
 
             // L1: Redis cache
-            // const cached = await this.cacheManager.get<any[]>(cacheKey);
-            // if (cached && Array.isArray(cached)) {
-            //   this.logger.log(
-            //     `[fetchAllTrades] cache hit: ${wallet.address} (${cached.length} swaps)`,
-            //   );
-            //   allSwaps = allSwaps.concat(cached);
-            //   continue;
-            // }
+            const cached = await this.cacheManager.get<PortfolioTrade[]>(cacheKey);
+            if (cached && Array.isArray(cached)) {
+                this.logger.log(`[fetchAllTrades] cache hit: ${wallet.address} (${cached.length} swaps)`);
+                allSwaps = allSwaps.concat(cached);
+                continue;
+            }
 
             // L2: DB — get known signatures for this wallet (all types for dedup)
             const knownRows = await this.transactionRepository.find({
@@ -1149,13 +1229,14 @@ export class PortfolioService {
                 .andWhere("t.type = :type", { type: TransactionType.SWAP })
                 .andWhere("t.blockTime >= :cutoff", { cutoff: new Date(cutoffSec * 1000) })
                 .orderBy("t.blockTime", "DESC")
+                .limit(5000)
                 .getMany();
 
-            const walletSwaps = dbTrades.map((row) => ({
+            const walletSwaps: PortfolioTrade[] = dbTrades.map((row) => ({
                 signature: row.signature,
                 timestamp: row.blockTime ? Math.floor(row.blockTime.getTime() / 1000) : 0,
                 type: "SWAP",
-                tokenTransfers: (row.metadata as any)?.tokenTransfers ?? [],
+                tokenTransfers: this.getStoredTokenTransfers(row.metadata),
                 description: row.memo
             }));
 
@@ -1167,7 +1248,7 @@ export class PortfolioService {
         return allSwaps;
     }
 
-    private calculatePnl(trades: any[]): Map<
+    private calculatePnl(trades: PortfolioTrade[]): Map<
         string,
         {
             token: string;
@@ -1255,7 +1336,7 @@ export class PortfolioService {
         return pnlMap;
     }
 
-    private async getTransactionStats(wallets: any[]) {
+    private async getTransactionStats(wallets: Wallet[]) {
         const stats = {
             total: 0,
             buys: 0,
@@ -1270,7 +1351,7 @@ export class PortfolioService {
 
         for (const wallet of wallets) {
             const cacheKey = `helius-tx-stats-${wallet.address}`;
-            const cachedTxs = await this.cacheManager.get<any[]>(cacheKey);
+            const cachedTxs = await this.cacheManager.get<EnhancedTransaction[]>(cacheKey);
             const transactions =
                 cachedTxs && Array.isArray(cachedTxs)
                     ? cachedTxs
@@ -1295,20 +1376,12 @@ export class PortfolioService {
             // Save fetched transactions to DB (fire-and-forget)
             const toSave = transactions.filter((tx) => this.isSwap(tx, wallet.address));
             if (toSave.length > 0) {
-                const txRepo = this.transactionRepository;
-                const entities = toSave.map((tx) => {
-                    const allTransfers = [
-                        ...(tx.tokenTransfers ?? []),
-                        ...(tx.nativeTransfers ?? []).map((nt: any) => ({
-                            fromUserAccount: nt.fromUserAccount,
-                            toUserAccount: nt.toUserAccount,
-                            mint: "So11111111111111111111111111111111111111112",
-                            tokenAmount: nt.amount / 1e9
-                        }))
-                    ];
-                    const tokenOut = allTransfers.find((t: any) => t.fromUserAccount === wallet.address);
-                    const tokenIn = allTransfers.find((t: any) => t.toUserAccount === wallet.address);
-                    return txRepo.create({
+                const entities: TransactionInsertRow[] = toSave.map((tx) => {
+                    const allTransfers = [...(tx.tokenTransfers ?? []), ...(tx.nativeTransfers ?? []).map((nt) => this.nativeTransferToTokenTransfer(nt))];
+                    const tokenOut = allTransfers.find((t) => t.fromUserAccount === wallet.address);
+                    const tokenIn = allTransfers.find((t) => t.toUserAccount === wallet.address);
+                    const metadata: Transaction["metadata"] = { tokenTransfers: allTransfers };
+                    return {
                         signature: tx.signature,
                         network: this.network,
                         type: this.mapTxType(tx.type),
@@ -1320,27 +1393,20 @@ export class PortfolioService {
                         signerAddress: wallet.address,
                         blockTime: new Date(tx.timestamp * 1000),
                         memo: tx.description ?? null,
-                        metadata: { tokenTransfers: allTransfers }
-                    });
+                        metadata
+                    };
                 });
-                txRepo
-                    .createQueryBuilder()
-                    .insert()
-                    .into(Transaction)
-                    .values(entities)
-                    .orIgnore()
-                    .execute()
-                    .catch((err) => this.logger.error("Failed to save stats transactions:", err));
+                this.insertTransactionsIgnore(entities).catch((err) => this.logger.error("Failed to save stats transactions:", err));
             }
 
             for (const tx of transactions) {
                 stats.total++;
-                if (tx.blockTime > twentyFourHoursAgo) {
+                if (tx.timestamp > twentyFourHoursAgo) {
                     stats.last_24h++;
                 }
 
                 if (tx.type === "SWAP" || (tx.type === "UNKNOWN" && DEX_SOURCES.includes(tx.source))) {
-                    const tokenOut = tx.tokenTransfers.find((t: any) => t.fromUserAccount === wallet.address);
+                    const tokenOut = tx.tokenTransfers.find((t) => t.fromUserAccount === wallet.address);
                     if (tokenOut) {
                         stats.sells++;
                     } else {
@@ -1395,12 +1461,14 @@ export class PortfolioService {
 
     // ── Watch endpoints: bypass ownership, use address directly ──────────────
 
-    async getOverviewByAddress(walletAddress: string, timeFrame?: string) {
+    async getOverviewByAddress(walletAddress: string, _timeFrame?: string) {
         const pubkey = new PublicKey(walletAddress);
+        const tokenAccountsPromise: Promise<ParsedTokenAccount[]> = this.solanaService.getParsedTokenAccountsByOwner(pubkey);
+
         const [solPrice, total_balance_sol, tokenAccounts] = await Promise.all([
             this.getSolPriceUsd(),
             this.solanaService.getBalance(pubkey),
-            this.solanaService.getParsedTokenAccountsByOwner(pubkey)
+            tokenAccountsPromise
         ]);
         let total_balance_usd = total_balance_sol * solPrice;
 
@@ -1426,8 +1494,8 @@ export class PortfolioService {
         const tokenPrices = await this.getTokenPrices(mintAddresses, tokenMetaMap);
 
         let tokenTotalUsd = 0;
-        const top_tokens: any[] = [];
-        const allocation: any[] = [{ symbol: "SOL", value_usd: total_balance_sol * solPrice, percentage: 0 }];
+        const top_tokens: OverviewToken[] = [];
+        const allocation: AllocationItem[] = [{ symbol: "SOL", value_usd: total_balance_sol * solPrice, percentage: 0 }];
 
         for (const [mint, data] of aggregatedTokens) {
             const price = tokenPrices.get(mint) || 0;
@@ -1474,12 +1542,18 @@ export class PortfolioService {
         };
     }
 
-    async getPositionsByAddress(walletAddress: string, sortBy: string = "value_usd", showZeroBalance: boolean = false): Promise<PortfolioPositionsResponseDto> {
+    async getPositionsByAddress(
+        walletAddress: string,
+        _sortBy: string = "value_usd",
+        showZeroBalance: boolean = false
+    ): Promise<PortfolioPositionsResponseDto> {
         const pubkey = new PublicKey(walletAddress);
+        const tokenAccountsPromise: Promise<ParsedTokenAccount[]> = this.solanaService.getParsedTokenAccountsByOwner(pubkey);
+
         const [solPrice, totalSolBalance, tokenAccounts] = await Promise.all([
             this.getSolPriceUsd(),
             this.solanaService.getBalance(pubkey),
-            this.solanaService.getParsedTokenAccountsByOwner(pubkey)
+            tokenAccountsPromise
         ]);
 
         const aggregatedTokens = new Map<string, AggregatedTokenHolding>();
@@ -1554,7 +1628,7 @@ export class PortfolioService {
      * fetch the full Helius transaction details and check accountData.tokenBalanceChanges
      * to detect unclassified swaps (e.g. Jupiter multi-hop routes that split across txs).
      */
-    private async enrichActivitiesWithSwapDetails(activities: any[], tokenMetaMap: Map<string, TokenMetadata>): Promise<void> {
+    private async enrichActivitiesWithSwapDetails(activities: PortfolioActivity[], tokenMetaMap: Map<string, TokenMetadata>): Promise<void> {
         const SOL_MINT_ADDR = "So11111111111111111111111111111111111111112";
         const getSymbol = (mint: string) => (mint === SOL_MINT_ADDR ? "SOL" : (tokenMetaMap.get(mint)?.symbol ?? mint.slice(0, 8)));
         const getLogo = (mint: string) =>
@@ -1574,11 +1648,11 @@ export class PortfolioService {
                     if (!txDetail) return;
 
                     // Find this wallet's accountData to see token balance changes
-                    const walletData = (txDetail.accountData ?? []).find((d: any) => d.account === activity.from);
+                    const walletData = (txDetail.accountData ?? []).find((d) => d.account === activity.from);
                     if (!walletData) return;
 
                     // Any positive tokenBalanceChange means the wallet received a token in this tx
-                    const received = (walletData.tokenBalanceChanges ?? []).find((c: any) => parseFloat(c.rawTokenAmount?.tokenAmount ?? "0") > 0);
+                    const received = (walletData.tokenBalanceChanges ?? []).find((c) => parseFloat(c.rawTokenAmount?.tokenAmount ?? "0") > 0);
                     if (!received) return;
 
                     const decimals: number = received.rawTokenAmount?.decimals ?? 0;
@@ -1586,7 +1660,7 @@ export class PortfolioService {
                     const mint: string = received.mint;
 
                     // Reclassify as SWAP
-                    const updated: any = {
+                    const updated: PortfolioActivity = {
                         ...activity,
                         type: "SWAP",
                         app: { name: "Jupiter", type: "DEX", icon: "" },
@@ -1608,8 +1682,8 @@ export class PortfolioService {
         const solPrice = await this.getSolPriceUsd();
 
         let txs = await this.fetchWalletActivities(walletAddress, type, limit, before);
-        if (from) txs = txs.filter((tx: any) => (tx.timestamp ?? 0) >= Number(from));
-        if (to) txs = txs.filter((tx: any) => (tx.timestamp ?? 0) <= Number(to));
+        if (from) txs = txs.filter((tx) => (tx.timestamp ?? 0) >= Number(from));
+        if (to) txs = txs.filter((tx) => (tx.timestamp ?? 0) <= Number(to));
 
         const sliced = txs.slice(0, limit);
 
@@ -1622,9 +1696,8 @@ export class PortfolioService {
         }
         const tokenMetaMap = await this.tokenService.findMany(Array.from(uniqueMints));
 
-        const activities = sliced
-            .map((tx: any) => this.mapToActivity(tx, walletAddress, solPrice, tokenMetaMap))
-            .filter((a): a is NonNullable<typeof a> => a !== null);
+        const mappedActivities = await Promise.all(sliced.map((tx) => this.mapToActivity(tx, walletAddress, solPrice, tokenMetaMap)));
+        const activities = mappedActivities.filter((a): a is NonNullable<typeof a> => a !== null);
 
         await this.enrichActivitiesWithSwapDetails(activities, tokenMetaMap);
 
@@ -1633,7 +1706,7 @@ export class PortfolioService {
             total: activities.length,
             summary: {
                 total_volume_usd: 0,
-                total_fees_usd: activities.reduce((acc: number, a: any) => acc + a.fee_usd, 0)
+                total_fees_usd: activities.reduce((acc, a) => acc + a.fee_usd, 0)
             }
         };
     }
@@ -1669,6 +1742,10 @@ export class PortfolioService {
                 break;
         }
 
+        const pnlAddrCacheKey = `pnl_chart_addr:${walletAddress}:${timeFrame}:${interval}`;
+        const pnlAddrCached = await this.cacheManager.get<{ chart_data: { timestamp: number; pnl: number; balance_usd: number }[] }>(pnlAddrCacheKey);
+        if (pnlAddrCached) return pnlAddrCached;
+
         const TWO_YEARS_SEC = 2 * 365 * 24 * 60 * 60;
         const cutoffSec = Math.floor(now / 1000) - TWO_YEARS_SEC;
         const startTimeSec = Math.floor(startTime / 1000);
@@ -1694,7 +1771,7 @@ export class PortfolioService {
             signature: row.signature,
             timestamp: row.blockTime ? Math.floor(row.blockTime.getTime() / 1000) : 0,
             type: "SWAP",
-            tokenTransfers: (row.metadata as any)?.tokenTransfers ?? []
+            tokenTransfers: this.getStoredTokenTransfers(row.metadata)
         }));
 
         const SOL_MINT = "So11111111111111111111111111111111111111112";
@@ -1711,8 +1788,8 @@ export class PortfolioService {
             while (tradeIndex < filteredTrades.length && filteredTrades[tradeIndex].timestamp <= timeSec) {
                 const trade = filteredTrades[tradeIndex++];
                 if (trade.type !== "SWAP") continue;
-                const tokenOut = (trade.tokenTransfers ?? []).find((t: any) => t.fromUserAccount);
-                const tokenIn = (trade.tokenTransfers ?? []).find((t: any) => t.toUserAccount);
+                const tokenOut = trade.tokenTransfers.find((t) => t.fromUserAccount);
+                const tokenIn = trade.tokenTransfers.find((t) => t.toUserAccount);
                 if (!tokenOut || !tokenIn) continue;
                 const isBuy = tokenIn.mint !== SOL_MINT;
                 const tokenMint = isBuy ? tokenIn.mint : tokenOut.mint;
@@ -1737,6 +1814,8 @@ export class PortfolioService {
             chartData.push({ timestamp: time, pnl: pnlUsd, balance_usd: pnlUsd });
         }
 
-        return { chart_data: chartData };
+        const pnlAddrResult = { chart_data: chartData };
+        await this.cacheManager.set(pnlAddrCacheKey, pnlAddrResult, 2 * 60 * 1000);
+        return pnlAddrResult;
     }
 }

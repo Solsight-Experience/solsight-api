@@ -1,6 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository, MoreThan } from "typeorm";
+import { randomBytes } from "crypto";
 import { ZaloSubscription } from "../entities/zalo-subscription.entity";
 import { ZaloApiService } from "./zalo-api.service";
 
@@ -72,6 +73,6 @@ export class ZaloSubscriptionService {
     }
 
     private makeToken(): string {
-        return require("crypto").randomBytes(3).toString("hex").toUpperCase();
+        return randomBytes(3).toString("hex").toUpperCase();
     }
 }
