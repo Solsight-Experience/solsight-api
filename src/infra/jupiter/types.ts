@@ -1,4 +1,4 @@
-type ComputeUnitPrice = "auto" | string;
+type ComputeUnitPrice = string;
 
 export interface JupiterPriceV3Item {
     createdAt: string;
@@ -240,7 +240,7 @@ export interface JupiterGetSwapQuoteParams {
     inputMint: string;
     outputMint: string;
     amount: string;
-    swapMode?: JupiterSwapMode | string;
+    swapMode?: JupiterSwapMode;
     slippageBps?: number;
     dexes?: string;
     excludeDexes?: string;

@@ -1,12 +1,8 @@
-import { Controller, Get, Patch, Delete, Param, Query, UseGuards, Request } from "@nestjs/common";
+import { Controller, Get, Patch, Delete, Param, Query, UseGuards } from "@nestjs/common";
 import { JwtAuthGuard } from "../../auth/guards/jwt-auth.guard";
 import { NotificationsService } from "../services/notifications.service";
 import { QueryNotificationsDto } from "../dtos/query-notifications.dto";
-import { User } from "../../users/entities/user.entity";
-
-interface AuthenticatedRequest extends Request {
-    user: User;
-}
+import { CurrentUser, CurrentUserPayload } from "../../../common/decorators/current-user.decorator";
 
 @Controller("notifications")
 @UseGuards(JwtAuthGuard)
@@ -14,37 +10,37 @@ export class NotificationsController {
     constructor(private readonly notificationsService: NotificationsService) {}
 
     @Get()
-    async getNotifications(@Request() req: AuthenticatedRequest, @Query() query: QueryNotificationsDto) {
-        return this.notificationsService.getNotificationsForUser(req.user.id, query);
+    async getNotifications(@CurrentUser() user: CurrentUserPayload, @Query() query: QueryNotificationsDto) {
+        return this.notificationsService.getNotificationsForUser(user.id, query);
     }
 
     @Get("unread-count")
-    async getUnreadCount(@Request() req: AuthenticatedRequest) {
-        const count = await this.notificationsService.countUnread(req.user.id);
+    async getUnreadCount(@CurrentUser() user: CurrentUserPayload) {
+        const count = await this.notificationsService.countUnread(user.id);
         return { count };
     }
 
     @Patch(":id/read")
-    async markAsRead(@Request() req: AuthenticatedRequest, @Param("id") id: string) {
-        await this.notificationsService.markAsRead(id, req.user.id);
+    async markAsRead(@CurrentUser() user: CurrentUserPayload, @Param("id") id: string) {
+        await this.notificationsService.markAsRead(id, user.id);
         return { success: true };
     }
 
     @Patch("read-all")
-    async markAllAsRead(@Request() req: AuthenticatedRequest) {
-        await this.notificationsService.markAllAsRead(req.user.id);
+    async markAllAsRead(@CurrentUser() user: CurrentUserPayload) {
+        await this.notificationsService.markAllAsRead(user.id);
         return { success: true };
     }
 
     @Delete()
-    async deleteAllNotifications(@Request() req: AuthenticatedRequest) {
-        await this.notificationsService.deleteAll(req.user.id);
+    async deleteAllNotifications(@CurrentUser() user: CurrentUserPayload) {
+        await this.notificationsService.deleteAll(user.id);
         return { success: true };
     }
 
     @Delete(":id")
-    async deleteNotification(@Request() req: AuthenticatedRequest, @Param("id") id: string) {
-        await this.notificationsService.delete(id, req.user.id);
+    async deleteNotification(@CurrentUser() user: CurrentUserPayload, @Param("id") id: string) {
+        await this.notificationsService.delete(id, user.id);
         return { success: true };
     }
 }

@@ -22,7 +22,7 @@ export function IsSolanaAddress(onCurveOnly = false, validationOptions?: Validat
             propertyName,
             options: validationOptions,
             validator: {
-                validate(value: any) {
+                validate(value: string) {
                     try {
                         // Must be a string
                         if (typeof value !== "string") return false;

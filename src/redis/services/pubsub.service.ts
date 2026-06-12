@@ -28,7 +28,7 @@ export class PubSubService implements OnModuleDestroy {
         }
     }
 
-    async publish(channel: string, message: any): Promise<number> {
+    async publish<T>(channel: string, message: T): Promise<number> {
         if (!this.publisher) return 0;
         try {
             const payload = typeof message === "string" ? message : JSON.stringify(message);
@@ -39,7 +39,7 @@ export class PubSubService implements OnModuleDestroy {
         }
     }
 
-    async subscribe(channel: string, handler: (message: any, channel: string) => void): Promise<void> {
+    async subscribe<T = string>(channel: string, handler: (message: T, channel: string) => void): Promise<void> {
         if (!this.subscriber) {
             this.logger.warn(`Cannot subscribe to "${channel}": Redis unavailable`);
             return;
@@ -50,10 +50,10 @@ export class PubSubService implements OnModuleDestroy {
             this.subscriber.on("message", (ch: string, msg: string) => {
                 if (ch === channel) {
                     try {
-                        const parsed = JSON.parse(msg);
+                        const parsed = JSON.parse(msg) as T;
                         handler(parsed, ch);
                     } catch {
-                        handler(msg, ch);
+                        handler(msg as T, ch);
                     }
                 }
             });
@@ -74,7 +74,7 @@ export class PubSubService implements OnModuleDestroy {
         }
     }
 
-    async psubscribe(pattern: string, handler: (message: any, channel: string) => void): Promise<void> {
+    async psubscribe<T = string>(pattern: string, handler: (message: T, channel: string) => void): Promise<void> {
         if (!this.subscriber) {
             this.logger.warn(`Cannot psubscribe to "${pattern}": Redis unavailable`);
             return;
@@ -85,10 +85,10 @@ export class PubSubService implements OnModuleDestroy {
             this.subscriber.on("pmessage", (pat: string, ch: string, msg: string) => {
                 if (pat === pattern) {
                     try {
-                        const parsed = JSON.parse(msg);
+                        const parsed = JSON.parse(msg) as T;
                         handler(parsed, ch);
                     } catch {
-                        handler(msg, ch);
+                        handler(msg as T, ch);
                     }
                 }
             });

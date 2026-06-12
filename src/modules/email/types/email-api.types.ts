@@ -17,3 +17,10 @@ export interface SendWalletAlertPayload {
     bodyHtml: string;
     bodyText: string;
 }
+
+export interface SendEmailPayload {
+    to: string;
+    subject: string;
+    text?: string;
+    html?: string;
+}

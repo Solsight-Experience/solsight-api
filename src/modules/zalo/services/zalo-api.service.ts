@@ -1,13 +1,7 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import axios from "axios";
-
-export interface ZaloUpdate {
-    fromId: string;
-    chatId: string;
-    text: string;
-    date: number;
-}
+import { ZaloUpdate, ZaloUpdatesResponse } from "../types/zalo-api.types";
 
 @Injectable()
 export class ZaloApiService {
@@ -38,12 +32,19 @@ export class ZaloApiService {
      */
     async getUpdate(timeoutSec = 25): Promise<ZaloUpdate | null> {
         try {
-            const { data } = await axios.post(`${this.baseUrl}/getUpdates`, { timeout: String(timeoutSec) }, { timeout: (timeoutSec + 5) * 1000 });
+            const { data } = await axios.post<ZaloUpdatesResponse>(
+                `${this.baseUrl}/getUpdates`,
+                { timeout: String(timeoutSec) },
+                { timeout: (timeoutSec + 5) * 1000 }
+            );
             if (!data?.ok || !data?.result?.message) return null;
             const msg = data.result.message;
+            const fromId = msg.from?.id;
+            const chatId = msg.chat?.id ?? fromId;
+            if (!fromId || !chatId) return null;
             return {
-                fromId: msg.from?.id,
-                chatId: msg.chat?.id ?? msg.from?.id,
+                fromId,
+                chatId,
                 text: msg.text ?? "",
                 date: msg.date ?? Date.now()
             };

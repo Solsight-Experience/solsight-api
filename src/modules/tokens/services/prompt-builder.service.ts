@@ -1,12 +1,5 @@
 import { Injectable, Logger } from "@nestjs/common";
-
-export interface TokenContext {
-    name: string;
-    symbol: string;
-    description?: string;
-    category?: string;
-    website?: string;
-}
+import { TokenContext } from "../types/token-summary.types";
 
 @Injectable()
 export class PromptBuilderService {
