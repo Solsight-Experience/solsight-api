@@ -4,7 +4,7 @@ import { Repository } from "typeorm";
 import { RedisService } from "../../../../redis/services/redis.service";
 import { Token } from "../../entities/token.entity";
 import { ClusterProvider } from "../../../../common/cluster/cluster.provider";
-import { SwapEvent, TokenStats, SwapPriceResult, TradeData, isValidPrice } from "../../types/swap-event.type";
+import { SwapEvent, TokenStats, SwapPriceResult, TradeData, isValidPrice } from "../../types/swap-event.types";
 
 const TRADES_MAX_SIZE = 500;
 const TRADES_TTL = 25 * 60 * 60;

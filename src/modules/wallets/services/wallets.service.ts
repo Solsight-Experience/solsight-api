@@ -5,6 +5,7 @@ import { Wallet, WalletIcon } from "../entities/wallet.entity";
 import { CreateWalletDto } from "../dtos/create-wallet.dto";
 import { SolanaService } from "../../../infra/solana/solana.service";
 import { PublicKey } from "@solana/web3.js";
+import { ParsedTokenAccount } from "../../../infra/solana/solana.types";
 import { WalletsResponse, Position, WalletSummary, Wallet as WalletDto } from "../dtos/wallet.response.dto";
 import { TokensService } from "../../tokens/services/tokens.service";
 import { CoinGeckoService } from "../../../infra/coingecko/coingecko.service";
@@ -126,7 +127,7 @@ export class WalletsService {
     private async getWalletPositions(walletAddress: string): Promise<Position[]> {
         try {
             const publicKey = new PublicKey(walletAddress);
-            const tokenAccounts = await this.solanaService.getParsedTokenAccountsByOwner(publicKey);
+            const tokenAccounts: ParsedTokenAccount[] = await this.solanaService.getParsedTokenAccountsByOwner(publicKey);
 
             const holdings: Array<{ mintAddress: string; balance: number }> = [];
             for (const account of tokenAccounts) {

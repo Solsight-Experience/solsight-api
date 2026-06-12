@@ -4,7 +4,7 @@ import { TOKEN_PROGRAM_ID, getAssociatedTokenAddress } from "@solana/spl-token";
 import { HeliusResolver } from "./helius.resolver";
 import { ClusterProvider } from "../../common/cluster/cluster.provider";
 import { SubmitAndConfirmOptions } from "./constants/types";
-import { ParsedTokenAccount } from "./solana.type";
+import { ParsedTokenAccount } from "./solana.types";
 
 @Injectable()
 export class SolanaService {

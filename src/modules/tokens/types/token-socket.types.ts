@@ -1,4 +1,4 @@
-import { TradeData, TokenStats } from "./swap-event.type";
+import { TradeData, TokenStats } from "./swap-event.types";
 import { EnrichedHolder } from "./holder-aggregation.types";
 import { TraderAggregationService } from "../services/aggregation/trader-aggregation.service";
 

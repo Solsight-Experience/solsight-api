@@ -6,7 +6,7 @@ import { StatsAggregationService } from "../aggregation/stats-aggregation.servic
 import { OhlcAggregationService } from "../aggregation/ohlc-aggregation.service";
 import { TraderAggregationService } from "../aggregation/trader-aggregation.service";
 import { HolderAggregationService } from "../aggregation/holder-aggregation.service";
-import { SwapEvent, TradeData, transformSwapToTradeForToken, calculateSwapPrices } from "../../types/swap-event.type";
+import { SwapEvent, TradeData, transformSwapToTradeForToken, calculateSwapPrices } from "../../types/swap-event.types";
 import { EnrichedHolder } from "../../types/holder-aggregation.types";
 import { TokenSocketData } from "../../types/token-socket.types";
 

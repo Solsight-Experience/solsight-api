@@ -1,6 +1,6 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { RedisService } from "../../../../redis/services/redis.service";
-import { SwapEvent, OhlcData, SwapPriceResult } from "../../types/swap-event.type";
+import { SwapEvent, OhlcData, SwapPriceResult } from "../../types/swap-event.types";
 import { OhlcInterval } from "../socket/room/room.constants";
 import { OhlcHistoryPoint } from "../../types/ohlc-aggregation.types";
 

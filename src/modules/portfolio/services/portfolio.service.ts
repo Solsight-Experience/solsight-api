@@ -16,6 +16,7 @@ import { TokenMetadata } from "src/modules/tokens/dtos/token.response.dto";
 import { ClusterProvider } from "../../../common/cluster/cluster.provider";
 import { PortfolioPositionResponseDto, PortfolioPositionsResponseDto } from "../dtos/portfolio-position.response.dto";
 import { COMMON_TOKEN_MINT } from "src/modules/tokens/constants/token.constant";
+import { ParsedTokenAccount } from "../../../infra/solana/solana.types";
 import {
     ActivityApp,
     ActivityToken,
@@ -249,10 +250,12 @@ export class PortfolioService {
             wallets = wallets.filter((w) => walletAddresses.includes(w.address));
         }
 
-        const [solPrice, allTokenAccounts] = await Promise.all([
-            this.getSolPriceUsd(),
-            Promise.all(wallets.map((w) => this.solanaService.getParsedTokenAccountsByOwner(new PublicKey(w.address)))).then((r) => r.flat())
-        ]);
+        const tokenAccountGroups: ParsedTokenAccount[][] = await Promise.all(
+            wallets.map((wallet) => this.solanaService.getParsedTokenAccountsByOwner(new PublicKey(wallet.address)))
+        );
+        const allTokenAccounts: ParsedTokenAccount[] = tokenAccountGroups.reduce((accumulator, group) => accumulator.concat(group), [] as ParsedTokenAccount[]);
+
+        const [solPrice] = await Promise.all([this.getSolPriceUsd(), Promise.resolve(allTokenAccounts)]);
 
         const total_balance_sol = wallets.reduce((acc, w) => acc + Number(w.balance || 0), 0);
         let total_balance_usd = total_balance_sol * solPrice;
@@ -1460,10 +1463,12 @@ export class PortfolioService {
 
     async getOverviewByAddress(walletAddress: string, _timeFrame?: string) {
         const pubkey = new PublicKey(walletAddress);
+        const tokenAccountsPromise: Promise<ParsedTokenAccount[]> = this.solanaService.getParsedTokenAccountsByOwner(pubkey);
+
         const [solPrice, total_balance_sol, tokenAccounts] = await Promise.all([
             this.getSolPriceUsd(),
             this.solanaService.getBalance(pubkey),
-            this.solanaService.getParsedTokenAccountsByOwner(pubkey)
+            tokenAccountsPromise
         ]);
         let total_balance_usd = total_balance_sol * solPrice;
 
@@ -1543,10 +1548,12 @@ export class PortfolioService {
         showZeroBalance: boolean = false
     ): Promise<PortfolioPositionsResponseDto> {
         const pubkey = new PublicKey(walletAddress);
+        const tokenAccountsPromise: Promise<ParsedTokenAccount[]> = this.solanaService.getParsedTokenAccountsByOwner(pubkey);
+
         const [solPrice, totalSolBalance, tokenAccounts] = await Promise.all([
             this.getSolPriceUsd(),
             this.solanaService.getBalance(pubkey),
-            this.solanaService.getParsedTokenAccountsByOwner(pubkey)
+            tokenAccountsPromise
         ]);
 
         const aggregatedTokens = new Map<string, AggregatedTokenHolding>();

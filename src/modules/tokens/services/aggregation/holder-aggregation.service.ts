@@ -1,7 +1,7 @@
 import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
 import { RedisService } from "../../../../redis/services/redis.service";
 import { PubSubService } from "../../../../redis/services/pubsub.service";
-import { HolderData, SwapEvent } from "../../types/swap-event.type";
+import { HolderData, SwapEvent } from "../../types/swap-event.types";
 import { getWalletLabel } from "../../data/wallet-labels";
 import { JupiterService } from "../../../../infra/jupiter/jupiter.service";
 import { EnrichedHolder, HolderUpdateEvent, PriceUpdateEvent } from "../../types/holder-aggregation.types";

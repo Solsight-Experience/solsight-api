@@ -1,4 +1,4 @@
-import { HolderData } from "./swap-event.type";
+import { HolderData } from "./swap-event.types";
 
 export interface HolderUpdateEvent {
     mint: string;

@@ -1,10 +1,10 @@
-import { Controller, Post, Body, UseGuards, Get, Request, Query, Res, HttpException, HttpStatus } from "@nestjs/common";
+import { Controller, Post, Body, UseGuards, Get, Query, Res, HttpException, HttpStatus } from "@nestjs/common";
 import { VerifySolanaDto } from "../dtos/verify-solana.dto";
 import { AuthService } from "../services/auth.service";
 import { LoginDto, OauthLoginDto, RegisterDto } from "../types/auth.types";
 import { JwtAuthGuard } from "../guards/jwt-auth.guard";
 import { Response } from "express";
-import { AuthenticatedRequest } from "../../../common/guards/guard.type";
+import { CurrentUser, CurrentUserPayload } from "../../../common/decorators/current-user.decorator";
 
 @Controller("auth")
 export class AuthController {
@@ -85,7 +85,7 @@ export class AuthController {
 
     @UseGuards(JwtAuthGuard)
     @Post("solana/verify")
-    async verifySolanaWallet(@Body() verifySolanaDto: VerifySolanaDto, @Request() req: AuthenticatedRequest) {
-        return await this.authService.verifySolanaWallet(verifySolanaDto.walletAddress, verifySolanaDto.signature, verifySolanaDto.walletIcon, req.user.id);
+    async verifySolanaWallet(@Body() verifySolanaDto: VerifySolanaDto, @CurrentUser() user: CurrentUserPayload) {
+        return await this.authService.verifySolanaWallet(verifySolanaDto.walletAddress, verifySolanaDto.signature, verifySolanaDto.walletIcon, user.id);
     }
 }

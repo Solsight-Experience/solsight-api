@@ -1,6 +1,6 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { RedisService } from "../../../../redis/services/redis.service";
-import { SwapEvent, TopTrader } from "../../types/swap-event.type";
+import { SwapEvent, TopTrader } from "../../types/swap-event.types";
 
 const TRADER_TTL = 24 * 60 * 60; // 24 hours
 

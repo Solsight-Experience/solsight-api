@@ -1,8 +1,8 @@
-import { Controller, Get, Post, Delete, UseGuards, Request } from "@nestjs/common";
+import { Controller, Get, Post, Delete, UseGuards } from "@nestjs/common";
 import { JwtAuthGuard } from "../../auth/guards/jwt-auth.guard";
 import { ZaloSubscriptionService } from "../services/zalo-subscription.service";
 import { ZaloSubscriptionStatusDto, GenerateTokenResponseDto } from "../dtos/zalo-subscription.dto";
-import { AuthenticatedRequest } from "../../../common/guards/guard.type";
+import { CurrentUser, CurrentUserPayload } from "../../../common/decorators/current-user.decorator";
 
 @Controller("zalo")
 @UseGuards(JwtAuthGuard)
@@ -10,8 +10,8 @@ export class ZaloController {
     constructor(private readonly subscriptionService: ZaloSubscriptionService) {}
 
     @Get("subscription")
-    async getSubscription(@Request() req: AuthenticatedRequest): Promise<ZaloSubscriptionStatusDto> {
-        const sub = await this.subscriptionService.getSubscription(req.user.id);
+    async getSubscription(@CurrentUser() user: CurrentUserPayload): Promise<ZaloSubscriptionStatusDto> {
+        const sub = await this.subscriptionService.getSubscription(user.id);
         return {
             isVerified: sub?.isVerified ?? false,
             verificationToken: sub?.verificationToken ?? undefined,
@@ -21,13 +21,13 @@ export class ZaloController {
     }
 
     @Get("subscription/status")
-    async getStatus(@Request() req: AuthenticatedRequest): Promise<ZaloSubscriptionStatusDto> {
-        return this.getSubscription(req);
+    async getStatus(@CurrentUser() user: CurrentUserPayload): Promise<ZaloSubscriptionStatusDto> {
+        return this.getSubscription(user);
     }
 
     @Post("subscription/token")
-    async generateToken(@Request() req: AuthenticatedRequest): Promise<GenerateTokenResponseDto> {
-        const sub = await this.subscriptionService.generateToken(req.user.id);
+    async generateToken(@CurrentUser() user: CurrentUserPayload): Promise<GenerateTokenResponseDto> {
+        const sub = await this.subscriptionService.generateToken(user.id);
         return {
             verificationToken: sub.verificationToken!,
             tokenExpiresAt: sub.tokenExpiresAt!.toISOString(),
@@ -36,8 +36,8 @@ export class ZaloController {
     }
 
     @Delete("subscription")
-    async disconnect(@Request() req: AuthenticatedRequest): Promise<{ success: boolean }> {
-        await this.subscriptionService.disconnect(req.user.id);
+    async disconnect(@CurrentUser() user: CurrentUserPayload): Promise<{ success: boolean }> {
+        await this.subscriptionService.disconnect(user.id);
         return { success: true };
     }
 }
