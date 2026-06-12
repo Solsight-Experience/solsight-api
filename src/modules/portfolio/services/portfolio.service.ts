@@ -16,7 +16,17 @@ import { TokenMetadata } from "src/modules/tokens/dtos/token.response.dto";
 import { ClusterProvider } from "../../../common/cluster/cluster.provider";
 import { PortfolioPositionResponseDto, PortfolioPositionsResponseDto } from "../dtos/portfolio-position.response.dto";
 import { COMMON_TOKEN_MINT } from "src/modules/tokens/constants/token.constant";
-import { AggregatedTokenHolding } from "../types";
+import {
+    ActivityApp,
+    ActivityToken,
+    AggregatedTokenHolding,
+    AllocationItem,
+    OverviewToken,
+    PortfolioActivity,
+    PortfolioTrade,
+    TransactionInsertParam,
+    TransactionInsertRow
+} from "../types";
 import { EnhancedTransaction, NativeTransfer, TokenTransfer } from "../../../infra/solana/constants/types";
 import { Wallet } from "../../wallets/entities/wallet.entity";
 
@@ -24,84 +34,6 @@ const SOL_COINGECKO_ID = "solana";
 
 const DEX_SOURCES = ["JUPITER", "RAYDIUM", "ORCA", "METEORA", "PHOENIX", "OPENBOOK", "SOLFI"];
 const SOL_MINT = "So11111111111111111111111111111111111111112";
-
-interface PortfolioTrade {
-    signature: string;
-    timestamp: number;
-    type: "SWAP";
-    tokenTransfers: TokenTransfer[];
-    description?: string | null;
-}
-
-export interface ActivityApp {
-    name: string;
-    type: "DEX" | "PROGRAM";
-    icon: string;
-}
-
-export interface ActivityToken {
-    address: string;
-    symbol?: string;
-    logo_uri?: string | null;
-    amount: number;
-    value_usd: number;
-}
-
-export interface PortfolioActivity {
-    tx_hash: string;
-    type: string;
-    timestamp: number;
-    status: "success" | "failed";
-    app: ActivityApp;
-    token_in?: ActivityToken;
-    token_out?: ActivityToken;
-    token?: ActivityToken;
-    from?: string;
-    to?: string;
-    wallet: string;
-    wallet_icon: string;
-    tags: string[];
-    fee_sol: number;
-    fee_usd: number;
-    tx_url: string;
-}
-
-export interface OverviewToken {
-    address: string;
-    symbol: string;
-    name: string;
-    logo_uri: string;
-    decimals: number;
-    balance: number;
-    value_usd: number;
-    percent_of_portfolio: number;
-    pnl: number;
-    price_change_24h: number;
-}
-
-export interface AllocationItem {
-    symbol: string;
-    value_usd: number;
-    percentage: number;
-}
-
-interface TransactionInsertRow {
-    signature: string;
-    network: string;
-    type: TransactionType;
-    status: TransactionStatus;
-    amount: number;
-    amountOut?: number;
-    tokenMint?: string;
-    tokenMintOut?: string;
-    signerAddress: string;
-    blockNumber?: string;
-    blockTime: Date;
-    memo: string | null;
-    metadata: Transaction["metadata"];
-}
-
-type TransactionInsertParam = string | number | Date | null;
 
 @Injectable()
 export class PortfolioService {

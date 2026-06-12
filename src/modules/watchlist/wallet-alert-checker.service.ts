@@ -12,43 +12,7 @@ import { TokensService } from "../tokens/services/tokens.service";
 import { COMMON_TOKEN_MINT } from "../tokens/constants/token.constant";
 import { CLUSTER_CLS_KEY } from "../../common/cluster/cluster.provider";
 import { EnhancedTransaction } from "../../infra/solana/constants/types";
-
-interface SwapMints {
-    mintIn?: string;
-    mintOut?: string;
-    amountIn?: number;
-    amountOut?: number;
-    dex?: string;
-}
-
-type WalletAlertWithWallet = WalletAlert & {
-    watchedWallet?: {
-        label?: string | null;
-    };
-};
-
-interface NotificationMetadata {
-    tokenIn?: string;
-    tokenOut?: string;
-    tokenInName?: string;
-    tokenOutName?: string;
-    tokenInLogo?: string;
-    tokenOutLogo?: string;
-    amountIn?: number;
-    amountOut?: number;
-    mintIn?: string;
-    mintOut?: string;
-    dex?: string;
-    walletLabel?: string;
-    walletTrackerUrl?: string;
-    tokenSymbol?: string;
-    tokenMint?: string;
-    tokenLogo?: string;
-    amountSol?: number;
-    direction?: string;
-    from?: string;
-    to?: string;
-}
+import { NotificationMetadata, SwapMints, WalletAlertWithWallet } from "./types/wallet-alert-checker.types";
 
 @Injectable()
 export class WalletAlertCheckerService implements OnModuleInit {

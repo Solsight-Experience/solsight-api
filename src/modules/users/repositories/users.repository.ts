@@ -1,16 +1,11 @@
 import { Injectable } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
-import { User, UserRole } from "../entities/user.entity";
+import { User } from "../entities/user.entity";
 import { Wallet } from "../../wallets/entities/wallet.entity";
 import { SwapExecution } from "../../admin-analytics/entities/swap-execution.entity";
 import { CreateUserDto } from "../dtos/create-user.dto";
-
-interface UserFilters {
-    search?: string;
-    role?: UserRole;
-    isActive?: boolean;
-}
+import { UserFilters } from "../types";
 
 @Injectable()
 export class UsersRepository {

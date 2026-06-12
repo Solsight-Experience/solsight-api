@@ -1,31 +1,7 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import axios from "axios";
-
-export interface ZaloUpdate {
-    fromId: string;
-    chatId: string;
-    text: string;
-    date: number;
-}
-
-interface ZaloApiMessage {
-    from?: {
-        id?: string;
-    };
-    chat?: {
-        id?: string;
-    };
-    text?: string;
-    date?: number;
-}
-
-interface ZaloUpdatesResponse {
-    ok?: boolean;
-    result?: {
-        message?: ZaloApiMessage;
-    };
-}
+import { ZaloUpdate, ZaloUpdatesResponse } from "../types/zalo-api.types";
 
 @Injectable()
 export class ZaloApiService {

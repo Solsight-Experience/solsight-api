@@ -2,14 +2,7 @@ import { Controller, Post, Body, UseGuards, Request, HttpException, Logger } fro
 import { JwtAuthGuard } from "../../auth/guards/jwt-auth.guard";
 import { ChatService } from "../services/chat.service";
 import { SendMessageDto } from "../dtos/send-message.dto";
-import { ChatResponsePayload } from "../types/chat.types";
-
-interface ChatRequest {
-    user?: {
-        id?: string;
-        walletAddress?: string;
-    };
-}
+import { ChatRequest, ChatResponsePayload } from "../types/chat.types";
 
 @Controller("chat")
 @UseGuards(JwtAuthGuard)

@@ -2,13 +2,9 @@ import { Controller, Get, Post, Delete, Body, Query, UseGuards, Request, Res, Ba
 import { Response } from "express";
 import { JwtAuthGuard } from "../../auth/guards/jwt-auth.guard";
 import { EmailSubscriptionService } from "../services/email-subscription.service";
-import { User } from "../../users/entities/user.entity";
 import { EmailSubscriptionStatusDto, SubmitEmailDto } from "../dtos/email-subscription.dto";
 import { ConfigService } from "@nestjs/config";
-
-interface AuthenticatedRequest extends Request {
-    user: User;
-}
+import { AuthenticatedRequest } from "../../../common/guards/guard.type";
 
 @Controller("email")
 export class EmailController {

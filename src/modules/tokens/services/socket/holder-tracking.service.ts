@@ -1,22 +1,11 @@
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from "@nestjs/common";
 import { PubSubService } from "../../../../redis/services/pubsub.service";
 import { RedisService } from "../../../../redis/services/redis.service";
+import { HolderCommand, TrackedMintState } from "../../types/holder-tracking.types";
 
 const HOLDER_COMMAND_CHANNEL = "solsight:holder_commands";
 const HOLDER_RESPONSE_CHANNEL = "solsight:holder_responses";
 const UNTRACK_GRACE_PERIOD_MS = 5 * 60 * 1000; // 5 minutes grace period
-
-interface HolderCommand {
-    action: "track" | "untrack" | "list";
-    mint?: string;
-    bootstrap?: boolean;
-}
-
-interface TrackedMintState {
-    subscriberCount: number;
-    untrackTimer?: NodeJS.Timeout;
-    isTracked: boolean;
-}
 
 /**
  * Service that manages lazy holder tracking.

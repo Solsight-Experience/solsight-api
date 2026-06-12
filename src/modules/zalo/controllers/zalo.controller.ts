@@ -1,12 +1,8 @@
 import { Controller, Get, Post, Delete, UseGuards, Request } from "@nestjs/common";
 import { JwtAuthGuard } from "../../auth/guards/jwt-auth.guard";
 import { ZaloSubscriptionService } from "../services/zalo-subscription.service";
-import { User } from "../../users/entities/user.entity";
 import { ZaloSubscriptionStatusDto, GenerateTokenResponseDto } from "../dtos/zalo-subscription.dto";
-
-interface AuthenticatedRequest extends Request {
-    user: User;
-}
+import { AuthenticatedRequest } from "../../../common/guards/guard.type";
 
 @Controller("zalo")
 @UseGuards(JwtAuthGuard)

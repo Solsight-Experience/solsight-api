@@ -10,62 +10,17 @@
  */
 
 import { createHmac } from "crypto";
-
-type KoraFetch = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
-
-export interface KoraClientOptions {
-    rpcUrl: string;
-    apiKey?: string;
-    hmacSecret?: string;
-    fetchImpl?: KoraFetch;
-}
-
-export interface KoraGetPayerSignerResponse {
-    payment_address: string;
-    signer_address: string;
-}
-
-export interface KoraGetSupportedTokensResponse {
-    tokens: string[];
-}
-
-export interface KoraEstimateTransactionFeeRequest {
-    transaction: string;
-    fee_token?: string;
-    sig_verify?: boolean;
-    signer_key?: string;
-}
-
-export interface KoraEstimateTransactionFeeResponse {
-    fee_in_lamports: number;
-    fee_in_token?: number;
-    payment_address: string;
-    signer_pubkey: string;
-}
-
-export interface KoraSignTransactionRequest {
-    transaction: string;
-    sig_verify?: boolean;
-    signer_key?: string;
-    user_id?: string;
-}
-
-export interface KoraSignTransactionResponse {
-    signed_transaction: string;
-    signer_pubkey: string;
-}
-
-interface RpcError {
-    code: number;
-    message: string;
-}
-
-interface RpcResponse<T> {
-    jsonrpc: "2.0";
-    id: number;
-    result?: T;
-    error?: RpcError;
-}
+import {
+    KoraClientOptions,
+    KoraEstimateTransactionFeeRequest,
+    KoraEstimateTransactionFeeResponse,
+    KoraFetch,
+    KoraGetPayerSignerResponse,
+    KoraGetSupportedTokensResponse,
+    KoraRpcResponse,
+    KoraSignTransactionRequest,
+    KoraSignTransactionResponse
+} from "./kora.types";
 
 export class KoraClient {
     private readonly rpcUrl: string;
@@ -127,7 +82,7 @@ export class KoraClient {
             body
         });
 
-        const json: RpcResponse<T> = (await response.json()) as RpcResponse<T>;
+        const json: KoraRpcResponse<T> = (await response.json()) as KoraRpcResponse<T>;
 
         if (json.error) {
             throw new Error(`Kora RPC ${method} failed: [${json.error.code}] ${json.error.message}`);

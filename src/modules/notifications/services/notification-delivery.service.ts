@@ -2,11 +2,7 @@ import { Injectable, Logger } from "@nestjs/common";
 import { WebsocketGateway } from "../../../websocket/websocket.gateway";
 import { EmailSubscriptionService } from "../../email/services/email-subscription.service";
 import { Notification, NotificationChannel } from "../entities/notification.entity";
-
-export interface NotificationDeliveryPayload {
-    notification: Notification;
-    channels: NotificationChannel[];
-}
+import { NotificationDeliveryPayload } from "../types/notification-delivery.types";
 
 @Injectable()
 export class NotificationDeliveryService {

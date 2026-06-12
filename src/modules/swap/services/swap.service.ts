@@ -14,6 +14,7 @@ import type { ExecuteSwapDto } from "../dtos/execute-swap.dto";
 import type { GetQuoteDto } from "../dtos/get-quote.dto";
 import type { GetSwapInfoDto, SwapInfoResponse } from "../dtos/get-swap-info.dto";
 import type { GetSwapTransactionDto } from "../dtos/get-swap-transaction.dto";
+import { CachedFeeFields, CachedGaslessFields } from "../types/swap-cache.types";
 
 const FEE_FALLBACK_PRIORITY_LAMPORTS = 100_000;
 const TIP_FALLBACK_LAMPORTS = 50_000;
@@ -23,18 +24,6 @@ const FEE_CACHE_KEY = "swap:info:fees:v1";
 const FEE_CACHE_TTL_SECONDS = 5;
 const KORA_CACHE_KEY = "swap:info:gasless:v1";
 const KORA_CACHE_TTL_SECONDS = 60;
-
-interface CachedFeeFields {
-    autoPriorityFeeLamports: number;
-    autoTipLamports: number;
-    maxAutoFeeLamports: number;
-}
-
-interface CachedGaslessFields {
-    gaslessEnabled: boolean;
-    gaslessSupportedTokens: string[];
-    payerPubkey: string | null;
-}
 
 @Injectable()
 export class SwapService {

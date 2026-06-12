@@ -2,6 +2,7 @@ import { Injectable, Logger } from "@nestjs/common";
 import { RedisService } from "../../../../redis/services/redis.service";
 import { SwapEvent, OhlcData, SwapPriceResult } from "../../types/swap-event.type";
 import { OhlcInterval } from "../socket/room/room.constants";
+import { OhlcHistoryPoint } from "../../types/ohlc-aggregation.types";
 
 const INTERVAL_MS: Record<OhlcInterval, number> = {
     "10s": 10 * 1000,
@@ -14,15 +15,6 @@ const INTERVAL_TTL: Record<OhlcInterval, number> = {
     "1m": 6 * 60 * 60, // 6 hours
     "5m": 24 * 60 * 60 // 24 hours
 };
-
-interface OhlcHistoryPoint {
-    timestamp: number;
-    open: number;
-    high: number;
-    low: number;
-    close: number;
-    volume: number;
-}
 
 @Injectable()
 export class OhlcAggregationService {

@@ -11,43 +11,7 @@ import { UserRepository } from "../repositories/user.repository";
 import { randomBytes } from "crypto";
 import { User } from "../../users/entities/user.entity";
 import { WalletIcon } from "../../wallets/entities/wallet.entity";
-export interface LoginDto {
-    email: string;
-    password: string;
-}
-
-export interface RegisterDto {
-    email: string;
-    username?: string;
-    password: string;
-    firstName?: string;
-    lastName?: string;
-}
-
-export interface OauthLoginDto {
-    provider: "google";
-    token: string;
-}
-
-export interface JwtPayload {
-    sub: string;
-    email: string;
-    username: string;
-}
-
-interface GoogleTokenProfile {
-    email: string;
-    name?: string;
-    given_name?: string;
-    family_name?: string;
-    picture?: string;
-    sub: string;
-}
-
-interface DatabaseError extends Error {
-    code?: string;
-    detail?: string;
-}
+import { DatabaseError, GoogleTokenProfile, JwtPayload, LoginDto, OauthLoginDto, RegisterDto } from "../types/auth.types";
 
 @Injectable()
 export class AuthService {

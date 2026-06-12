@@ -6,18 +6,11 @@ import { StatsAggregationService } from "../aggregation/stats-aggregation.servic
 import { OhlcAggregationService } from "../aggregation/ohlc-aggregation.service";
 import { TraderAggregationService } from "../aggregation/trader-aggregation.service";
 import { HolderAggregationService } from "../aggregation/holder-aggregation.service";
-import { EnrichedHolder } from "../aggregation/holder-aggregation.service";
-import { SwapEvent, TradeData, TokenStats, transformSwapToTradeForToken, calculateSwapPrices } from "../../types/swap-event.type";
+import { SwapEvent, TradeData, transformSwapToTradeForToken, calculateSwapPrices } from "../../types/swap-event.type";
+import { EnrichedHolder } from "../../types/holder-aggregation.types";
+import { TokenSocketData } from "../../types/token-socket.types";
 
 const REDIS_TRADES_CHANNEL = "trades";
-
-type TokenSocketData =
-    | { token: string; price: string; timestamp: number }
-    | (TokenStats & { token: string })
-    | { token: string; volume: number; timestamp: number }
-    | { token: string; trades: (TradeData & { token: string })[] }
-    | { token: string; data: Awaited<ReturnType<TraderAggregationService["getTopTraders"]>> }
-    | { token: string; changed: EnrichedHolder[]; removed: string[] };
 
 @Injectable()
 export class TokenSocketService implements OnModuleInit {

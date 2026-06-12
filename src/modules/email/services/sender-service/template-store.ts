@@ -1,10 +1,4 @@
-export type TemplateArg = string | number | boolean | null;
-
-export interface BuiltTemplate<T extends TemplateArg[]> {
-    args: T;
-    renderHtml: () => string;
-    renderText: () => string;
-}
+import { BuiltTemplate, TemplateArg } from "../../types/template-store.types";
 
 function interpolate(template: string, args: TemplateArg[]): string {
     return template.replace(/\{(\d+)\}/g, (_, index) => {

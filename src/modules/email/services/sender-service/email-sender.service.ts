@@ -1,14 +1,8 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { Resend } from "resend";
-import { BuiltTemplate, TemplateArg } from "./template-store";
-
-export interface SendEmailPayload {
-    to: string;
-    subject: string;
-    text?: string;
-    html?: string;
-}
+import { SendEmailPayload } from "../../types/email-api.types";
+import { BuiltTemplate, TemplateArg } from "../../types/template-store.types";
 
 @Injectable()
 export class EmailSenderService {

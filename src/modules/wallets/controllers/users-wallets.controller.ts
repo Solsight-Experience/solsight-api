@@ -2,13 +2,9 @@ import { Controller, Get, Post, Patch, Delete, Body, Param, UseGuards, Request }
 import { JwtAuthGuard } from "../../auth/guards/jwt-auth.guard";
 import { WalletsService } from "../services/wallets.service";
 import { CreateWalletDto } from "../dtos/create-wallet.dto";
-import { User } from "../../users/entities/user.entity";
 import { WalletIcon } from "../entities/wallet.entity";
 import { WalletsResponse, Wallet } from "../dtos/wallet.response.dto";
-
-interface AuthenticatedRequest extends Request {
-    user: User;
-}
+import { AuthenticatedRequest } from "../../../common/guards/guard.type";
 
 @Controller({ path: "users/me/wallets" })
 export class UsersWalletsController {

@@ -1,11 +1,7 @@
 import { Controller, Get, Query, UseGuards, Request, BadRequestException } from "@nestjs/common";
 import { JwtAuthGuard } from "../../auth/guards/jwt-auth.guard";
 import { PortfolioService } from "../services/portfolio.service";
-import { User } from "../../users/entities/user.entity";
-
-interface AuthenticatedRequest extends Request {
-    user: User;
-}
+import { AuthenticatedRequest } from "../../../common/guards/guard.type";
 
 @Controller({ path: "portfolio" })
 export class PortfolioController {

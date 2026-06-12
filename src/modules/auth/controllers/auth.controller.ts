@@ -1,14 +1,10 @@
 import { Controller, Post, Body, UseGuards, Get, Request, Query, Res, HttpException, HttpStatus } from "@nestjs/common";
 import { VerifySolanaDto } from "../dtos/verify-solana.dto";
-import { AuthService, LoginDto, OauthLoginDto, RegisterDto } from "../services/auth.service";
+import { AuthService } from "../services/auth.service";
+import { LoginDto, OauthLoginDto, RegisterDto } from "../types/auth.types";
 import { JwtAuthGuard } from "../guards/jwt-auth.guard";
 import { Response } from "express";
-
-interface AuthenticatedRequest {
-    user: {
-        id: string;
-    };
-}
+import { AuthenticatedRequest } from "../../../common/guards/guard.type";
 
 @Controller("auth")
 export class AuthController {

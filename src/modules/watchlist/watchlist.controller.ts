@@ -4,11 +4,7 @@ import { WatchlistService } from "./watchlist.service";
 import { WalletAlertService } from "./wallet-alert.service";
 import { AddWatchedWalletDto, UpdateWatchedWalletDto } from "./dtos/add-watched-wallet.dto";
 import { CreateWalletAlertDto, UpdateWalletAlertDto } from "./dtos/wallet-alert.dto";
-import { User } from "../users/entities/user.entity";
-
-interface AuthenticatedRequest extends Request {
-    user: User;
-}
+import { AuthenticatedRequest } from "../../common/guards/guard.type";
 
 @Controller("watchlist")
 @UseGuards(JwtAuthGuard)

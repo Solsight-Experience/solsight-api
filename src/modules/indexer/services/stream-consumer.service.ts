@@ -7,26 +7,10 @@ import { MarketPriceEvent } from "../entities/market-price-event.entity";
 import { Transaction, TransactionStatus, TransactionType } from "../../transactions/entities/transaction.entity";
 import { Token } from "../../tokens/entities/token.entity";
 import { SwapEvent, getTokenMintFromSwap } from "../../tokens/types/swap-event.type";
+import { TransactionInsertParam, TransactionInsertRow } from "../types/stream-consumer.types";
 
 const TRADES_CHANNEL = "trades";
 const INDEXER_NETWORK = "mainnet";
-
-interface TransactionInsertRow {
-    signature: string;
-    network: string;
-    type: TransactionType;
-    status: TransactionStatus;
-    amount: number;
-    amountOut: number;
-    tokenMint: string;
-    tokenMintOut: string;
-    signerAddress: string;
-    blockNumber: string;
-    blockTime: Date;
-    metadata: Transaction["metadata"];
-}
-
-type TransactionInsertParam = string | number | Date | null;
 
 @Injectable()
 export class StreamConsumerService implements OnModuleInit {

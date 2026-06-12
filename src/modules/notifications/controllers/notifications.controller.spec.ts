@@ -6,18 +6,9 @@ import { JwtAuthGuard } from "../../auth/guards/jwt-auth.guard";
 import { NotificationEventType } from "../entities/notification.entity";
 import { NotificationsController } from "./notifications.controller";
 import { NotificationsService } from "../services/notifications.service";
+import { AuthenticatedTestRequest, ErrorResponseBody } from "../types/notification-test.types";
 
 const USER_ID = "test-user-id";
-
-interface AuthenticatedTestRequest {
-    user?: {
-        id: string;
-    };
-}
-
-interface ErrorResponseBody {
-    message: string;
-}
 
 class AllowAuthGuard implements CanActivate {
     canActivate(context: ExecutionContext): boolean {

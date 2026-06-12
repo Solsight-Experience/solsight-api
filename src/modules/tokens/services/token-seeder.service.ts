@@ -7,11 +7,7 @@ import * as fs from "fs";
 import * as path from "path";
 import * as readline from "readline";
 import { ClusterProvider } from "../../../common/cluster/cluster.provider";
-import { JupiterTokenMintInformation } from "../../../infra/jupiter/types";
-
-interface JupiterSeedToken extends JupiterTokenMintInformation {
-    description?: string | null;
-}
+import { JupiterSeedToken } from "../types/token-seeder.types";
 
 @Injectable()
 export class TokenSeederService implements OnModuleInit {

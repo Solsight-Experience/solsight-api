@@ -2,11 +2,7 @@ import { Controller, Get, Patch, Delete, Param, Query, UseGuards, Request } from
 import { JwtAuthGuard } from "../../auth/guards/jwt-auth.guard";
 import { NotificationsService } from "../services/notifications.service";
 import { QueryNotificationsDto } from "../dtos/query-notifications.dto";
-import { User } from "../../users/entities/user.entity";
-
-interface AuthenticatedRequest extends Request {
-    user: User;
-}
+import { AuthenticatedRequest } from "../../../common/guards/guard.type";
 
 @Controller("notifications")
 @UseGuards(JwtAuthGuard)
