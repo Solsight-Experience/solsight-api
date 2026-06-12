@@ -1,12 +1,7 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { OpenAIService } from "../openai/openai.service";
-import { GeminiGenerateRequest, GeminiGenerateResponse, GeminiError } from "./types/gemini.types";
-
-interface GeminiApiError extends Error {
-    code?: string | number;
-    status?: number;
-}
+import { GeminiGenerateRequest, GeminiGenerateResponse, GeminiError, GeminiApiError } from "./types/gemini.types";
 
 @Injectable()
 export class GeminiService {
