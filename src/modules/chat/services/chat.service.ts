@@ -905,8 +905,8 @@ export class ChatService {
                     if (!resolvedUserId) {
                         return JSON.stringify({ error: "User ID required — please log in" });
                     }
-                    const inputMint = this.getStringArg(args, "inputMint");
-                    const outputMint = this.getStringArg(args, "outputMint");
+                    let inputMint = this.getStringArg(args, "inputMint");
+                    let outputMint = this.getStringArg(args, "outputMint");
                     const amount = Number(args.amount || 0);
 
                     const isAddress = (str: string) => /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(str);
@@ -1017,8 +1017,8 @@ export class ChatService {
         return typeof value === "string" ? value : "";
     }
 
-    private inferTypedResponseFromTools(session: ChatSession): ChatResponsePayload | null {
-        const recentToolMessages = [...session.messages]
+    private inferTypedResponseFromTools(messages: ChatMessageEntity[]): ChatResponsePayload | null {
+        const recentToolMessages = [...messages]
             .reverse()
             .filter((message) => message.role === "tool")
             .slice(0, 5);
