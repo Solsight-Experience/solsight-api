@@ -15,9 +15,10 @@ import { UserRepository } from "./repositories/user.repository";
 @Module({
     imports: [
         ConfigModule.forRoot(),
-        UsersModule,
         WalletsModule,
+        UsersModule,
         TypeOrmModule.forFeature([User]),
+
         JwtModule.registerAsync({
             imports: [ConfigModule],
             useFactory: (configService: ConfigService) => ({
