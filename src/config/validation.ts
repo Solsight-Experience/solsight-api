@@ -44,6 +44,8 @@ export const validationSchema = Joi.object({
     // Solana
     SOLANA_RPC_URL: Joi.string().uri().optional(),
     SOLANA_NETWORK: Joi.string().valid("mainnet-beta", "devnet", "testnet").optional(),
+    IF_PROGRAM_ID: Joi.string().optional(),
+    IF_AUTHORITY: Joi.string().optional(),
 
     // Helius — required: app expects an authenticated RPC endpoint
     HELIUS_RPC_URL: Joi.string().uri().required(),
@@ -66,11 +68,7 @@ export const validationSchema = Joi.object({
 
     // Jupiter
     JUPITER_API_URL: Joi.string().uri().default("https://api.jup.ag"),
-    JUPITER_API_KEY: Joi.string().optional(),
-    // Optional separate host/key for swap endpoints (quote + transaction).
-    // If unset, falls back to JUPITER_API_URL / JUPITER_API_KEY.
-    JUPITER_SWAP_API_URL: Joi.string().uri().optional(),
-    JUPITER_SWAP_API_KEY: Joi.string().optional(),
+    JUPITER_API_KEY: Joi.string().required(),
 
     // Jito tip-floor feed — public, unauthenticated; default in configuration.ts
     JITO_TIP_FLOOR_URL: Joi.string().uri().optional(),

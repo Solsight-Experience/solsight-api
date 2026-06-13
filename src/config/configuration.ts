@@ -23,6 +23,11 @@ export default () => ({
         network: process.env.SOLANA_NETWORK || "mainnet-beta"
     },
 
+    staking: {
+        ifProgramId: process.env.IF_PROGRAM_ID || "4tsHWpfGh94M3gmDBYj96jquEpGbtyLYz4q87roAXbZU",
+        ifAuthority: process.env.IF_AUTHORITY || "HJnpCRqahd2Zunhx1VyY9d9Hj7UyLSNWQEavybJC3MSa"
+    },
+
     helius: {
         rpcUrl: process.env.HELIUS_RPC_URL,
         apiKey: process.env.HELIUS_API_KEY
@@ -30,9 +35,7 @@ export default () => ({
 
     jupiter: {
         apiUrl: process.env.JUPITER_API_URL ?? "https://api.jup.ag",
-        apiKey: process.env.JUPITER_API_KEY,
-        swapApiUrl: process.env.JUPITER_SWAP_API_URL,
-        swapApiKey: process.env.JUPITER_SWAP_API_KEY
+        apiKey: process.env.JUPITER_API_KEY
     },
 
     jito: {
