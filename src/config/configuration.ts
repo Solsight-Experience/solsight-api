@@ -59,14 +59,16 @@ export default () => ({
 
     coingecko: {
         apiUrl: process.env.COINGECKO_API_URL || "https://api.coingecko.com/api/v3",
-        apiKey: process.env.COINGECKO_API_KEY || "",
-        searchTokenId: process.env.COINGECKO_LIST_API || "https://api.coingecko.com/api/v3/coins/list?include_platform=true"
+        apiKey: process.env.COINGECKO_API_KEY || ""
     },
 
     openai: {
         apiKey: process.env.OPENAI_API_KEY,
         apiUrl: process.env.OPENAI_API_URL,
-        model: process.env.OPENAI_MODEL || "gpt-4o"
+        model: process.env.OPENAI_MODEL || "gpt-4o",
+        embeddingApiKey: process.env.EMBEDDING_API_KEY,
+        embeddingApiUrl: process.env.EMBEDDING_API_URL,
+        embeddingModel: process.env.EMBEDDING_MODEL
     },
 
     jwt: {

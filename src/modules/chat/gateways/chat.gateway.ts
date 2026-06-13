@@ -72,14 +72,23 @@ export class ChatGateway {
         }
 
         const userId = this.extractUserId(client);
+        if (!userId) {
+            this.logger.warn(`Unauthorized chat message attempt from client=${clientKey}`, ChatGateway.name);
+            client.emit("chat:error", {
+                sessionId: payload.sessionId,
+                code: "unauthorized",
+                message: "Please login to chat"
+            });
+            return;
+        }
 
-        this.logger.log(`chat:message received client=${clientKey} session=${payload.sessionId} userId=${userId ?? "anonymous"}`, ChatGateway.name);
+        this.logger.log(`chat:message received client=${clientKey} session=${payload.sessionId} userId=${userId}`, ChatGateway.name);
 
         try {
             const response = await this.chatService.sendMessage(
                 {
                     ...payload,
-                    userId: userId ?? payload.userId
+                    userId
                 },
                 (label: string) => {
                     const progress: ChatToolProgressPayload = {

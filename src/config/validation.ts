@@ -85,13 +85,15 @@ export const validationSchema = Joi.object({
 
     // CoinGecko
     COINGECKO_API_URL: Joi.string().uri().optional(),
-    COINGECKO_API_KEY: Joi.string().optional(),
-    COINGECKO_LIST_API: Joi.string().uri().optional(),
+    COINGECKO_API_KEY: Joi.string().allow("").optional(),
 
-    // OpenAI (default AI provider)
+    // OpenAI (default AI provider) — EMBEDDING_* vars share the same SDK and fall back to OPENAI_* values
     OPENAI_API_KEY: Joi.string().optional(),
     OPENAI_API_URL: Joi.string().uri().optional(),
     OPENAI_MODEL: Joi.string().optional(),
+    EMBEDDING_API_KEY: Joi.string().optional(),
+    EMBEDDING_API_URL: Joi.string().uri().optional(),
+    EMBEDDING_MODEL: Joi.string().optional(),
 
     // Zalo OA Bot — non-core (alerts only)
     ZALO_BOT_TOKEN: Joi.string().allow("").optional(),

@@ -4,7 +4,7 @@ import bs58 from "bs58";
 import * as crypto from "crypto";
 
 // src/auth/services/auth.service.ts
-import { BadRequestException, Injectable, Logger, UnauthorizedException, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Injectable, Logger, UnauthorizedException, NotFoundException, ConflictException } from "@nestjs/common";
 import { JwtService } from "@nestjs/jwt";
 import * as bcrypt from "bcrypt";
 import { UserRepository } from "../repositories/user.repository";
@@ -33,7 +33,7 @@ export class AuthService {
         }
 
         const isPasswordValid = await bcrypt.compare(loginDto.password, user.password);
-        if (!isPasswordValid) throw new BadRequestException("Password is incorrect");
+        if (!isPasswordValid) throw new UnauthorizedException("Password is incorrect");
 
         void this.userRepository.update(user.id, { lastLoginAt: new Date() });
         const accessToken = await this.generateAccessToken(user);
@@ -119,7 +119,7 @@ export class AuthService {
     // --- Register ---
     async register(registerDto: RegisterDto) {
         const emailExists = await this.userRepository.existsByEmail(registerDto.email);
-        if (emailExists) throw new BadRequestException("Email already exists");
+        if (emailExists) throw new ConflictException("Email already exists");
 
         const hashedPassword = await bcrypt.hash(registerDto.password, 10);
         const newUser = await this.userRepository.create({

@@ -1,4 +1,4 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable, Logger, OnModuleInit, NotFoundException } from "@nestjs/common";
 import { Cron, CronExpression } from "@nestjs/schedule";
 import { InjectRepository } from "@nestjs/typeorm";
 import { ClsService } from "nestjs-cls";
@@ -23,7 +23,7 @@ const CATEGORY_DETAIL_TTL = 120;
 const WINDOW_SIZE = 100;
 
 @Injectable()
-export class DiscoveryService {
+export class DiscoveryService implements OnModuleInit {
     private readonly logger = new Logger(DiscoveryService.name);
 
     constructor(
@@ -38,6 +38,12 @@ export class DiscoveryService {
         private readonly clusterProvider: ClusterProvider,
         private readonly cls: ClsService
     ) {}
+    onModuleInit() {
+        this.logger.log("DiscoveryService initialized. Checking if categories need sync...");
+        this.syncCategories().catch((err) => {
+            this.logger.error("Failed to sync categories on startup", err);
+        });
+    }
 
     private get network(): string {
         return this.clusterProvider.cluster;
@@ -461,7 +467,7 @@ export class DiscoveryService {
         });
 
         if (!category) {
-            throw new Error("Category not found");
+            throw new NotFoundException("Category not found");
         }
 
         await this.syncCategoryTokens(categorySlug, category.id);

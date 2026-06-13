@@ -4,20 +4,20 @@ import { Between, FindOptionsOrder, FindOptionsOrderValue, FindOptionsWhere, ILi
 import { Token } from "../entities/token.entity";
 import { OhlcCandle } from "../entities/ohlc-candle.entity";
 import { TokenResponseDto, TokenDetailsResponseDto, TokenMetadata } from "../dtos/token.response.dto";
-import { SolanaService } from "src/infra/solana/solana.service";
-import { JupiterService } from "src/infra/jupiter/jupiter.service";
-import { CoinGeckoService } from "src/infra/coingecko/coingecko.service";
+import { SolanaService } from "../../../infra/solana/solana.service";
+import { JupiterService } from "../../../infra/jupiter/jupiter.service";
+import { CoinGeckoService } from "../../../infra/coingecko/coingecko.service";
 import { TokenFilterConditionDto, TokenFilterResponseDto } from "../dtos/token.filter.dto";
 import { mapJupiterTokenToEntity, mapTokenEntityToResponseDto, mapTokenEntityToOverviewDto } from "../mapper/token.mapper";
 import { ChartQueryDto, ChartResponseDto } from "../dtos/token.chart.dto";
 import { OhlcAggregationService } from "./aggregation/ohlc-aggregation.service";
 import { StatsAggregationService } from "./aggregation/stats-aggregation.service";
 import { OhlcInterval } from "./socket/room/room.constants";
-import { RedisService } from "src/redis/services/redis.service";
+import { RedisService } from "../../../redis/services/redis.service";
 import { TradeData } from "../types/swap-event.types";
 import { COMMON_TOKEN_MINT } from "../constants/token.constant";
 import { SolPriceResponseDto } from "../dtos/sol-price.response.dto";
-import { ClusterProvider } from "src/common/cluster/cluster.provider";
+import { ClusterProvider } from "../../../common/cluster/cluster.provider";
 
 const TOKEN_META_KEY = (network: string, address: string) => `token:meta:${network}:${address}`;
 const TOKEN_META_TTL = 24 * 60 * 60;

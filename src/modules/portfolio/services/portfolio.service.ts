@@ -11,11 +11,11 @@ import axios from "axios";
 import { PublicKey, LAMPORTS_PER_SOL } from "@solana/web3.js";
 import { Transaction, TransactionType, TransactionStatus } from "../../transactions/entities/transaction.entity";
 import { WalletSnapshot } from "../entities/wallet-snapshot.entity";
-import { TokensService } from "src/modules/tokens/services/tokens.service";
-import { TokenMetadata } from "src/modules/tokens/dtos/token.response.dto";
+import { TokensService } from "../../tokens/services/tokens.service";
+import { TokenMetadata } from "../../tokens/dtos/token.response.dto";
 import { ClusterProvider } from "../../../common/cluster/cluster.provider";
 import { PortfolioPositionResponseDto, PortfolioPositionsResponseDto } from "../dtos/portfolio-position.response.dto";
-import { COMMON_TOKEN_MINT } from "src/modules/tokens/constants/token.constant";
+import { COMMON_TOKEN_MINT } from "../../tokens/constants/token.constant";
 import { ParsedTokenAccount } from "../../../infra/solana/solana.types";
 import {
     ActivityApp,
