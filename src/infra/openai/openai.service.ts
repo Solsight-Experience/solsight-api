@@ -37,9 +37,9 @@ export class OpenAIService {
         this.logger.log(`Initialized OpenAI client: baseURL=${baseURL}, model=${this.model}`);
 
         // Embedding client config
-        const embApiKey = this.configService.get<string>("embedding.apiKey") || apiKey;
-        const embBaseURL = this.configService.get<string>("embedding.apiUrl") || baseURL;
-        const embModel = this.configService.get<string>("embedding.model");
+        const embApiKey = this.configService.get<string>("openai.embeddingApiKey") || apiKey;
+        const embBaseURL = this.configService.get<string>("openai.embeddingApiUrl") || baseURL;
+        const embModel = this.configService.get<string>("openai.embeddingModel");
 
         if (!embModel) {
             throw new Error("Embedding model is not configured!");

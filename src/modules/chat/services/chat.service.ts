@@ -1,13 +1,13 @@
 import { HttpException, Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import type { ChatCompletionMessageParam, ChatCompletionTool } from "openai/resources/chat/completions";
-import { OpenAIService } from "src/infra/openai/openai.service";
+import { OpenAIService } from "../../../infra/openai/openai.service";
 import { SortByTrending, TimeFrame } from "../../discovery/dtos/get-trending.dto";
 import { DiscoveryService } from "../../discovery/services/discovery.service";
 import { PortfolioService } from "../../portfolio/services/portfolio.service";
 import { TokensService } from "../../tokens/services/tokens.service";
 import { ChatResponsePayload, SendMessagePayload, PageContext } from "../types/chat.types";
-import { COMMON_SYMBOLS, COMMON_DECIMALS } from "src/common/constants/token.constants";
+import { COMMON_SYMBOLS, COMMON_DECIMALS } from "../../../common/constants/token.constants";
 import { RagService } from "./rag.service";
 
 const SYSTEM_PROMPT = `You are Solsight AI, a DeFi assistant specialized exclusively in the Solana blockchain ecosystem.
@@ -901,12 +901,12 @@ export class ChatService {
                 }
 
                 case "fetch_portfolio_activities": {
-                    const resolvedUserId = userId || String(args.userId || "");
+                    const resolvedUserId = userId || (typeof args.userId === "string" ? args.userId : "");
                     if (!resolvedUserId) {
                         return JSON.stringify({ error: "User ID required — please log in" });
                     }
-                    const inputMint = this.getStringArg(args, "inputMint");
-                    const outputMint = this.getStringArg(args, "outputMint");
+                    let inputMint = this.getStringArg(args, "inputMint");
+                    let outputMint = this.getStringArg(args, "outputMint");
                     const amount = Number(args.amount || 0);
 
                     const isAddress = (str: string) => /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(str);
@@ -1017,8 +1017,8 @@ export class ChatService {
         return typeof value === "string" ? value : "";
     }
 
-    private inferTypedResponseFromTools(session: ChatSession): ChatResponsePayload | null {
-        const recentToolMessages = [...session.messages]
+    private inferTypedResponseFromTools(messages: ChatMessageEntity[]): ChatResponsePayload | null {
+        const recentToolMessages = [...messages]
             .reverse()
             .filter((message) => message.role === "tool")
             .slice(0, 5);
@@ -1162,12 +1162,16 @@ export class ChatService {
 
             if (toolMessage.toolName === "fetch_token_data") {
                 const priceRaw = parsedToolOutput.price;
-                const priceChange24hRaw = parsedToolOutput.price_change?.["24h"] ?? parsedToolOutput.price_change_24h;
+                const priceChangeObj =
+                    typeof parsedToolOutput.price_change === "object" && parsedToolOutput.price_change !== null
+                        ? (parsedToolOutput.price_change as Record<string, unknown>)
+                        : null;
+                const priceChange24hRaw = priceChangeObj?.["24h"] ?? parsedToolOutput.price_change_24h;
                 const marketCapRaw = parsedToolOutput.market_cap;
 
                 this.logger.log("parseResponse fallback: inferred token_brief from fetch_token_data", ChatService.name);
 
-                const safeNum = (val: any) => (val != null && !isNaN(Number(val)) ? Number(val) : undefined);
+                const safeNum = (val: unknown) => (val != null && !isNaN(Number(val)) ? Number(val) : undefined);
 
                 return {
                     sessionId: "",

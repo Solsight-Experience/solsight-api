@@ -54,14 +54,16 @@ export default () => ({
 
     coingecko: {
         apiUrl: process.env.COINGECKO_API_URL || "https://api.coingecko.com/api/v3",
-        apiKey: process.env.COINGECKO_API_KEY || "",
-        searchTokenId: process.env.COINGECKO_LIST_API || "https://api.coingecko.com/api/v3/coins/list?include_platform=true"
+        apiKey: process.env.COINGECKO_API_KEY || ""
     },
 
     openai: {
         apiKey: process.env.OPENAI_API_KEY,
         apiUrl: process.env.OPENAI_API_URL,
-        model: process.env.OPENAI_MODEL || "gpt-4o"
+        model: process.env.OPENAI_MODEL || "gpt-4o",
+        embeddingApiKey: process.env.EMBEDDING_API_KEY,
+        embeddingApiUrl: process.env.EMBEDDING_API_URL,
+        embeddingModel: process.env.EMBEDDING_MODEL
     },
 
     jwt: {
@@ -92,12 +94,5 @@ export default () => ({
         resendApiKey: process.env.RESEND_API_KEY ?? "",
         fromAddress: process.env.EMAIL_FROM_ADDRESS ?? "alerts@solsight.app",
         verifyBaseUrl: process.env.APP_BASE_URL ?? "http://localhost:3000"
-    },
-
-    embedding: {
-        provider: process.env.EMBEDDING_PROVIDER,
-        apiKey: process.env.EMBEDDING_API_KEY,
-        model: process.env.EMBEDDING_MODEL,
-        apiUrl: process.env.EMBEDDING_API_URL
     }
 });
