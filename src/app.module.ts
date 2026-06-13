@@ -56,9 +56,10 @@ import { StakingModule } from "./modules/staking/staking.module";
         DatabaseModule,
         LoggerModule,
         AuthModule,
-        UsersModule,
         WalletsModule,
+        UsersModule,
         TransactionsModule,
+
         DiscoveryModule,
         TokensModule,
         AccountModule,
