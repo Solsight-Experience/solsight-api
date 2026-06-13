@@ -1,4 +1,4 @@
-import { JupiterTokenMintInformation } from "src/infra/jupiter/types";
+import { JupiterTokenMintInformation } from "../../../infra/jupiter/types";
 import { Token } from "../entities/token.entity";
 import { TokenResponseDto, TokenResponseMetadata, TokenResponseOnchainData, TokenOverviewResponseDto } from "../dtos/token.response.dto";
 

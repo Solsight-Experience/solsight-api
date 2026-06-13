@@ -1,4 +1,4 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable, Logger, OnModuleInit, NotFoundException } from "@nestjs/common";
 import { Cron, CronExpression } from "@nestjs/schedule";
 import { InjectRepository } from "@nestjs/typeorm";
 import { ClsService } from "nestjs-cls";
@@ -38,7 +38,7 @@ export class DiscoveryService implements OnModuleInit {
         private readonly clusterProvider: ClusterProvider,
         private readonly cls: ClsService
     ) {}
-    async onModuleInit() {
+    onModuleInit() {
         this.logger.log("DiscoveryService initialized. Checking if categories need sync...");
         this.syncCategories().catch((err) => {
             this.logger.error("Failed to sync categories on startup", err);

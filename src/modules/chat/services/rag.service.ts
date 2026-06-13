@@ -1,16 +1,7 @@
 import { Injectable, Logger } from "@nestjs/common";
-import { OpenAIService } from "src/infra/openai/openai.service";
-import { VectorStoreService, SearchResult } from "src/infra/vectorstore/vectorstore.service";
-
-export interface RagDocument {
-    content: string;
-    metadata?: Record<string, unknown>;
-}
-
-export interface RagContext {
-    context: string;
-    sources: SearchResult[];
-}
+import { OpenAIService } from "../../../infra/openai/openai.service";
+import { VectorStoreService } from "../../../infra/vectorstore/vectorstore.service";
+import { RagDocumentInput, RagContext } from "../types/chat.types";
 
 @Injectable()
 export class RagService {
@@ -21,7 +12,7 @@ export class RagService {
         private readonly vectorStore: VectorStoreService
     ) {}
 
-    async ingest(doc: RagDocument): Promise<void> {
+    async ingest(doc: RagDocumentInput): Promise<void> {
         if (!this.vectorStore.isReady) {
             this.logger.warn("ingest skipped — VectorStore not ready");
             return;
@@ -35,7 +26,7 @@ export class RagService {
         this.logger.debug(`Ingested document: ${doc.content.slice(0, 60)}…`);
     }
 
-    async ingestMany(docs: RagDocument[]): Promise<void> {
+    async ingestMany(docs: RagDocumentInput[]): Promise<void> {
         if (!this.vectorStore.isReady || docs.length === 0) return;
 
         const withEmbeddings = await Promise.all(

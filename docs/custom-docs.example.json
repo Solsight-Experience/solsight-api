@@ -1,18 +1,18 @@
 [
-  {
-    "content": "Phí rút SOL từ Solsight insurance fund là 0%. Không có phí rút.",
-    "metadata": { "topic": "fees", "source": "internal", "lang": "vi" }
-  },
-  {
-    "content": "APY của Solsight insurance fund phụ thuộc vào Jito staking yield hiện tại (~7-9% APY) cộng với phần thưởng từ insurance premium.",
-    "metadata": { "topic": "apy", "source": "internal", "lang": "vi" }
-  },
-  {
-    "content": "Cooldown period để unstake từ Solsight insurance fund là 10 ngày kể từ khi request unstake.",
-    "metadata": { "topic": "staking", "source": "internal", "lang": "vi" }
-  },
-  {
-    "content": "Để stake SOL vào Solsight: vào trang /portfolio, chọn tab Staking, nhập số SOL muốn stake và xác nhận transaction.",
-    "metadata": { "topic": "guide", "source": "internal", "lang": "vi" }
-  }
+    {
+        "content": "Phí rút SOL từ Solsight insurance fund là 0%. Không có phí rút.",
+        "metadata": { "topic": "fees", "source": "internal", "lang": "vi" }
+    },
+    {
+        "content": "APY của Solsight insurance fund phụ thuộc vào Jito staking yield hiện tại (~7-9% APY) cộng với phần thưởng từ insurance premium.",
+        "metadata": { "topic": "apy", "source": "internal", "lang": "vi" }
+    },
+    {
+        "content": "Cooldown period để unstake từ Solsight insurance fund là 10 ngày kể từ khi request unstake.",
+        "metadata": { "topic": "staking", "source": "internal", "lang": "vi" }
+    },
+    {
+        "content": "Để stake SOL vào Solsight: vào trang /portfolio, chọn tab Staking, nhập số SOL muốn stake và xác nhận transaction.",
+        "metadata": { "topic": "guide", "source": "internal", "lang": "vi" }
+    }
 ]

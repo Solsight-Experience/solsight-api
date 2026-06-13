@@ -4,7 +4,10 @@ import { VectorStoreService } from "./vectorstore.service";
 
 describe("VectorStoreService", () => {
     let service: VectorStoreService;
-    let dataSourceMock: any;
+    let dataSourceMock: {
+        query: jest.Mock;
+        getRepository?: jest.Mock;
+    };
 
     beforeEach(async () => {
         dataSourceMock = {
@@ -16,7 +19,7 @@ describe("VectorStoreService", () => {
                 VectorStoreService,
                 {
                     provide: DataSource,
-                    useValue: dataSourceMock
+                    useValue: dataSourceMock as unknown as DataSource
                 }
             ]
         }).compile();
