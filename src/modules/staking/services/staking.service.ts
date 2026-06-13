@@ -22,7 +22,6 @@ import {
     StakeActionType,
     StakeHistoryRecord,
     BuiltStakingTransaction,
-    CompiledMessageShape,
     ResolvedPdas,
     StakingHistoryResponse,
     StakingPositionResponse,
@@ -30,60 +29,21 @@ import {
 } from "../types/staking.types";
 import {
     classifyStakeAction,
+    concat,
     decodeIFStakeAccount,
     decodeInsuranceFund,
+    DISC,
+    encoder,
     estimateShareValue,
     InsuranceFundState,
+    isCompiledMessageShape,
     parseStakeAmountFromInstructionData,
     readU128LE,
-    serializeFund
+    serializeFund,
+    u128LE,
+    u64LE,
+    ZERO
 } from "./staking-chain.utils";
-
-const encoder = new TextEncoder();
-const U64_MASK = (BigInt(1) << BigInt(64)) - BigInt(1);
-const ZERO = BigInt(0);
-
-const DISC = {
-    addInsuranceFundStake: new Uint8Array([251, 144, 115, 11, 222, 47, 62, 236]),
-    requestRemoveInsuranceFundStake: new Uint8Array([142, 70, 204, 92, 73, 106, 180, 52]),
-    cancelRequestRemoveInsuranceFundStake: new Uint8Array([97, 235, 78, 62, 212, 42, 241, 127]),
-    removeInsuranceFundStake: new Uint8Array([128, 166, 142, 9, 254, 187, 143, 174])
-} as const;
-
-function isCompiledMessageShape(value: unknown): value is CompiledMessageShape {
-    if (typeof value !== "object" || value === null) return false;
-    if (!("compiledInstructions" in value) || !("staticAccountKeys" in value)) return false;
-
-    const compiledInstructions = value.compiledInstructions;
-    const staticAccountKeys = value.staticAccountKeys;
-
-    return Array.isArray(compiledInstructions) && Array.isArray(staticAccountKeys);
-}
-
-function u64LE(value: bigint): Uint8Array {
-    const buf = new ArrayBuffer(8);
-    new DataView(buf).setBigUint64(0, value, true);
-    return new Uint8Array(buf);
-}
-
-function u128LE(value: bigint): Uint8Array {
-    const buf = new ArrayBuffer(16);
-    const view = new DataView(buf);
-    view.setBigUint64(0, value & U64_MASK, true);
-    view.setBigUint64(8, value >> BigInt(64), true);
-    return new Uint8Array(buf);
-}
-
-function concat(...parts: Uint8Array[]): Uint8Array {
-    const total = parts.reduce((n, p) => n + p.length, 0);
-    const out = new Uint8Array(total);
-    let offset = 0;
-    for (const part of parts) {
-        out.set(part, offset);
-        offset += part.length;
-    }
-    return out;
-}
 
 @Injectable()
 export class StakingService {

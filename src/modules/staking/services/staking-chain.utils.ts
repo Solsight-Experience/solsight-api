@@ -1,9 +1,9 @@
 import { LAMPORTS_PER_SOL, PublicKey } from "@solana/web3.js";
-import { StakeActionType, StakingFundSnapshot } from "../types/staking.types";
+import { CompiledMessageShape, StakeActionType, StakingFundSnapshot } from "../types/staking.types";
 
 const U32_FACTOR = BigInt(0x100000000);
 const U64_FACTOR = BigInt(2) ** BigInt(64);
-const ZERO = BigInt(0);
+export const ZERO = BigInt(0);
 
 export interface InsuranceFundState {
     authority: PublicKey;
@@ -150,4 +150,48 @@ export function parseStakeAmountFromInstructionData(data: Uint8Array, actionType
     }
 
     return "0";
+}
+
+export const encoder = new TextEncoder();
+export const U64_MASK = (BigInt(1) << BigInt(64)) - BigInt(1);
+export const DISC = {
+    addInsuranceFundStake: new Uint8Array([251, 144, 115, 11, 222, 47, 62, 236]),
+    requestRemoveInsuranceFundStake: new Uint8Array([142, 70, 204, 92, 73, 106, 180, 52]),
+    cancelRequestRemoveInsuranceFundStake: new Uint8Array([97, 235, 78, 62, 212, 42, 241, 127]),
+    removeInsuranceFundStake: new Uint8Array([128, 166, 142, 9, 254, 187, 143, 174])
+} as const;
+
+export function isCompiledMessageShape(value: unknown): value is CompiledMessageShape {
+    if (typeof value !== "object" || value === null) return false;
+    if (!("compiledInstructions" in value) || !("staticAccountKeys" in value)) return false;
+
+    const compiledInstructions = value.compiledInstructions;
+    const staticAccountKeys = value.staticAccountKeys;
+
+    return Array.isArray(compiledInstructions) && Array.isArray(staticAccountKeys);
+}
+
+export function u64LE(value: bigint): Uint8Array {
+    const buf = new ArrayBuffer(8);
+    new DataView(buf).setBigUint64(0, value, true);
+    return new Uint8Array(buf);
+}
+
+export function u128LE(value: bigint): Uint8Array {
+    const buf = new ArrayBuffer(16);
+    const view = new DataView(buf);
+    view.setBigUint64(0, value & U64_MASK, true);
+    view.setBigUint64(8, value >> BigInt(64), true);
+    return new Uint8Array(buf);
+}
+
+export function concat(...parts: Uint8Array[]): Uint8Array {
+    const total = parts.reduce((n, p) => n + p.length, 0);
+    const out = new Uint8Array(total);
+    let offset = 0;
+    for (const part of parts) {
+        out.set(part, offset);
+        offset += part.length;
+    }
+    return out;
 }
