@@ -901,7 +901,7 @@ export class ChatService {
                 }
 
                 case "fetch_portfolio_activities": {
-                    const resolvedUserId = userId || String(args.userId || "");
+                    const resolvedUserId = userId || (typeof args.userId === "string" ? args.userId : "");
                     if (!resolvedUserId) {
                         return JSON.stringify({ error: "User ID required — please log in" });
                     }
@@ -1162,12 +1162,16 @@ export class ChatService {
 
             if (toolMessage.toolName === "fetch_token_data") {
                 const priceRaw = parsedToolOutput.price;
-                const priceChange24hRaw = parsedToolOutput.price_change?.["24h"] ?? parsedToolOutput.price_change_24h;
+                const priceChangeObj =
+                    typeof parsedToolOutput.price_change === "object" && parsedToolOutput.price_change !== null
+                        ? (parsedToolOutput.price_change as Record<string, unknown>)
+                        : null;
+                const priceChange24hRaw = priceChangeObj?.["24h"] ?? parsedToolOutput.price_change_24h;
                 const marketCapRaw = parsedToolOutput.market_cap;
 
                 this.logger.log("parseResponse fallback: inferred token_brief from fetch_token_data", ChatService.name);
 
-                const safeNum = (val: any) => (val != null && !isNaN(Number(val)) ? Number(val) : undefined);
+                const safeNum = (val: unknown) => (val != null && !isNaN(Number(val)) ? Number(val) : undefined);
 
                 return {
                     sessionId: "",

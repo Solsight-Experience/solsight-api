@@ -1,3 +1,5 @@
+import { SearchResult } from "../../../infra/vectorstore/vectorstore.types";
+
 export interface ChatMessageDto {
     role: "user" | "assistant" | "tool";
     content: string;
@@ -52,4 +54,14 @@ export interface ChatErrorPayload {
 export interface ChatToolProgressPayload {
     sessionId: string;
     label: string;
+}
+
+export interface RagDocumentInput {
+    content: string;
+    metadata?: Record<string, unknown>;
+}
+
+export interface RagContext {
+    context: string;
+    sources: SearchResult[];
 }

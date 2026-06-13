@@ -1,20 +1,7 @@
 import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
 import { DataSource } from "typeorm";
 import { RagDocument } from "../../modules/chat/entities/rag-document.entity";
-
-export interface VectorDocument {
-    id?: string;
-    content: string;
-    embedding: number[];
-    metadata: Record<string, unknown>;
-    createdAt?: Date;
-}
-
-export interface SearchResult {
-    content: string;
-    metadata: Record<string, unknown>;
-    score: number;
-}
+import { VectorDocument, SearchResult, RawQueryResult } from "./vectorstore.types";
 
 @Injectable()
 export class VectorStoreService implements OnModuleInit {
@@ -73,7 +60,7 @@ export class VectorStoreService implements OnModuleInit {
             SELECT content, metadata, 1 - (embedding <=> $1::vector) AS score
             FROM rag_documents
         `;
-        const params: any[] = [embeddingStr];
+        const params: (string | number)[] = [embeddingStr];
         let paramIndex = 2;
 
         if (filter && Object.keys(filter).length > 0) {
@@ -85,9 +72,9 @@ export class VectorStoreService implements OnModuleInit {
         query += ` ORDER BY embedding <=> $1::vector LIMIT $${paramIndex}`;
         params.push(topK);
 
-        const results = await this.dataSource.query(query, params);
+        const results = await this.dataSource.query<RawQueryResult[]>(query, params);
 
-        return results.map((row: any) => ({
+        return results.map((row) => ({
             content: row.content,
             metadata: row.metadata,
             score: Number(row.score)
