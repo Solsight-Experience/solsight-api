@@ -44,6 +44,8 @@ export const validationSchema = Joi.object({
     // Solana
     SOLANA_RPC_URL: Joi.string().uri().optional(),
     SOLANA_NETWORK: Joi.string().valid("mainnet-beta", "devnet", "testnet").optional(),
+    IF_PROGRAM_ID: Joi.string().optional(),
+    IF_AUTHORITY: Joi.string().optional(),
 
     // Helius — required: app expects an authenticated RPC endpoint
     HELIUS_RPC_URL: Joi.string().uri().required(),

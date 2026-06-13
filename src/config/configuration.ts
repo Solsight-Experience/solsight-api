@@ -1,3 +1,6 @@
+const DEFAULT_IF_PROGRAM_ID = "4tsHWpfGh94M3gmDBYj96jquEpGbtyLYz4q87roAXbZU";
+const DEFAULT_IF_AUTHORITY = "HJnpCRqahd2Zunhx1VyY9d9Hj7UyLSNWQEavybJC3MSa";
+
 export default () => ({
     port: parseInt(process.env.PORT || "", 10) || 3000,
     ws_port: parseInt(process.env.WS_PORT || "", 10) || 3001,
@@ -21,6 +24,12 @@ export default () => ({
 
     solana: {
         network: process.env.SOLANA_NETWORK || "mainnet-beta"
+    },
+
+    staking: {
+        network: process.env.SOLANA_NETWORK || "mainnet",
+        ifProgramId: process.env.IF_PROGRAM_ID || DEFAULT_IF_PROGRAM_ID,
+        ifAuthority: process.env.IF_AUTHORITY || DEFAULT_IF_AUTHORITY
     },
 
     helius: {
