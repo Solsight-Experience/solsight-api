@@ -16,10 +16,10 @@ export class Token {
     @Column()
     name: string;
 
-    @Column({ nullable: true })
+    @Column({ type: "varchar", nullable: true })
     logoUri?: string | null;
 
-    @Column({ nullable: true })
+    @Column({ type: "varchar", nullable: true })
     coingeckoId?: string | null;
 
     @Column({ default: "mainnet" })
@@ -28,7 +28,7 @@ export class Token {
     @Column({ type: "text", nullable: true })
     description?: string | null;
 
-    @Column({ nullable: true })
+    @Column({ type: "varchar", nullable: true })
     website?: string | null;
 
     @Column({ type: "jsonb", nullable: true })

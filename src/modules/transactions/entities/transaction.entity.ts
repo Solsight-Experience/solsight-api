@@ -48,10 +48,10 @@ export class Transaction {
     @Column({ type: "decimal", precision: 30, scale: 9 })
     amount: number;
 
-    @Column({ nullable: true })
+    @Column({ type: "varchar", nullable: true })
     tokenMint?: string | null;
 
-    @Column({ nullable: true })
+    @Column({ type: "varchar", nullable: true })
     tokenMintOut?: string | null;
 
     @Column({ type: "decimal", precision: 30, scale: 9, nullable: true })
@@ -66,7 +66,7 @@ export class Transaction {
     @Column({ nullable: true })
     blockTime?: Date;
 
-    @Column({ nullable: true })
+    @Column({ type: "varchar", nullable: true })
     signerAddress?: string | null;
 
     @Column({ type: "text", nullable: true })
