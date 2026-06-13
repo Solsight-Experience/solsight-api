@@ -55,9 +55,10 @@ import { AdminAnalyticsModule } from "./modules/admin-analytics/admin-analytics.
         DatabaseModule,
         LoggerModule,
         AuthModule,
-        UsersModule,
         WalletsModule,
+        UsersModule,
         TransactionsModule,
+
         DiscoveryModule,
         TokensModule,
         AccountModule,
