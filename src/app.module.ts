@@ -29,6 +29,7 @@ import { SwapModule } from "./modules/swap/swap.module";
 import { KoraModule } from "./infra/kora/kora.module";
 import { JitoModule } from "./infra/jito/jito.module";
 import { AdminAnalyticsModule } from "./modules/admin-analytics/admin-analytics.module";
+import { StakingModule } from "./modules/staking/staking.module";
 
 @Module({
     imports: [
@@ -72,7 +73,8 @@ import { AdminAnalyticsModule } from "./modules/admin-analytics/admin-analytics.
         SwapModule,
         KoraModule,
         JitoModule,
-        AdminAnalyticsModule
+        AdminAnalyticsModule,
+        StakingModule
     ],
     controllers: [],
     providers: []
