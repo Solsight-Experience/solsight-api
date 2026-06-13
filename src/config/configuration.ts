@@ -27,7 +27,6 @@ export default () => ({
     },
 
     staking: {
-        network: process.env.SOLANA_NETWORK || "mainnet",
         ifProgramId: process.env.IF_PROGRAM_ID || DEFAULT_IF_PROGRAM_ID,
         ifAuthority: process.env.IF_AUTHORITY || DEFAULT_IF_AUTHORITY
     },

@@ -364,7 +364,7 @@ export class StakingService {
     }
 
     private getConfiguredNetwork(): Cluster {
-        const network = this.configService.get<string>("staking.network");
+        const network = this.configService.get<string>("solana.network");
         if (network === "devnet" || network === "mainnet") return network;
         if (network === "mainnet-beta") return "mainnet";
         throw new BadRequestException("Invalid SOLANA_NETWORK for staking. Use devnet or mainnet.");
