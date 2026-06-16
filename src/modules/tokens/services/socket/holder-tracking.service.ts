@@ -2,9 +2,10 @@ import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from "@nestjs/commo
 import { PubSubService } from "../../../../redis/services/pubsub.service";
 import { RedisService } from "../../../../redis/services/redis.service";
 import { HolderCommand, TrackedMintState } from "../../types/holder-tracking.types";
+import { ClusterProvider } from "../../../../common/cluster/cluster.provider";
 
-const HOLDER_COMMAND_CHANNEL = "solsight:holder_commands";
-const HOLDER_RESPONSE_CHANNEL = "solsight:holder_responses";
+const HOLDER_COMMAND_CHANNEL = (network: string) => `solsight:holder_commands:${network}`;
+const HOLDER_RESPONSE_CHANNEL = (network: string) => `solsight:holder_responses:${network}`;
 const UNTRACK_GRACE_PERIOD_MS = 5 * 60 * 1000; // 5 minutes grace period
 
 /**
@@ -21,14 +22,17 @@ export class HolderTrackingService implements OnModuleInit, OnModuleDestroy {
 
     constructor(
         private readonly redisService: RedisService,
-        private readonly pubSubService: PubSubService
+        private readonly pubSubService: PubSubService,
+        private readonly clusterProvider: ClusterProvider
     ) {}
 
     async onModuleInit(): Promise<void> {
         // Subscribe to responses from indexer (optional, for logging)
-        await this.pubSubService.subscribe(HOLDER_RESPONSE_CHANNEL, (message) => {
-            this.logger.debug(`Indexer response: ${JSON.stringify(message)}`);
-        });
+        for (const network of ["mainnet", "devnet"]) {
+            await this.pubSubService.subscribe(HOLDER_RESPONSE_CHANNEL(network), (message) => {
+                this.logger.debug(`Indexer ${network} response: ${JSON.stringify(message)}`);
+            });
+        }
 
         this.logger.log("HolderTrackingService initialized");
     }
@@ -182,7 +186,7 @@ export class HolderTrackingService implements OnModuleInit, OnModuleDestroy {
         }
 
         try {
-            await redis.publish(HOLDER_COMMAND_CHANNEL, JSON.stringify(command));
+            await redis.publish(HOLDER_COMMAND_CHANNEL(this.clusterProvider.cluster), JSON.stringify(command));
             this.logger.log(`Sent track command for ${mint} (bootstrap: ${bootstrap})`);
         } catch (error) {
             this.logger.error(`Failed to send track command for ${mint}:`, error);
@@ -202,7 +206,7 @@ export class HolderTrackingService implements OnModuleInit, OnModuleDestroy {
         }
 
         try {
-            await redis.publish(HOLDER_COMMAND_CHANNEL, JSON.stringify(command));
+            await redis.publish(HOLDER_COMMAND_CHANNEL(this.clusterProvider.cluster), JSON.stringify(command));
             this.logger.log(`Sent untrack command for ${mint}`);
         } catch (error) {
             this.logger.error(`Failed to send untrack command for ${mint}:`, error);

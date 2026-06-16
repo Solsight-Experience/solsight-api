@@ -23,21 +23,22 @@ export class StatsAggregationService {
     async onSwapEvent(swap: SwapEvent, prices: SwapPriceResult): Promise<void> {
         const tokenOutMint = swap.token_out.mint;
         const tokenInMint = swap.token_in.mint;
+        const network = this.eventNetwork(swap);
 
         this.logger.log(`[SET] out="${tokenOutMint}" price=${prices.priceUsdTokenOut} | in="${tokenInMint}" price=${prices.priceUsdTokenIn}`);
 
         // Store price for both tokens
-        await this.storePriceData(tokenOutMint, prices.priceUsdTokenOut, swap.price_native, swap);
-        await this.storePriceData(tokenInMint, prices.priceUsdTokenIn, swap.price_native, swap);
+        await this.storePriceData(tokenOutMint, network, prices.priceUsdTokenOut, swap.price_native, swap);
+        await this.storePriceData(tokenInMint, network, prices.priceUsdTokenIn, swap.price_native, swap);
 
         // Store volume and txns for both tokens
         // token_out = user is BUYING this token
         // token_in = user is SELLING this token
-        await this.storeVolumeAndTxns(tokenOutMint, prices.volumeUsdTokenOut, "buy", prices.priceUsdTokenOut);
-        await this.storeVolumeAndTxns(tokenInMint, prices.volumeUsdTokenIn, "sell", prices.priceUsdTokenIn);
+        await this.storeVolumeAndTxns(tokenOutMint, network, prices.volumeUsdTokenOut, "buy", prices.priceUsdTokenOut);
+        await this.storeVolumeAndTxns(tokenInMint, network, prices.volumeUsdTokenIn, "sell", prices.priceUsdTokenIn);
     }
 
-    private async storePriceData(tokenMint: string, priceUsd: number, priceNative: number, swap: SwapEvent): Promise<void> {
+    private async storePriceData(tokenMint: string, network: string, priceUsd: number, priceNative: number, swap: SwapEvent): Promise<void> {
         if (!isValidPrice(priceUsd)) return;
 
         const redis = this.redisService.getClient();
@@ -45,7 +46,7 @@ export class StatsAggregationService {
 
         try {
             // Store latest price
-            await this.redisService.hset(`price:${tokenMint}:latest`, {
+            await this.redisService.hset(`price:${network}:${tokenMint}:latest`, {
                 price_usd: priceUsd,
                 price_native: priceNative,
                 slot: swap.slot,
@@ -54,7 +55,7 @@ export class StatsAggregationService {
 
             // Store price in history for 24h change calculation
             const now = Date.now();
-            const historyKey = `price:${tokenMint}:history`;
+            const historyKey = `price:${network}:${tokenMint}:history`;
 
             // Add to sorted set with timestamp as score
             await redis.zadd(historyKey, now, `${priceUsd}:${now}`);
@@ -70,7 +71,7 @@ export class StatsAggregationService {
         }
     }
 
-    private async storeVolumeAndTxns(tokenMint: string, volumeUsd: number, txType: "buy" | "sell", priceUsd: number): Promise<void> {
+    private async storeVolumeAndTxns(tokenMint: string, network: string, volumeUsd: number, txType: "buy" | "sell", priceUsd: number): Promise<void> {
         if (!isValidPrice(priceUsd)) return;
 
         const redis = this.redisService.getClient();
@@ -81,13 +82,13 @@ export class StatsAggregationService {
             const cutoff = now - 24 * 60 * 60 * 1000;
 
             // Store volume in sorted set (rolling 24h window)
-            const volumeKey = `volume:${tokenMint}:24h`;
+            const volumeKey = `volume:${network}:${tokenMint}:24h`;
             await redis.zadd(volumeKey, now, `${volumeUsd}:${priceUsd}:${now}`);
             await redis.zremrangebyscore(volumeKey, "-inf", cutoff);
             await redis.expire(volumeKey, 25 * 60 * 60);
 
             // Store transaction in sorted set (rolling 24h window)
-            const txnsKey = `txns:${tokenMint}:24h`;
+            const txnsKey = `txns:${network}:${tokenMint}:24h`;
             await redis.zadd(txnsKey, now, `${txType}:${priceUsd}:${now}`);
             await redis.zremrangebyscore(txnsKey, "-inf", cutoff);
             await redis.expire(txnsKey, 25 * 60 * 60);
@@ -98,7 +99,8 @@ export class StatsAggregationService {
 
     async getStats(tokenMint: string): Promise<TokenStats> {
         // Get latest price from Redis (object with native and usd)
-        const latestPriceData = await this.redisService.hgetall(`price:${tokenMint}:latest`);
+        const network = this.clusterProvider.cluster;
+        const latestPriceData = await this.redisService.hgetall(`price:${network}:${tokenMint}:latest`);
 
         // Get token from database for other stats
         const token = await this.tokenRepository.findOneBy({ address: tokenMint, network: this.clusterProvider.cluster });
@@ -145,7 +147,7 @@ export class StatsAggregationService {
     }
 
     async getTotalSupply(tokenMint: string): Promise<number> {
-        const cacheKey = `supply:${tokenMint}`;
+        const cacheKey = `supply:${this.clusterProvider.cluster}:${tokenMint}`;
         const cached = await this.redisService.get<number>(cacheKey);
         if (cached != null) return cached;
 
@@ -156,7 +158,7 @@ export class StatsAggregationService {
     }
 
     async getLatestPrice(tokenMint: string): Promise<{ native: number; usd: number } | null> {
-        const data = await this.redisService.hgetall(`price:${tokenMint}:latest`);
+        const data = await this.redisService.hgetall(`price:${this.clusterProvider.cluster}:${tokenMint}:latest`);
         if (!data) return null;
         return {
             usd: parseFloat(data.price_usd),
@@ -169,7 +171,7 @@ export class StatsAggregationService {
         if (!redis) return 0;
 
         try {
-            const volumeKey = `volume:${tokenMint}:24h`;
+            const volumeKey = `volume:${this.clusterProvider.cluster}:${tokenMint}:24h`;
             const entries = await redis.zrange(volumeKey, 0, -1);
             if (!entries || entries.length === 0) return 0;
 
@@ -192,7 +194,7 @@ export class StatsAggregationService {
         if (!redis) return { total: 0, buys: 0, sells: 0 };
 
         try {
-            const txnsKey = `txns:${tokenMint}:24h`;
+            const txnsKey = `txns:${this.clusterProvider.cluster}:${tokenMint}:24h`;
             const entries = await redis.zrange(txnsKey, 0, -1);
             if (!entries || entries.length === 0) {
                 return { total: 0, buys: 0, sells: 0 };
@@ -214,12 +216,12 @@ export class StatsAggregationService {
         }
     }
 
-    async storeTradeData(tokenMint: string, tradeData: TradeData): Promise<void> {
+    async storeTradeData(tokenMint: string, tradeData: TradeData, network: string = this.clusterProvider.cluster): Promise<void> {
         const redis = this.redisService.getClient();
         if (!redis) return;
 
         try {
-            const tradesKey = `trades:${tokenMint}`;
+            const tradesKey = `trades:${network}:${tokenMint}`;
             await redis.zadd(tradesKey, tradeData.timestamp, JSON.stringify(tradeData));
             await redis.zremrangebyrank(tradesKey, 0, -(TRADES_MAX_SIZE + 1));
             await redis.expire(tradesKey, TRADES_TTL);
@@ -233,7 +235,7 @@ export class StatsAggregationService {
         if (!redis) return { trades: [], total: 0 };
 
         try {
-            const tradesKey = `trades:${tokenMint}`;
+            const tradesKey = `trades:${this.clusterProvider.cluster}:${tokenMint}`;
             const [entries, total] = await Promise.all([redis.zrevrange(tradesKey, 0, limit - 1), redis.zcard(tradesKey)]);
 
             if (!entries || entries.length === 0) return { trades: [], total: 0 };
@@ -262,7 +264,7 @@ export class StatsAggregationService {
         if (!redis) return null;
 
         try {
-            const historyKey = `price:${tokenMint}:history`;
+            const historyKey = `price:${this.clusterProvider.cluster}:${tokenMint}:history`;
             const oldest = await redis.zrange(historyKey, 0, 0);
             if (!oldest || oldest.length === 0) return null;
 
@@ -275,5 +277,9 @@ export class StatsAggregationService {
             this.logger.error(`Redis error in calculatePriceChange24h for "${tokenMint}":`, error);
             return null;
         }
+    }
+
+    private eventNetwork(swap: SwapEvent): string {
+        return swap.network || "mainnet";
     }
 }

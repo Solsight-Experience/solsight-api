@@ -14,6 +14,7 @@ import { TokenSocketService } from "./services/socket/token.socket.service";
 import { TokenSocketGateway } from "./services/socket/token.socket.gateway";
 import { StatsAggregationService } from "./services/aggregation/stats-aggregation.service";
 import { OhlcAggregationService } from "./services/aggregation/ohlc-aggregation.service";
+import { OhlcPersistorService } from "./services/aggregation/ohlc-persistor.service";
 import { TraderAggregationService } from "./services/aggregation/trader-aggregation.service";
 import { HolderAggregationService } from "./services/aggregation/holder-aggregation.service";
 import { HolderTrackingService } from "./services/socket/holder-tracking.service";
@@ -29,6 +30,7 @@ import { GeminiModule } from "../../infra/gemini/gemini.module";
         TokenSocketGateway,
         StatsAggregationService,
         OhlcAggregationService,
+        OhlcPersistorService,
         TraderAggregationService,
         HolderAggregationService,
         HolderTrackingService,

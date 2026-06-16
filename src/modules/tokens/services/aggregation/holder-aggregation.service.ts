@@ -5,6 +5,7 @@ import { HolderData, SwapEvent } from "../../types/swap-event.types";
 import { getWalletLabel } from "../../data/wallet-labels";
 import { JupiterService } from "../../../../infra/jupiter/jupiter.service";
 import { EnrichedHolder, HolderUpdateEvent, PriceUpdateEvent } from "../../types/holder-aggregation.types";
+import { ClusterProvider } from "../../../../common/cluster/cluster.provider";
 
 const HOLDER_TTL = 24 * 60 * 60; // 24 hours
 const PRICE_TTL = 60 * 60; // 1 hour
@@ -16,29 +17,33 @@ export class HolderAggregationService implements OnModuleInit {
     constructor(
         private readonly redisService: RedisService,
         private readonly pubSubService: PubSubService,
-        private readonly jupiterService: JupiterService
+        private readonly jupiterService: JupiterService,
+        private readonly clusterProvider: ClusterProvider
     ) {}
 
     async onModuleInit(): Promise<void> {
-        await this.pubSubService.subscribe<HolderUpdateEvent>("solsight:holder_updates", (message) => {
-            void this.onHolderUpdate(message).catch((error) => {
-                this.logger.error("Error processing holder update:", error);
+        for (const network of ["mainnet", "devnet"]) {
+            await this.pubSubService.subscribe<HolderUpdateEvent>(`solsight:holder_updates:${network}`, (message) => {
+                void this.onHolderUpdate({ ...message, network: message.network || network }).catch((error) => {
+                    this.logger.error("Error processing holder update:", error);
+                });
             });
-        });
 
-        await this.pubSubService.subscribe<PriceUpdateEvent>("solsight:price_updates", (message) => {
-            void this.onPriceUpdate(message).catch((error) => {
-                this.logger.error("Error processing price update:", error);
+            await this.pubSubService.subscribe<PriceUpdateEvent>(`solsight:price_updates:${network}`, (message) => {
+                void this.onPriceUpdate({ ...message, network: message.network || network }).catch((error) => {
+                    this.logger.error("Error processing price update:", error);
+                });
             });
-        });
+        }
     }
 
     async onHolderUpdate(event: HolderUpdateEvent): Promise<void> {
         const redis = this.redisService.getClient();
         if (!redis) return;
 
-        const holderKey = `holder:${event.mint}:${event.wallet}`;
-        const rankingKey = `holders:${event.mint}:ranked`;
+        const network = event.network || "mainnet";
+        const holderKey = `holder:${network}:${event.mint}:${event.wallet}`;
+        const rankingKey = `holders:${network}:${event.mint}:ranked`;
 
         try {
             if (event.is_removed) {
@@ -92,7 +97,8 @@ export class HolderAggregationService implements OnModuleInit {
         const redis = this.redisService.getClient();
         if (!redis) return;
 
-        const priceKey = `price:${event.mint}:latest`;
+        const network = event.network || "mainnet";
+        const priceKey = `price:${network}:${event.mint}:latest`;
 
         try {
             await redis.hset(priceKey, {
@@ -105,12 +111,12 @@ export class HolderAggregationService implements OnModuleInit {
             await redis.expire(priceKey, PRICE_TTL);
 
             // Recalculate unrealized PnL for top 50 holders
-            const rankingKey = `holders:${event.mint}:ranked`;
+            const rankingKey = `holders:${network}:${event.mint}:ranked`;
             const topAddresses = await redis.zrevrange(rankingKey, 0, 49);
 
             await Promise.all(
                 topAddresses.map(async (address) => {
-                    const holderKey = `holder:${event.mint}:${address}`;
+                    const holderKey = `holder:${network}:${event.mint}:${address}`;
                     const data = await redis.hgetall(holderKey);
                     if (!data || !data.balance || !data.cost_basis) return;
 
@@ -134,6 +140,7 @@ export class HolderAggregationService implements OnModuleInit {
 
         try {
             const tokenMint = this.getTokenMint(swap);
+            const network = swap.network || "mainnet";
             const holderAddress = swap.maker;
             const isBuy = swap.direction === "BUY";
 
@@ -141,8 +148,8 @@ export class HolderAggregationService implements OnModuleInit {
             const price = swap.price_usd ?? swap.price_native;
             const volumeUsd = tokenAmount * price;
 
-            const holderKey = `holder:${tokenMint}:${holderAddress}`;
-            const rankingKey = `holders:${tokenMint}:ranked`;
+            const holderKey = `holder:${network}:${tokenMint}:${holderAddress}`;
+            const rankingKey = `holders:${network}:${tokenMint}:ranked`;
             const now = Date.now();
 
             if (isBuy) {
@@ -195,15 +202,16 @@ export class HolderAggregationService implements OnModuleInit {
         if (!redis) return [];
 
         try {
-            const rankingKey = `holders:${tokenMint}:ranked`;
+            const network = this.clusterProvider.cluster;
+            const rankingKey = `holders:${network}:${tokenMint}:ranked`;
             const topAddresses = await redis.zrevrange(rankingKey, 0, limit - 1);
 
-            const priceKey = `price:${tokenMint}:latest`;
+            const priceKey = `price:${network}:${tokenMint}:latest`;
             const priceData = await redis.hgetall(priceKey);
             let currentPriceUsd = priceData ? parseFloat(priceData.price_usd || "0") : 0;
 
             // Fetch total supply for balance_percent calculation
-            const supplyKey = `supply:${tokenMint}`;
+            const supplyKey = `supply:${network}:${tokenMint}`;
             const totalSupplyStr = await redis.get(supplyKey);
             let totalSupply = totalSupplyStr ? parseFloat(totalSupplyStr) : 0;
 
@@ -226,7 +234,7 @@ export class HolderAggregationService implements OnModuleInit {
             const holders: EnrichedHolder[] = [];
 
             for (const address of topAddresses) {
-                const holderKey = `holder:${tokenMint}:${address}`;
+                const holderKey = `holder:${network}:${tokenMint}:${address}`;
                 const data = await redis.hgetall(holderKey);
 
                 if (!data || Object.keys(data).length === 0) continue;
@@ -294,7 +302,8 @@ export class HolderAggregationService implements OnModuleInit {
         if (!redis) return null;
 
         try {
-            const holderKey = `holder:${tokenMint}:${address}`;
+            const network = this.clusterProvider.cluster;
+            const holderKey = `holder:${network}:${tokenMint}:${address}`;
             const data = await redis.hgetall(holderKey);
 
             if (!data || Object.keys(data).length === 0) return null;
@@ -304,7 +313,7 @@ export class HolderAggregationService implements OnModuleInit {
             const realizedPnl = parseFloat(data.realized_pnl || "0");
 
             // Fetch total supply for balance_percent calculation
-            const supplyKey = `supply:${tokenMint}`;
+            const supplyKey = `supply:${network}:${tokenMint}`;
             const totalSupplyStr = await redis.get(supplyKey);
             const totalSupply = totalSupplyStr ? parseFloat(totalSupplyStr) : 0;
             const balancePercent = totalSupply > 0 ? (balance / totalSupply) * 100 : 0;

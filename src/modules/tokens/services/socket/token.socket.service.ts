@@ -10,7 +10,8 @@ import { SwapEvent, TradeData, transformSwapToTradeForToken, calculateSwapPrices
 import { EnrichedHolder } from "../../types/holder-aggregation.types";
 import { TokenSocketData } from "../../types/token-socket.types";
 
-const REDIS_TRADES_CHANNEL = "trades";
+const LEGACY_TRADES_CHANNEL = "trades";
+const REDIS_TRADES_CHANNELS = ["solsight:trade_events:mainnet", "solsight:trade_events:devnet"] as const;
 
 @Injectable()
 export class TokenSocketService implements OnModuleInit {
@@ -43,15 +44,22 @@ export class TokenSocketService implements OnModuleInit {
     }
 
     private async subscribeToTrades(): Promise<void> {
-        this.logger.log(`Subscribing to Redis channel: ${REDIS_TRADES_CHANNEL}`);
+        for (const channel of REDIS_TRADES_CHANNELS) {
+            const network = channel.endsWith(":devnet") ? "devnet" : "mainnet";
+            this.logger.log(`Subscribing to Redis channel: ${channel}`);
 
-        await this.pubSubService.subscribe<SwapEvent>(REDIS_TRADES_CHANNEL, (swap) => {
-            void this.processSwapEvent(swap).catch((error) => {
-                this.logger.error("Error processing swap event:", error);
+            await this.pubSubService.subscribe<SwapEvent>(channel, (swap) => {
+                void this.processSwapEvent({ ...swap, network: swap.network || network }).catch((error) => {
+                    this.logger.error("Error processing swap event:", error);
+                });
+            });
+        }
+
+        await this.pubSubService.subscribe<SwapEvent>(LEGACY_TRADES_CHANNEL, (swap) => {
+            void this.processSwapEvent({ ...swap, network: swap.network || "mainnet" }).catch((error) => {
+                this.logger.error("Error processing legacy swap event:", error);
             });
         });
-
-        this.logger.log(`Subscribed to Redis channel: ${REDIS_TRADES_CHANNEL}`);
     }
 
     private async processSwapEvent(swap: SwapEvent): Promise<void> {
@@ -80,11 +88,11 @@ export class TokenSocketService implements OnModuleInit {
 
         const tradeDataTokenOut = transformSwapToTradeForToken(swap, swap.token_out.mint, prices.priceUsdTokenOut, prices.priceUsdTokenOut * supplyOut);
         this.bufferTrade(swap.token_out.mint, tradeDataTokenOut);
-        await this.statsAggregation.storeTradeData(swap.token_out.mint, tradeDataTokenOut);
+        await this.statsAggregation.storeTradeData(swap.token_out.mint, tradeDataTokenOut, swap.network || "mainnet");
 
         const tradeDataTokenIn = transformSwapToTradeForToken(swap, swap.token_in.mint, prices.priceUsdTokenIn, prices.priceUsdTokenIn * supplyIn);
         this.bufferTrade(swap.token_in.mint, tradeDataTokenIn);
-        await this.statsAggregation.storeTradeData(swap.token_in.mint, tradeDataTokenIn);
+        await this.statsAggregation.storeTradeData(swap.token_in.mint, tradeDataTokenIn, swap.network || "mainnet");
     }
 
     private startScheduler(domain: RoomDomain, interval: RoomInterval) {

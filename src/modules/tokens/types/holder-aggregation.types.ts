@@ -1,6 +1,7 @@
 import { HolderData } from "./swap-event.types";
 
 export interface HolderUpdateEvent {
+    network?: string;
     mint: string;
     wallet: string;
     balance: number;
@@ -21,6 +22,7 @@ export interface HolderUpdateEvent {
 }
 
 export interface PriceUpdateEvent {
+    network?: string;
     mint: string;
     price_usd: number;
     price_native: number;

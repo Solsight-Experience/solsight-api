@@ -48,7 +48,7 @@ export class TokensService {
     }
 
     async getSolPrice(): Promise<SolPriceResponseDto> {
-        const priceKey = `price:${COMMON_TOKEN_MINT.SOL}:latest`;
+        const priceKey = `price:${this.network}:${COMMON_TOKEN_MINT.SOL}:latest`;
         const cached = await this.redisService.hgetall(priceKey);
 
         if (cached?.price_usd) {
@@ -177,7 +177,7 @@ export class TokensService {
      * Batch-fetch USD price + 24h change for the given token addresses.
      *
      * Source priority per token:
-     *   1. Redis hash `price:{mint}:latest` (populated by indexer swap aggregation)
+     *   1. Redis hash `price:{network}:{mint}:latest` (populated by indexer swap aggregation)
      *   2. `tokens.price` / `tokens.priceChange24h` columns (CoinGecko-seeded fallback)
      *
      * Tokens with no price data resolve to `{ priceUsd: 0, priceChange24h: 0 }`.
@@ -192,7 +192,7 @@ export class TokensService {
         await Promise.all(
             addresses.map(async (addr) => {
                 try {
-                    const cached = await this.redisService.hgetall(`price:${addr}:latest`);
+                    const cached = await this.redisService.hgetall(`price:${this.network}:${addr}:latest`);
                     if (cached?.price_usd) {
                         const priceUsd = parseFloat(cached.price_usd);
                         if (Number.isFinite(priceUsd) && priceUsd > 0) {
@@ -416,7 +416,7 @@ export class TokensService {
 
         if (this.REALTIME_INTERVALS.includes(interval as OhlcInterval)) {
             const raw = await this.ohlcAggregationService.getHistoricalOhlc(address, interval as OhlcInterval, limitNum);
-            const points = raw.map((p) => ({
+            const redisPoints = raw.map((p) => ({
                 timestamp: p.timestamp,
                 open: p.open,
                 high: p.high,
@@ -424,6 +424,18 @@ export class TokensService {
                 close: p.close,
                 volume: p.volume ?? 0
             }));
+            const points =
+                redisPoints.length > 0
+                    ? redisPoints
+                    : this.mapCandles(
+                          (
+                              await this.ohlcCandleRepository.find({
+                                  where: { tokenMint: address, network: this.network, interval, timestamp: Between(0, Date.now()) },
+                                  order: { timestamp: "DESC" },
+                                  take: limitNum
+                              })
+                          ).reverse()
+                      );
             for (let i = 1; i < points.length; i++) {
                 points[i].open = points[i - 1].close;
             }
