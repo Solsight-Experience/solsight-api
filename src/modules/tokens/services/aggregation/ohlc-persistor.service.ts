@@ -8,7 +8,6 @@ import { OhlcInterval } from "../socket/room/room.constants";
 @Injectable()
 export class OhlcPersistorService {
     private readonly logger = new Logger(OhlcPersistorService.name);
-    private readonly lastFlushedBucket = new Set<string>();
 
     constructor(
         @InjectRepository(OhlcCandle)
@@ -16,10 +15,6 @@ export class OhlcPersistorService {
     ) {}
 
     async flushFinishedBucket(tokenMint: string, network: string, interval: OhlcInterval, timestamp: number, candle: OhlcData): Promise<void> {
-        const flushKey = `${network}:${tokenMint}:${interval}:${timestamp}`;
-        if (this.lastFlushedBucket.has(flushKey)) return;
-        this.lastFlushedBucket.add(flushKey);
-
         try {
             await this.ohlcCandleRepository
                 .createQueryBuilder()

@@ -3,6 +3,7 @@ import { InjectRepository } from "@nestjs/typeorm";
 import { Between, FindOptionsOrder, FindOptionsOrderValue, FindOptionsWhere, ILike, In, LessThanOrEqual, MoreThanOrEqual, Repository } from "typeorm";
 import { Token } from "../entities/token.entity";
 import { OhlcCandle } from "../entities/ohlc-candle.entity";
+import { Holder } from "../entities/holder.entity";
 import { TokenResponseDto, TokenDetailsResponseDto, TokenMetadata } from "../dtos/token.response.dto";
 import { SolanaService } from "../../../infra/solana/solana.service";
 import { JupiterService } from "../../../infra/jupiter/jupiter.service";
@@ -18,6 +19,8 @@ import { TradeData } from "../types/swap-event.types";
 import { COMMON_TOKEN_MINT } from "../constants/token.constant";
 import { SolPriceResponseDto } from "../dtos/sol-price.response.dto";
 import { ClusterProvider } from "../../../common/cluster/cluster.provider";
+import { HolderAggregationService } from "./aggregation/holder-aggregation.service";
+import { EnrichedHolder } from "../types/holder-aggregation.types";
 
 const TOKEN_META_KEY = (network: string, address: string) => `token:meta:${network}:${address}`;
 const TOKEN_META_TTL = 24 * 60 * 60;
@@ -34,12 +37,15 @@ export class TokensService {
         private readonly tokenRepository: Repository<Token>,
         @InjectRepository(OhlcCandle)
         private readonly ohlcCandleRepository: Repository<OhlcCandle>,
+        @InjectRepository(Holder)
+        private readonly holderRepository: Repository<Holder>,
         private readonly clusterProvider: ClusterProvider,
         private readonly solanaService: SolanaService,
         private readonly jupiterService: JupiterService,
         private readonly coinGeckoService: CoinGeckoService,
         private readonly ohlcAggregationService: OhlcAggregationService,
         private readonly statsAggregationService: StatsAggregationService,
+        private readonly holderAggregationService: HolderAggregationService,
         private readonly redisService: RedisService
     ) {}
 
@@ -413,9 +419,10 @@ export class TokensService {
     async getChartData(address: string, query: ChartQueryDto): Promise<ChartResponseDto> {
         const { interval, limit = 500 } = query;
         const limitNum = Number(limit);
+        const { from, to } = this.resolveChartWindow(interval, limitNum, query.from, query.to);
 
         if (this.REALTIME_INTERVALS.includes(interval as OhlcInterval)) {
-            const raw = await this.ohlcAggregationService.getHistoricalOhlc(address, interval as OhlcInterval, limitNum);
+            const raw = await this.ohlcAggregationService.getHistoricalOhlc(address, interval as OhlcInterval, limitNum, from, to);
             const redisPoints = raw.map((p) => ({
                 timestamp: p.timestamp,
                 open: p.open,
@@ -424,27 +431,30 @@ export class TokensService {
                 close: p.close,
                 volume: p.volume ?? 0
             }));
-            const points =
-                redisPoints.length > 0
-                    ? redisPoints
-                    : this.mapCandles(
-                          (
-                              await this.ohlcCandleRepository.find({
-                                  where: { tokenMint: address, network: this.network, interval, timestamp: Between(0, Date.now()) },
-                                  order: { timestamp: "DESC" },
-                                  take: limitNum
-                              })
-                          ).reverse()
-                      );
+
+            const persistedPoints = this.mapCandles(
+                await this.ohlcCandleRepository.find({
+                    where: { tokenMint: address, network: this.network, interval, timestamp: Between(from, to) },
+                    order: { timestamp: "ASC" }
+                })
+            );
+            const pointsByTimestamp = new Map<number, (typeof redisPoints)[number]>();
+            for (const point of persistedPoints) {
+                pointsByTimestamp.set(point.timestamp, point);
+            }
+            for (const point of redisPoints) {
+                pointsByTimestamp.set(point.timestamp, point);
+            }
+            const points = Array.from(pointsByTimestamp.values())
+                .sort((a, b) => a.timestamp - b.timestamp)
+                .slice(-limitNum);
             for (let i = 1; i < points.length; i++) {
                 points[i].open = points[i - 1].close;
             }
             return { interval, points };
         }
 
-        const days = this.calcDays(interval, limitNum);
-        const to = Date.now();
-        const from = to - days * 86_400_000;
+        const days = this.resolveCoinGeckoDays(from, to, interval, limitNum);
 
         const cached = await this.ohlcCandleRepository.find({
             where: { tokenMint: address, network: this.network, interval, timestamp: Between(from, to) },
@@ -507,8 +517,44 @@ export class TokensService {
         return points;
     }
 
+    private resolveChartWindow(interval: string, limit: number, from?: number, to?: number): { from: number; to: number } {
+        const end = Number.isFinite(Number(to)) ? Number(to) : Date.now();
+        const start = Number.isFinite(Number(from)) ? Number(from) : end - this.calcDays(interval, limit) * 86_400_000;
+        return { from: Math.min(start, end), to: Math.max(start, end) };
+    }
+
+    private resolveCoinGeckoDays(from: number, to: number, interval: string, limit: number): number {
+        const requestedDays = Math.max(1, Math.ceil((to - from) / 86_400_000));
+        const fallbackDays = this.calcDays(interval, limit);
+        const raw = Math.max(requestedDays, fallbackDays);
+        const validDays = [1, 7, 14, 30, 90, 180, 365];
+        return validDays.find((d) => d >= raw) ?? 365;
+    }
+
     async getTrades(address: string, limit = 50): Promise<{ trades: TradeData[]; total: number }> {
         return this.statsAggregationService.getTrades(address, limit);
+    }
+
+    async getHolders(address: string, limit = 50): Promise<EnrichedHolder[]> {
+        const holders = await this.holderRepository.find({
+            where: { tokenMint: address, network: this.network },
+            order: { balance: "DESC" },
+            take: Math.min(limit, 500)
+        });
+
+        return this.holderAggregationService.enrichHolders(
+            address,
+            this.network,
+            holders.map((holder) => ({
+                wallet: holder.wallet,
+                balance: holder.balance,
+                lastActiveTs: holder.lastActiveTs,
+                totalBoughtUsd: holder.totalBoughtUsd,
+                totalSoldUsd: holder.totalSoldUsd,
+                buyTxCount: holder.buyTxCount,
+                sellTxCount: holder.sellTxCount
+            }))
+        );
     }
 
     async updateToken(address: string, data: Partial<Token>) {

@@ -1,4 +1,5 @@
 import { Injectable, Logger } from "@nestjs/common";
+import { Cron } from "@nestjs/schedule";
 import { ClusterProvider } from "../../../../common/cluster/cluster.provider";
 import { RedisService } from "../../../../redis/services/redis.service";
 import { SwapEvent, OhlcData, SwapPriceResult } from "../../types/swap-event.types";
@@ -22,6 +23,7 @@ const INTERVAL_TTL: Record<OhlcInterval, number> = {
 export class OhlcAggregationService {
     private readonly logger = new Logger(OhlcAggregationService.name);
     private readonly seenBuckets = new Map<string, number>();
+    private isFlushingStaleBuckets = false;
 
     constructor(
         private readonly redisService: RedisService,
@@ -246,12 +248,59 @@ export class OhlcAggregationService {
         }
     }
 
+    @Cron("0 * * * * *")
+    async flushStaleBucketsFromRedis(): Promise<void> {
+        if (this.isFlushingStaleBuckets) return;
+        const redis = this.redisService.getClient();
+        if (!redis) return;
+
+        this.isFlushingStaleBuckets = true;
+        try {
+            for (const interval of Object.keys(INTERVAL_MS) as OhlcInterval[]) {
+                const intervalMs = INTERVAL_MS[interval];
+                const staleBefore = Math.floor((Date.now() - intervalMs * 2) / intervalMs) * intervalMs;
+                let cursor = "0";
+
+                do {
+                    const [nextCursor, keys] = await redis.scan(cursor, "MATCH", `ohlc:*:*:${interval}:*`, "COUNT", 250);
+                    cursor = nextCursor;
+
+                    for (const key of keys) {
+                        const parsed = this.parseBucketKey(key);
+                        if (!parsed || parsed.interval !== interval || parsed.bucket >= staleBefore) continue;
+
+                        const candle = await this.readBucket(parsed.network, parsed.tokenMint, parsed.interval, parsed.bucket);
+                        if (!candle) continue;
+
+                        await this.ohlcPersistor.flushFinishedBucket(parsed.tokenMint, parsed.network, parsed.interval, parsed.bucket, candle);
+                    }
+                } while (cursor !== "0");
+            }
+        } catch (error) {
+            this.logger.error("Failed to flush stale OHLC Redis buckets:", error);
+        } finally {
+            this.isFlushingStaleBuckets = false;
+        }
+    }
+
     private eventNetwork(swap: SwapEvent): string {
         return swap.network || "mainnet";
     }
 
     private bucketKey(network: string, tokenMint: string, interval: OhlcInterval, bucket: number): string {
         return `ohlc:${network}:${tokenMint}:${interval}:${bucket}`;
+    }
+
+    private parseBucketKey(key: string): { network: string; tokenMint: string; interval: OhlcInterval; bucket: number } | null {
+        const [prefix, network, tokenMint, interval, bucketRaw] = key.split(":");
+        if (prefix !== "ohlc" || !network || !tokenMint || !this.isOhlcInterval(interval)) return null;
+        const bucket = Number(bucketRaw);
+        if (!Number.isFinite(bucket)) return null;
+        return { network, tokenMint, interval, bucket };
+    }
+
+    private isOhlcInterval(value: string): value is OhlcInterval {
+        return value in INTERVAL_MS;
     }
 
     private async readBucket(network: string, tokenMint: string, interval: OhlcInterval, bucket: number): Promise<OhlcData | null> {
