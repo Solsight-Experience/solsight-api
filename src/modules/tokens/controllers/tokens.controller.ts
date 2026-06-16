@@ -51,6 +51,11 @@ export class TokensController {
         return this.traderAggregationService.getTopTraders(address, 10);
     }
 
+    @Get(":address/holders")
+    getHolders(@Param("address") address: string, @Query("limit") limit: number = 50) {
+        return this.tokensService.getHolders(address, Math.min(Number(limit) || 50, 500));
+    }
+
     @Get(":address")
     async findOne(@Param("address") address: string) {
         const data = await this.tokensService.findOne(address);
