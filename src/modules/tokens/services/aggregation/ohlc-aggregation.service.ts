@@ -1,4 +1,4 @@
-import { Injectable, Logger } from "@nestjs/common";
+﻿import { Injectable, Logger } from "@nestjs/common";
 import { RedisService } from "../../../../redis/services/redis.service";
 import { SwapEvent, OhlcData, SwapPriceResult } from "../../types/swap-event.type";
 import { OhlcInterval } from "../socket/room/room.constants";
@@ -51,7 +51,7 @@ export class OhlcAggregationService {
                 volume: parseFloat(data.volume) || 0
             };
         } catch (error) {
-            this.logger.error(`Redis error in getOhlc for "${tokenMint}" interval "${interval}":`, error);
+            this.logger.error(`Redis error in getOhlc for "${tokenMint}" interval "${interval}": ${error?.message}`, error?.stack);
             return null;
         }
     }
@@ -117,7 +117,7 @@ export class OhlcAggregationService {
 
             await redis.eval(luaScript, 2, bucketKey, lastCloseKey, price, volume, INTERVAL_TTL[interval]);
         } catch (error) {
-            this.logger.error(`Redis error in updateOhlc for "${tokenMint}" interval "${interval}":`, error);
+            this.logger.error(`Redis error in updateOhlc for "${tokenMint}" interval "${interval}": ${error?.message}`, error?.stack);
         }
     }
 
@@ -167,7 +167,7 @@ export class OhlcAggregationService {
 
             return points;
         } catch (error) {
-            this.logger.error(`Redis error in getHistoricalOhlc for "${tokenMint}" interval "${interval}":`, error);
+            this.logger.error(`Redis error in getHistoricalOhlc for "${tokenMint}" interval "${interval}": ${error?.message}`, error?.stack);
             return [];
         }
     }
@@ -233,7 +233,7 @@ export class OhlcAggregationService {
 
             return data;
         } catch (error) {
-            this.logger.error(`Redis error in getOhlcData for "${tokenMint}":`, error);
+            this.logger.error(`Redis error in getOhlcData for "${tokenMint}": ${error?.message}`, error?.stack);
             return [];
         }
     }

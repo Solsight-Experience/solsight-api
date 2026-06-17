@@ -31,7 +31,7 @@ export class RedisService implements OnModuleDestroy {
                 return value as T;
             }
         } catch (error) {
-            this.logger.error(`Redis get error for key "${key}":`, error);
+            this.logger.error(`Redis get error for key "${key}": ${error?.message}`, error?.stack);
             return null;
         }
     }
@@ -46,7 +46,7 @@ export class RedisService implements OnModuleDestroy {
                 await this.redis.set(key, stringValue);
             }
         } catch (error) {
-            this.logger.error(`Redis set error for key "${key}":`, error);
+            this.logger.error(`Redis set error for key "${key}": ${error?.message}`, error?.stack);
         }
     }
 
@@ -55,7 +55,7 @@ export class RedisService implements OnModuleDestroy {
         try {
             return await this.redis.del(key);
         } catch (error) {
-            this.logger.error(`Redis del error for key "${key}":`, error);
+            this.logger.error(`Redis del error for key "${key}": ${error?.message}`, error?.stack);
             return 0;
         }
     }
@@ -66,7 +66,7 @@ export class RedisService implements OnModuleDestroy {
             const result = await this.redis.exists(key);
             return result === 1;
         } catch (error) {
-            this.logger.error(`Redis exists error for key "${key}":`, error);
+            this.logger.error(`Redis exists error for key "${key}": ${error?.message}`, error?.stack);
             return false;
         }
     }
@@ -77,7 +77,7 @@ export class RedisService implements OnModuleDestroy {
             const result = await this.redis.expire(key, seconds);
             return result === 1;
         } catch (error) {
-            this.logger.error(`Redis expire error for key "${key}":`, error);
+            this.logger.error(`Redis expire error for key "${key}": ${error?.message}`, error?.stack);
             return false;
         }
     }
@@ -87,7 +87,7 @@ export class RedisService implements OnModuleDestroy {
         try {
             return await this.redis.ttl(key);
         } catch (error) {
-            this.logger.error(`Redis ttl error for key "${key}":`, error);
+            this.logger.error(`Redis ttl error for key "${key}": ${error?.message}`, error?.stack);
             return -1;
         }
     }
@@ -97,7 +97,7 @@ export class RedisService implements OnModuleDestroy {
         try {
             return await this.redis.keys(pattern);
         } catch (error) {
-            this.logger.error(`Redis keys error for pattern "${pattern}":`, error);
+            this.logger.error(`Redis keys error for pattern "${pattern}": ${error?.message}`, error?.stack);
             return [];
         }
     }
@@ -107,7 +107,13 @@ export class RedisService implements OnModuleDestroy {
         try {
             await this.redis.hset(key, data);
         } catch (error) {
-            this.logger.error(`Redis hset error for key "${key}":`, error);
+            if (error?.message?.includes("WRONGTYPE")) {
+                // Key exists as wrong type (e.g. legacy string) — delete and recreate as hash
+                await this.redis.del(key);
+                await this.redis.hset(key, data);
+                return;
+            }
+            this.logger.error(`Redis hset error for key "${key}": ${error?.message}`, error?.stack);
         }
     }
 
@@ -116,7 +122,7 @@ export class RedisService implements OnModuleDestroy {
         try {
             return await this.redis.hget(key, field);
         } catch (error) {
-            this.logger.error(`Redis hget error for key "${key}" field "${field}":`, error);
+            this.logger.error(`Redis hget error for key "${key}" field "${field}": ${error?.message}`, error?.stack);
             return null;
         }
     }
@@ -127,7 +133,11 @@ export class RedisService implements OnModuleDestroy {
             const result = await this.redis.hgetall(key);
             return Object.keys(result).length > 0 ? result : null;
         } catch (error) {
-            this.logger.error(`Redis hgetall error for key "${key}":`, error);
+            if (error?.message?.includes("WRONGTYPE")) {
+                await this.redis.del(key);
+                return null;
+            }
+            this.logger.error(`Redis hgetall error for key "${key}": ${error?.message}`, error?.stack);
             return null;
         }
     }
@@ -137,7 +147,7 @@ export class RedisService implements OnModuleDestroy {
         try {
             await this.redis.flushdb();
         } catch (error) {
-            this.logger.error("Redis flushdb error:", error);
+            this.logger.error(`Redis flushdb error: ${error?.message}`, error?.stack);
         }
     }
 
