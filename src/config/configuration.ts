@@ -23,6 +23,11 @@ export default () => ({
         network: process.env.SOLANA_NETWORK || "mainnet-beta"
     },
 
+    staking: {
+        ifProgramId: process.env.IF_PROGRAM_ID || "4tsHWpfGh94M3gmDBYj96jquEpGbtyLYz4q87roAXbZU",
+        ifAuthority: process.env.IF_AUTHORITY || "HJnpCRqahd2Zunhx1VyY9d9Hj7UyLSNWQEavybJC3MSa"
+    },
+
     helius: {
         rpcUrl: process.env.HELIUS_RPC_URL,
         apiKey: process.env.HELIUS_API_KEY
@@ -30,9 +35,7 @@ export default () => ({
 
     jupiter: {
         apiUrl: process.env.JUPITER_API_URL ?? "https://api.jup.ag",
-        apiKey: process.env.JUPITER_API_KEY,
-        swapApiUrl: process.env.JUPITER_SWAP_API_URL,
-        swapApiKey: process.env.JUPITER_SWAP_API_KEY
+        apiKey: process.env.JUPITER_API_KEY
     },
 
     jito: {
@@ -56,14 +59,16 @@ export default () => ({
 
     coingecko: {
         apiUrl: process.env.COINGECKO_API_URL || "https://api.coingecko.com/api/v3",
-        apiKey: process.env.COINGECKO_API_KEY || "",
-        searchTokenId: process.env.COINGECKO_LIST_API || "https://api.coingecko.com/api/v3/coins/list?include_platform=true"
+        apiKey: process.env.COINGECKO_API_KEY || ""
     },
 
     openai: {
         apiKey: process.env.OPENAI_API_KEY,
         apiUrl: process.env.OPENAI_API_URL,
-        model: process.env.OPENAI_MODEL || "gpt-4o"
+        model: process.env.OPENAI_MODEL || "gpt-4o",
+        embeddingApiKey: process.env.EMBEDDING_API_KEY,
+        embeddingApiUrl: process.env.EMBEDDING_API_URL,
+        embeddingModel: process.env.EMBEDDING_MODEL
     },
 
     jwt: {

@@ -7,8 +7,8 @@ import type { JupiterGetSwapQuoteParams, JupiterQuoteResponse, JupiterSwapReques
  * lets us swap implementations (e.g. solsight-executor) without touching
  * controllers, DTOs, or feature services.
  */
-export interface QuoteParams extends JupiterGetSwapQuoteParams {}
-export interface QuoteResponse extends JupiterQuoteResponse {}
+export type QuoteParams = JupiterGetSwapQuoteParams;
+export type QuoteResponse = JupiterQuoteResponse;
 export interface SwapRequest extends JupiterSwapRequest {
     /**
      * solsight-executor extension: when set, the executor builds a gasless
@@ -17,7 +17,7 @@ export interface SwapRequest extends JupiterSwapRequest {
      */
     feeToken?: string;
 }
-export interface SwapResponse extends JupiterSwapResponse {}
+export type SwapResponse = JupiterSwapResponse;
 
 export interface ExecutorService {
     /**

@@ -1,23 +1,23 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { Between, FindOptionsOrderValue, ILike, In, Repository } from "typeorm";
+import { Between, FindOptionsOrder, FindOptionsOrderValue, FindOptionsWhere, ILike, In, LessThanOrEqual, MoreThanOrEqual, Repository } from "typeorm";
 import { Token } from "../entities/token.entity";
 import { OhlcCandle } from "../entities/ohlc-candle.entity";
 import { TokenResponseDto, TokenDetailsResponseDto, TokenMetadata } from "../dtos/token.response.dto";
-import { SolanaService } from "src/infra/solana/solana.service";
-import { JupiterService } from "src/infra/jupiter/jupiter.service";
-import { CoinGeckoService } from "src/infra/coingecko/coingecko.service";
+import { SolanaService } from "../../../infra/solana/solana.service";
+import { JupiterService } from "../../../infra/jupiter/jupiter.service";
+import { CoinGeckoService } from "../../../infra/coingecko/coingecko.service";
 import { TokenFilterConditionDto, TokenFilterResponseDto } from "../dtos/token.filter.dto";
 import { mapJupiterTokenToEntity, mapTokenEntityToResponseDto, mapTokenEntityToOverviewDto } from "../mapper/token.mapper";
 import { ChartQueryDto, ChartResponseDto } from "../dtos/token.chart.dto";
 import { OhlcAggregationService } from "./aggregation/ohlc-aggregation.service";
 import { StatsAggregationService } from "./aggregation/stats-aggregation.service";
 import { OhlcInterval } from "./socket/room/room.constants";
-import { RedisService } from "src/redis/services/redis.service";
-import { TradeData } from "../types/swap-event.type";
+import { RedisService } from "../../../redis/services/redis.service";
+import { TradeData } from "../types/swap-event.types";
 import { COMMON_TOKEN_MINT } from "../constants/token.constant";
 import { SolPriceResponseDto } from "../dtos/sol-price.response.dto";
-import { ClusterProvider } from "src/common/cluster/cluster.provider";
+import { ClusterProvider } from "../../../common/cluster/cluster.provider";
 
 const TOKEN_META_KEY = (network: string, address: string) => `token:meta:${network}:${address}`;
 const TOKEN_META_TTL = 24 * 60 * 60;
@@ -322,67 +322,65 @@ export class TokensService {
             age: "ageSeconds",
             price_change_24h: "priceChange24h"
         } as const;
-        const column = SortByMap[sort_by];
-        const whereConditions: any = { network: this.network };
+        const column = SortByMap[sort_by as keyof typeof SortByMap];
+        const whereConditions: FindOptionsWhere<Token> = { network: this.network };
+
+        // Treat 0 as "not set" — 0 is the default unset value from the filter form.
+        const rangeOp = (min: number | null | undefined, max: number | null | undefined) => {
+            const lo = min != null && min !== 0 ? min : null;
+            const hi = max != null && max !== 0 ? max : null;
+            if (lo !== null && hi !== null) return Between(lo, hi);
+            if (lo !== null) return MoreThanOrEqual(lo);
+            if (hi !== null) return LessThanOrEqual(hi);
+            return undefined;
+        };
+
         if (filter?.metrics) {
             const m = filter.metrics;
-
-            if (m.age_min_minutes != null && m.age_max_minutes != null) {
-                whereConditions.ageSeconds = Between(m.age_min_minutes, m.age_max_minutes);
-            }
-
-            if (m.liquidity_min != null && m.liquidity_max != null) {
-                whereConditions.liquidity = Between(m.liquidity_min, m.liquidity_max);
-            }
-
-            if (m.market_cap_min != null && m.market_cap_max != null) {
-                whereConditions.marketCap = Between(m.market_cap_min, m.market_cap_max);
-            }
-
-            if (m.volume_24h_min != null && m.volume_24h_max != null) {
-                whereConditions.volume24h = Between(m.volume_24h_min, m.volume_24h_max);
-            }
-
-            if (m.txns_24h_min != null && m.txns_24h_max != null) {
-                whereConditions.txns24hTotal = Between(m.txns_24h_min, m.txns_24h_max);
-            }
-
-            if (m.holders_min != null && m.holders_max != null) {
-                whereConditions.holdersCount = Between(m.holders_min, m.holders_max);
-            }
-
-            if (m.price_change_24h_min != null && m.price_change_24h_max != null) {
-                whereConditions.priceChange24h = Between(m.price_change_24h_min, m.price_change_24h_max);
-            }
+            whereConditions.ageSeconds = rangeOp(
+                m.age_min_minutes != null ? m.age_min_minutes * 60 : null,
+                m.age_max_minutes != null ? m.age_max_minutes * 60 : null
+            );
+            whereConditions.liquidity = rangeOp(m.liquidity_min, m.liquidity_max);
+            whereConditions.marketCap = rangeOp(m.market_cap_min, m.market_cap_max);
+            whereConditions.volume24h = rangeOp(m.volume_24h_min, m.volume_24h_max);
+            whereConditions.txns24hTotal = rangeOp(m.txns_24h_min, m.txns_24h_max);
+            whereConditions.holdersCount = rangeOp(m.holders_min, m.holders_max);
+            whereConditions.priceChange24h = rangeOp(m.price_change_24h_min, m.price_change_24h_max);
         }
+
         if (filter?.holder_filters) {
             const h = filter.holder_filters;
-
-            if (h.top_10_max_percent != null) {
-                whereConditions.top10Percent = Between(0, h.top_10_max_percent);
-            }
-
-            if (h.insider_max_percent != null) {
-                whereConditions.insiderPercent = Between(0, h.insider_max_percent);
-            }
+            if (h.top_10_max_percent != null) whereConditions.top10Percent = LessThanOrEqual(h.top_10_max_percent);
+            if (h.insider_max_percent != null) whereConditions.insiderPercent = LessThanOrEqual(h.insider_max_percent);
         }
+
+        if (filter?.audit_filters) {
+            const a = filter.audit_filters;
+            if (a.mint_authority_disabled) whereConditions.mintAuthorityDisabled = true;
+            if (a.freeze_authority_disabled) whereConditions.freezeAuthorityDisabled = true;
+            if (a.lp_burnt) whereConditions.lpBurnt = true;
+            if (a.has_social_links) whereConditions.hasSocialLinks = true;
+        }
+
+        if (filter?.categories?.length > 0) {
+            whereConditions.category = { slug: In(filter.categories) };
+        }
+
+        const where = filter?.search_query
+            ? [
+                  { ...whereConditions, name: ILike(`%${filter.search_query}%`) },
+                  { ...whereConditions, symbol: ILike(`%${filter.search_query}%`) },
+                  { ...whereConditions, address: ILike(`%${filter.search_query}%`) }
+              ]
+            : whereConditions;
+
         const tokens = await this.tokenRepository.find({
             take: limit,
             skip: offset,
             relations: ["category"],
-            order: column
-                ? {
-                      [column]: orderValue
-                  }
-                : undefined,
-            where: [
-                whereConditions,
-                [
-                    { name: ILike(`%${filter.search_query}%`), network: this.network },
-                    { symbol: ILike(`%${filter.search_query}%`), network: this.network },
-                    { address: ILike(`%${filter.search_query}%`), network: this.network }
-                ]
-            ]
+            order: column ? ({ [column]: orderValue } as FindOptionsOrder<Token>) : undefined,
+            where
         });
 
         const responseTokens = tokens.map((token) => mapTokenEntityToOverviewDto(token, this.network));

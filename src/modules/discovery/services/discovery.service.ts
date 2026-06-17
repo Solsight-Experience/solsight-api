@@ -1,4 +1,4 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable, Logger, OnModuleInit, NotFoundException } from "@nestjs/common";
 import { Cron, CronExpression } from "@nestjs/schedule";
 import { InjectRepository } from "@nestjs/typeorm";
 import { ClsService } from "nestjs-cls";
@@ -15,6 +15,7 @@ import { SolanaService } from "../../../infra/solana/solana.service";
 import { TokenOverview, CategoryOverview, PaginatedCategoriesResponse } from "../dtos/discovery.response.dto";
 import { RedisService } from "../../../redis";
 import { ClusterProvider, CLUSTER_CLS_KEY } from "../../../common/cluster/cluster.provider";
+import { JupiterTokenV2 } from "../../../infra/jupiter/types";
 
 const TRENDING_TTL = 60;
 const CATEGORIES_TTL = 300;
@@ -22,7 +23,7 @@ const CATEGORY_DETAIL_TTL = 120;
 const WINDOW_SIZE = 100;
 
 @Injectable()
-export class DiscoveryService {
+export class DiscoveryService implements OnModuleInit {
     private readonly logger = new Logger(DiscoveryService.name);
 
     constructor(
@@ -37,6 +38,12 @@ export class DiscoveryService {
         private readonly clusterProvider: ClusterProvider,
         private readonly cls: ClsService
     ) {}
+    onModuleInit() {
+        this.logger.log("DiscoveryService initialized. Checking if categories need sync...");
+        this.syncCategories().catch((err) => {
+            this.logger.error("Failed to sync categories on startup", err);
+        });
+    }
 
     private get network(): string {
         return this.clusterProvider.cluster;
@@ -182,7 +189,7 @@ export class DiscoveryService {
 
                 this.logger.log(`Fetched ${trendingData.coins.length} trending coins from CoinGecko`);
 
-                let solanaTokenMap = new Map<string, any>();
+                let solanaTokenMap = new Map<string, JupiterTokenV2>();
                 try {
                     const jupiterTokens = await this.jupiterService.getTokenList();
                     if (jupiterTokens.length > 0) {
@@ -212,7 +219,7 @@ export class DiscoveryService {
                     tokensToUpsert.push({
                         symbol,
                         name: item.item.name,
-                        address: jupiterToken.address,
+                        address: jupiterToken.id,
                         network: this.network,
                         price: market.current_price || 0,
                         priceChange1h: market.price_change_percentage_1h_in_currency || 0,
@@ -292,7 +299,7 @@ export class DiscoveryService {
                     return;
                 }
 
-                let solanaTokenMap = new Map<string, any>();
+                let solanaTokenMap = new Map<string, JupiterTokenV2>();
                 try {
                     const jupiterTokens = await this.jupiterService.getTokenList();
                     if (jupiterTokens.length > 0) {
@@ -309,7 +316,7 @@ export class DiscoveryService {
                     if (!jupiterToken) continue;
 
                     tokensToUpsert.push({
-                        address: jupiterToken.address,
+                        address: jupiterToken.id,
                         network: this.network,
                         name: coin.name,
                         symbol: coin.symbol.toUpperCase(),
@@ -460,7 +467,7 @@ export class DiscoveryService {
         });
 
         if (!category) {
-            throw new Error("Category not found");
+            throw new NotFoundException("Category not found");
         }
 
         await this.syncCategoryTokens(categorySlug, category.id);
@@ -481,7 +488,7 @@ export class DiscoveryService {
                 return;
             }
 
-            let solanaTokenMap = new Map<string, any>();
+            let solanaTokenMap = new Map<string, JupiterTokenV2>();
             try {
                 const jupiterTokens = await this.jupiterService.getTokenList();
                 if (jupiterTokens.length > 0) {
@@ -500,7 +507,7 @@ export class DiscoveryService {
                 }
 
                 const tokenData = {
-                    address: jupiterToken.address,
+                    address: jupiterToken.id,
                     network: this.network,
                     name: coin.name,
                     symbol: coin.symbol.toUpperCase(),

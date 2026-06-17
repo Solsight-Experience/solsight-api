@@ -1,19 +1,19 @@
 {
-  "permissions": {
-    "allow": [
-      "Bash(npm run build:*)",
-      "WebFetch(domain:solscan.io)",
-      "Bash(git fetch:*)",
-      "Bash(git rebase:*)",
-      "Bash(git stash:*)",
-      "Bash(git add:*)",
-      "Bash(npx tsc:*)",
-      "Bash(grep -E \"\\\\.\\(ts|tsx|js|jsx\\)$\")",
-      "Bash(xargs basename:*)",
-      "WebFetch(domain:bot.zapps.me)",
-      "Bash(npm install:*)",
-      "Bash(pnpm tsc:*)",
-      "Read(//Users/lap15113/sources/solsight-ui/**)"
-    ]
-  }
+    "permissions": {
+        "allow": [
+            "Bash(npm run build:*)",
+            "WebFetch(domain:solscan.io)",
+            "Bash(git fetch:*)",
+            "Bash(git rebase:*)",
+            "Bash(git stash:*)",
+            "Bash(git add:*)",
+            "Bash(npx tsc:*)",
+            "Bash(grep -E \"\\\\.\\(ts|tsx|js|jsx\\)$\")",
+            "Bash(xargs basename:*)",
+            "WebFetch(domain:bot.zapps.me)",
+            "Bash(npm install:*)",
+            "Bash(pnpm tsc:*)",
+            "Read(//Users/lap15113/sources/solsight-ui/**)"
+        ]
+    }
 }

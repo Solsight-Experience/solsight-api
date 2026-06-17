@@ -6,7 +6,8 @@ import { PubSubService } from "../../../redis/services/pubsub.service";
 import { MarketPriceEvent } from "../entities/market-price-event.entity";
 import { Transaction, TransactionStatus, TransactionType } from "../../transactions/entities/transaction.entity";
 import { Token } from "../../tokens/entities/token.entity";
-import { SwapEvent, getTokenMintFromSwap } from "../../tokens/types/swap-event.type";
+import { SwapEvent, getTokenMintFromSwap } from "../../tokens/types/swap-event.types";
+import { TransactionInsertParam, TransactionInsertRow } from "../types/stream-consumer.types";
 
 const TRADES_CHANNEL = "trades";
 const INDEXER_NETWORK = "mainnet";
@@ -27,8 +28,7 @@ export class StreamConsumerService implements OnModuleInit {
     ) {}
 
     async onModuleInit(): Promise<void> {
-        await this.pubSubService.subscribe(TRADES_CHANNEL, (message) => {
-            const swap = message as SwapEvent;
+        await this.pubSubService.subscribe<SwapEvent>(TRADES_CHANNEL, (swap) => {
             this.handleSwap(swap).catch((err) => this.logger.error("Error handling swap event:", err));
         });
         this.logger.log(`Subscribed to Redis channel "${TRADES_CHANNEL}" for DB persistence`);
@@ -71,7 +71,7 @@ export class StreamConsumerService implements OnModuleInit {
 
     private async persistTransaction(swap: SwapEvent): Promise<void> {
         try {
-            const entity = this.transactionRepository.create({
+            const entity: TransactionInsertRow = {
                 signature: swap.signature,
                 network: INDEXER_NETWORK,
                 type: TransactionType.SWAP,
@@ -88,14 +88,50 @@ export class StreamConsumerService implements OnModuleInit {
                     price_native: swap.price_native,
                     price_usd: this.resolvePrice(swap),
                     fee_amount_ui: swap.fee_amount_ui
-                },
-                fee: swap.fee_amount_ui ?? undefined
-            });
+                }
+            };
 
-            await this.transactionRepository.createQueryBuilder().insert().into(Transaction).values(entity).orIgnore().execute();
+            await this.insertTransactionIgnore(entity);
         } catch (err) {
             this.logger.error(`Failed to persist transaction for sig ${swap.signature}:`, err);
         }
+    }
+
+    private async insertTransactionIgnore(row: TransactionInsertRow): Promise<void> {
+        const columns = [
+            "signature",
+            "network",
+            "type",
+            "status",
+            "amount",
+            '"amountOut"',
+            '"tokenMint"',
+            '"tokenMintOut"',
+            '"signerAddress"',
+            '"blockNumber"',
+            '"blockTime"',
+            "metadata"
+        ];
+        const params: TransactionInsertParam[] = [
+            row.signature,
+            row.network,
+            row.type,
+            row.status,
+            row.amount,
+            row.amountOut,
+            row.tokenMint,
+            row.tokenMintOut,
+            row.signerAddress,
+            row.blockNumber,
+            row.blockTime,
+            row.metadata ? JSON.stringify(row.metadata) : null
+        ];
+        const values = columns.map((_, index) => `$${index + 1}`).join(", ");
+
+        await this.transactionRepository.query(
+            `INSERT INTO transactions (${columns.join(", ")}) VALUES (${values}) ON CONFLICT ("signature", "network") DO NOTHING`,
+            params
+        );
     }
 
     @Cron("*/30 * * * * *")

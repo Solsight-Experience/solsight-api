@@ -17,9 +17,12 @@ export class OpenAIService {
     private readonly logger = new Logger(OpenAIService.name);
     private readonly client: OpenAI | null = null;
     private readonly model: string;
+    private readonly embeddingClient: OpenAI;
+    private readonly embeddingModel: string;
 
     constructor(private readonly configService: ConfigService) {
-        const apiKey = this.configService.get<string>("openai.apiKey");
+        // Chat client config
+        const apiKey = this.configService.get<string>("openai.apiKey") || "";
         const baseURL = this.configService.get<string>("openai.apiUrl");
         const model = this.configService.get<string>("openai.model") ?? "gpt-4o";
 
@@ -32,6 +35,23 @@ export class OpenAIService {
 
         this.client = new OpenAI({ apiKey, baseURL });
         this.logger.log(`Initialized OpenAI client: baseURL=${baseURL}, model=${this.model}`);
+
+        // Embedding client config
+        const embApiKey = this.configService.get<string>("openai.embeddingApiKey") || apiKey;
+        const embBaseURL = this.configService.get<string>("openai.embeddingApiUrl") || baseURL;
+        const embModel = this.configService.get<string>("openai.embeddingModel");
+
+        if (!embModel) {
+            throw new Error("Embedding model is not configured!");
+        }
+
+        this.embeddingModel = embModel;
+        this.embeddingClient = new OpenAI({
+            apiKey: embApiKey,
+            baseURL: embBaseURL
+        });
+
+        this.logger.log(`Initialized embedding client: baseURL=${embBaseURL}, model=${this.embeddingModel}`);
     }
 
     createCompletion(body: Omit<ChatCompletionCreateParamsNonStreaming, "model">, options?: RequestOptions<unknown>): APIPromise<ChatCompletion>;
@@ -58,5 +78,16 @@ export class OpenAIService {
             },
             options
         );
+    }
+
+    async createEmbedding(text: string): Promise<number[]> {
+        const input = text.replace(/\n/g, " ");
+
+        const result = await this.embeddingClient.embeddings.create({
+            model: this.embeddingModel,
+            input
+        });
+
+        return result.data[0].embedding;
     }
 }

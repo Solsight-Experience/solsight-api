@@ -36,7 +36,7 @@ export class RedisService implements OnModuleDestroy {
         }
     }
 
-    async set(key: string, value: any, ttl?: number): Promise<void> {
+    async set<T>(key: string, value: T, ttl?: number): Promise<void> {
         if (!this.redis) return;
         try {
             const stringValue = typeof value === "string" ? value : JSON.stringify(value);

@@ -1,5 +1,9 @@
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, ManyToOne, Index } from "typeorm";
 import { Wallet } from "../../wallets/entities/wallet.entity";
+import { JsonValue } from "../../../common/types";
+import { TokenTransfer } from "../../../infra/solana/constants/types";
+
+export type TransactionMetadata = Record<string, JsonValue | TokenTransfer[] | undefined>;
 
 export enum TransactionType {
     TRANSFER = "transfer",
@@ -44,14 +48,14 @@ export class Transaction {
     @Column({ type: "decimal", precision: 30, scale: 9 })
     amount: number;
 
-    @Column({ nullable: true })
-    tokenMint?: string;
+    @Column({ type: "varchar", nullable: true })
+    tokenMint?: string | null;
 
-    @Column({ nullable: true })
-    tokenMintOut?: string;
+    @Column({ type: "varchar", nullable: true })
+    tokenMintOut?: string | null;
 
     @Column({ type: "decimal", precision: 30, scale: 9, nullable: true })
-    amountOut?: number;
+    amountOut?: number | null;
 
     @Column({ type: "decimal", precision: 30, scale: 9, nullable: true })
     fee?: number;
@@ -62,14 +66,14 @@ export class Transaction {
     @Column({ nullable: true })
     blockTime?: Date;
 
-    @Column({ nullable: true })
-    signerAddress?: string;
+    @Column({ type: "varchar", nullable: true })
+    signerAddress?: string | null;
 
     @Column({ type: "text", nullable: true })
-    memo?: string;
+    memo?: string | null;
 
     @Column({ type: "json", nullable: true })
-    metadata?: Record<string, any>;
+    metadata?: TransactionMetadata;
 
     @CreateDateColumn()
     createdAt: Date;

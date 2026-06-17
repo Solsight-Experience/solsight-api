@@ -1,7 +1,8 @@
 ﻿import { Injectable, Logger } from "@nestjs/common";
 import { RedisService } from "../../../../redis/services/redis.service";
-import { SwapEvent, OhlcData, SwapPriceResult } from "../../types/swap-event.type";
+import { SwapEvent, OhlcData, SwapPriceResult } from "../../types/swap-event.types";
 import { OhlcInterval } from "../socket/room/room.constants";
+import { OhlcHistoryPoint } from "../../types/ohlc-aggregation.types";
 
 const INTERVAL_MS: Record<OhlcInterval, number> = {
     "10s": 10 * 1000,
@@ -178,20 +179,7 @@ export class OhlcAggregationService {
         return Math.floor(now / intervalMs) * intervalMs;
     }
 
-    async getOhlcData(
-        tokenMint: string,
-        interval: string,
-        limit: number = 500
-    ): Promise<
-        Array<{
-            timestamp: number;
-            open: number;
-            high: number;
-            low: number;
-            close: number;
-            volume: number;
-        }>
-    > {
+    async getOhlcData(tokenMint: string, interval: string, limit: number = 500): Promise<OhlcHistoryPoint[]> {
         const redis = this.redisService.getClient();
         if (!redis) return [];
 
@@ -211,7 +199,7 @@ export class OhlcAggregationService {
             const ohlcInterval = intervalMap[interval] || "1m";
             const intervalMs = INTERVAL_MS[ohlcInterval];
             const now = Date.now();
-            const data: Array<any> = [];
+            const data: OhlcHistoryPoint[] = [];
 
             // Fetch historical buckets
             for (let i = limit - 1; i >= 0; i--) {

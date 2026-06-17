@@ -36,57 +36,61 @@ A robust NestJS-based REST API for Solana blockchain trading operations. This AP
 ## 🔧 Installation
 
 1. **Clone the repository**
-   ```bash
-   git clone <repository-url>
-   cd flaxh-trade-api
-   ```
+
+    ```bash
+    git clone <repository-url>
+    cd flaxh-trade-api
+    ```
 
 2. **Install dependencies**
-   ```bash
-   pnpm install
-   ```
+
+    ```bash
+    pnpm install
+    ```
 
 3. **Environment Setup**
    Create a `.env` file in the root directory:
-   ```bash
-   # Server Configuration
-   PORT=3000
-   NODE_ENV=development
-   API_PREFIX=api
-   API_VERSION=v1
 
-   # Database Configuration
-   DATABASE_HOST=localhost
-   DATABASE_PORT=5432
-   DATABASE_USERNAME=postgres
-   DATABASE_PASSWORD=your_password
-   DATABASE_NAME=flaxh_trade
+    ```bash
+    # Server Configuration
+    PORT=3000
+    NODE_ENV=development
+    API_PREFIX=api
+    API_VERSION=v1
 
-   # JWT Configuration
-   JWT_SECRET=your-super-secret-jwt-key
-   JWT_EXPIRES_IN=7d
+    # Database Configuration
+    DATABASE_HOST=localhost
+    DATABASE_PORT=5432
+    DATABASE_USERNAME=postgres
+    DATABASE_PASSWORD=your_password
+    DATABASE_NAME=flaxh_trade
 
-   # Solana Configuration
-   SOLANA_RPC_URL=https://api.devnet.solana.com
-   SOLANA_NETWORK=devnet
-   SOLANA_PROGRAM_ID=your_program_id
+    # JWT Configuration
+    JWT_SECRET=your-super-secret-jwt-key
+    JWT_EXPIRES_IN=7d
 
-   # CORS Configuration
-   CORS_ORIGIN=http://localhost:3000
+    # Solana Configuration
+    SOLANA_RPC_URL=https://api.devnet.solana.com
+    SOLANA_NETWORK=devnet
+    SOLANA_PROGRAM_ID=your_program_id
 
-   # Logging Configuration
-   LOG_LEVEL=info
-   LOG_FORMAT=json
-   ```
+    # CORS Configuration
+    CORS_ORIGIN=http://localhost:3000
+
+    # Logging Configuration
+    LOG_LEVEL=info
+    LOG_FORMAT=json
+    ```
 
 4. **Database Setup**
-   ```bash
-   # Create database
-   createdb flaxh_trade
-   
-   # Run migrations (if any)
-   pnpm run migration:run
-   ```
+
+    ```bash
+    # Create database
+    createdb flaxh_trade
+
+    # Run migrations (if any)
+    pnpm run migration:run
+    ```
 
 ## 🚀 Running the Application
 
@@ -106,52 +110,54 @@ The API will be available at `http://localhost:3000`
 ## 📚 API Documentation
 
 ### Base URL
+
 ```
 http://localhost:3000/api/v1
 ```
 
 ### Authentication Endpoints
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/auth/register` | Register a new user |
-| POST | `/auth/login` | User login |
-| GET | `/auth/profile` | Get user profile (protected) |
-| POST | `/auth/refresh` | Refresh JWT token (protected) |
+| Method | Endpoint         | Description                   |
+| ------ | ---------------- | ----------------------------- |
+| POST   | `/auth/register` | Register a new user           |
+| POST   | `/auth/login`    | User login                    |
+| GET    | `/auth/profile`  | Get user profile (protected)  |
+| POST   | `/auth/refresh`  | Refresh JWT token (protected) |
 
 ### User Management Endpoints
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/users` | Create a new user |
-| GET | `/users` | Get all users (paginated) |
-| GET | `/users/:id` | Get user by ID |
-| PUT | `/users/:id` | Update user |
-| DELETE | `/users/:id` | Delete user |
-| POST | `/users/verify-email/:token` | Verify email address |
-| POST | `/users/forgot-password` | Request password reset |
-| POST | `/users/reset-password/:token` | Reset password |
+| Method | Endpoint                       | Description               |
+| ------ | ------------------------------ | ------------------------- |
+| POST   | `/users`                       | Create a new user         |
+| GET    | `/users`                       | Get all users (paginated) |
+| GET    | `/users/:id`                   | Get user by ID            |
+| PUT    | `/users/:id`                   | Update user               |
+| DELETE | `/users/:id`                   | Delete user               |
+| POST   | `/users/verify-email/:token`   | Verify email address      |
+| POST   | `/users/forgot-password`       | Request password reset    |
+| POST   | `/users/reset-password/:token` | Reset password            |
 
 ### Wallet Management Endpoints
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/wallets/user/:userId` | Create wallet for user |
-| GET | `/wallets/user/:userId` | Get user's wallets |
-| GET | `/wallets/:id` | Get wallet by ID |
-| GET | `/wallets/address/:address` | Get wallet by address |
-| PUT | `/wallets/:id` | Update wallet |
-| DELETE | `/wallets/:id` | Delete wallet |
-| POST | `/wallets/:id/update-balance` | Update wallet balance |
-| GET | `/wallets/:id/token-balance/:mintAddress` | Get token balance |
-| GET | `/wallets/:id/transactions` | Get transaction history |
-| POST | `/wallets/:id/verify` | Verify wallet |
-| POST | `/wallets/:id/activate` | Activate wallet |
-| POST | `/wallets/:id/deactivate` | Deactivate wallet |
+| Method | Endpoint                                  | Description             |
+| ------ | ----------------------------------------- | ----------------------- |
+| POST   | `/wallets/user/:userId`                   | Create wallet for user  |
+| GET    | `/wallets/user/:userId`                   | Get user's wallets      |
+| GET    | `/wallets/:id`                            | Get wallet by ID        |
+| GET    | `/wallets/address/:address`               | Get wallet by address   |
+| PUT    | `/wallets/:id`                            | Update wallet           |
+| DELETE | `/wallets/:id`                            | Delete wallet           |
+| POST   | `/wallets/:id/update-balance`             | Update wallet balance   |
+| GET    | `/wallets/:id/token-balance/:mintAddress` | Get token balance       |
+| GET    | `/wallets/:id/transactions`               | Get transaction history |
+| POST   | `/wallets/:id/verify`                     | Verify wallet           |
+| POST   | `/wallets/:id/activate`                   | Activate wallet         |
+| POST   | `/wallets/:id/deactivate`                 | Deactivate wallet       |
 
 ### Example Requests
 
 #### Register User
+
 ```bash
 curl -X POST http://localhost:3000/api/v1/auth/register \
   -H "Content-Type: application/json" \
@@ -164,6 +170,7 @@ curl -X POST http://localhost:3000/api/v1/auth/register \
 ```
 
 #### Login
+
 ```bash
 curl -X POST http://localhost:3000/api/v1/auth/login \
   -H "Content-Type: application/json" \
@@ -174,6 +181,7 @@ curl -X POST http://localhost:3000/api/v1/auth/login \
 ```
 
 #### Create Wallet (requires authentication)
+
 ```bash
 curl -X POST http://localhost:3000/api/v1/wallets/user/USER_ID \
   -H "Content-Type: application/json" \
@@ -250,6 +258,7 @@ The API integrates with the Solana blockchain to provide:
 ## 📝 Development
 
 ### Code Style
+
 ```bash
 # Format code
 pnpm run format
@@ -259,6 +268,7 @@ pnpm run lint
 ```
 
 ### Database Migrations
+
 ```bash
 # Generate migration
 pnpm run migration:generate -- --name=MigrationName
@@ -273,6 +283,7 @@ pnpm run migration:revert
 ## 🚀 Deployment
 
 ### Environment Variables for Production
+
 Ensure all environment variables are properly set for production:
 
 - Set `NODE_ENV=production`
@@ -282,6 +293,7 @@ Ensure all environment variables are properly set for production:
 - Configure proper CORS origins
 
 ### Build for Production
+
 ```bash
 pnpm run build
 pnpm run start:prod

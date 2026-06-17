@@ -1,56 +1,13 @@
 ﻿import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
 import { RedisService } from "../../../../redis/services/redis.service";
 import { PubSubService } from "../../../../redis/services/pubsub.service";
-import { SwapEvent, HolderData } from "../../types/swap-event.type";
+import { HolderData, SwapEvent } from "../../types/swap-event.types";
 import { getWalletLabel } from "../../data/wallet-labels";
 import { JupiterService } from "../../../../infra/jupiter/jupiter.service";
+import { EnrichedHolder, HolderUpdateEvent, PriceUpdateEvent } from "../../types/holder-aggregation.types";
 
 const HOLDER_TTL = 24 * 60 * 60; // 24 hours
 const PRICE_TTL = 60 * 60; // 1 hour
-
-interface HolderUpdateEvent {
-    mint: string;
-    wallet: string;
-    balance: number;
-    balance_change: number;
-    last_active_slot: number;
-    last_active_ts: number;
-    slot: number;
-    signature: string;
-    is_new_holder: boolean;
-    is_removed: boolean;
-    rank: number | null;
-    rank_change: number | null;
-    // Trade-related fields from indexer
-    total_bought_raw: number;
-    total_sold_raw: number;
-    total_bought_usd: number;
-    total_sold_usd: number;
-    buy_tx_count: number;
-    sell_tx_count: number;
-}
-
-interface PriceUpdateEvent {
-    mint: string;
-    price_usd: number;
-    price_native: number;
-    slot: number;
-    source: string;
-}
-
-export interface EnrichedHolder extends HolderData {
-    last_active_ts: number;
-    avg_buy_price: number;
-    avg_sell_price: number;
-    cost_basis: number;
-    unrealized_pnl: number;
-    realized_pnl: number;
-    remaining_usd: number;
-    funding_label: string | null;
-    account_type: string | null;
-    buy_tx_count: number;
-    sell_tx_count: number;
-}
 
 @Injectable()
 export class HolderAggregationService implements OnModuleInit {
@@ -63,20 +20,16 @@ export class HolderAggregationService implements OnModuleInit {
     ) {}
 
     async onModuleInit(): Promise<void> {
-        await this.pubSubService.subscribe("solsight:holder_updates", async (message) => {
-            try {
-                await this.onHolderUpdate(message as HolderUpdateEvent);
-            } catch (error) {
-                this.logger.error(`Error processing holder update: ${error?.message}`, error?.stack);
-            }
+        await this.pubSubService.subscribe<HolderUpdateEvent>("solsight:holder_updates", (message) => {
+            void this.onHolderUpdate(message).catch((error) => {
+                this.logger.error("Error processing holder update:", error);
+            });
         });
 
-        await this.pubSubService.subscribe("solsight:price_updates", async (message) => {
-            try {
-                await this.onPriceUpdate(message as PriceUpdateEvent);
-            } catch (error) {
-                this.logger.error(`Error processing price update: ${error?.message}`, error?.stack);
-            }
+        await this.pubSubService.subscribe<PriceUpdateEvent>("solsight:price_updates", (message) => {
+            void this.onPriceUpdate(message).catch((error) => {
+                this.logger.error("Error processing price update:", error);
+            });
         });
     }
 

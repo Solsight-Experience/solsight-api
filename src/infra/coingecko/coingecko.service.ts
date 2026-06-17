@@ -2,18 +2,16 @@ import { Injectable, Logger, Inject } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { CACHE_MANAGER } from "@nestjs/cache-manager";
 import { Cache } from "cache-manager";
-// eslint-disable-next-line @typescript-eslint/ban-ts-comment
-// @ts-ignore
 import axios, { AxiosInstance } from "axios";
 import {
     CoinGeckoMarketData,
     CoinGeckoCategory,
     CoinGeckoTrending,
     CoinGeckoSearchResult,
-    CoinGeckoSearchCoin,
     CoinGeckoSimplePriceResponse,
     CoinGeckoMarketChartRangeResponse
 } from "./types";
+import { JsonValue } from "../../common/types";
 
 const CG_TTL = 5 * 60 * 1000; // 5 minutes
 
@@ -43,7 +41,7 @@ export class CoinGeckoService {
         this.logger.log(`CoinGecko API initialized: ${apiUrl}`);
     }
 
-    private async cgGet<T>(url: string, params?: Record<string, any>): Promise<T> {
+    private async cgGet<T>(url: string, params?: Record<string, string | number | boolean>): Promise<T> {
         const windowMs = 60_000;
         const now = Date.now();
         this.cgRequestTimestamps = this.cgRequestTimestamps.filter((ts) => now - ts < windowMs);
@@ -96,7 +94,7 @@ export class CoinGeckoService {
             this.logger.log(`Fetched market data for ${data.length} coins from CoinGecko`);
             await this.cacheManager.set(cacheKey, data, CG_TTL);
             return data;
-        } catch (error) {
+        } catch {
             this.logger.error("Failed to fetch market data from CoinGecko");
             return [];
         }
@@ -208,12 +206,12 @@ export class CoinGeckoService {
     /**
      * Get coin details by ID
      */
-    async getCoinDetails(coinId: string): Promise<any> {
+    async getCoinDetails(coinId: string): Promise<JsonValue | null> {
         const cacheKey = `cg-coin-${coinId}`;
-        const cached = await this.cacheManager.get<any>(cacheKey);
+        const cached = await this.cacheManager.get<JsonValue>(cacheKey);
         if (cached) return cached;
         try {
-            const data = await this.cgGet<any>(`/coins/${coinId}`, {
+            const data = await this.cgGet<JsonValue>(`/coins/${coinId}`, {
                 localization: false,
                 tickers: false,
                 market_data: true,
