@@ -94,7 +94,8 @@ export class HolderAggregationService implements OnModuleInit {
             }
             await redis.expire(rankingKey, HOLDER_TTL);
         } catch (error) {
-            this.logger.error(`Redis error in onHolderUpdate for "${event.mint}": ${error?.message}`, error?.stack);
+            const err = error instanceof Error ? error : new Error(String(error));
+            this.logger.error(`Redis error in onHolderUpdate for "${event.mint}": ${err.message}`, err.stack);
         }
     }
 
@@ -131,7 +132,8 @@ export class HolderAggregationService implements OnModuleInit {
                 })
             );
         } catch (error) {
-            this.logger.error(`Redis error in onPriceUpdate for "${event.mint}": ${error?.message}`, error?.stack);
+            const err = error instanceof Error ? error : new Error(String(error));
+            this.logger.error(`Redis error in onPriceUpdate for "${event.mint}": ${err.message}`, err.stack);
         }
     }
 
@@ -196,7 +198,8 @@ export class HolderAggregationService implements OnModuleInit {
             }
             await redis.expire(rankingKey, HOLDER_TTL);
         } catch (error) {
-            this.logger.error(`Redis error in holder onSwapEvent: ${error?.message}`, error?.stack);
+            const err = error instanceof Error ? error : new Error(String(error));
+            this.logger.error(`Redis error in holder onSwapEvent: ${err.message}`, err.stack);
         }
     }
 
@@ -294,7 +297,8 @@ export class HolderAggregationService implements OnModuleInit {
 
             return holders;
         } catch (error) {
-            this.logger.error(`Redis error in getTopHolders for "${tokenMint}": ${error?.message}`, error?.stack);
+            const err = error instanceof Error ? error : new Error(String(error));
+            this.logger.error(`Redis error in getTopHolders for "${tokenMint}": ${err.message}`, err.stack);
             return [];
         }
     }
@@ -336,7 +340,8 @@ export class HolderAggregationService implements OnModuleInit {
                 tx_count: parseInt(data.tx_count || "0", 10)
             };
         } catch (error) {
-            this.logger.error(`Redis error in getHolder for "${tokenMint}" address "${address}": ${error?.message}`, error?.stack);
+            const err = error instanceof Error ? error : new Error(String(error));
+            this.logger.error(`Redis error in getHolder for "${tokenMint}" address "${address}": ${err.message}`, err.stack);
             return null;
         }
     }

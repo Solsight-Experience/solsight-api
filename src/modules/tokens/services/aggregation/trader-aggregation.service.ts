@@ -107,7 +107,8 @@ export class TraderAggregationService {
                 ["walletAddress", "tokenMint"]
             );
         } catch (error) {
-            this.logger.error(`Error in trader onSwapEvent: ${error?.message}`, error?.stack);
+            const err = error instanceof Error ? error : new Error(String(error));
+            this.logger.error(`Error in trader onSwapEvent: ${err.message}`, err.stack);
         }
     }
 
@@ -139,7 +140,8 @@ export class TraderAggregationService {
 
             return traders;
         } catch (error) {
-            this.logger.error(`Redis error in getTopTraders for "${tokenMint}": ${error?.message}`, error?.stack);
+            const err = error instanceof Error ? error : new Error(String(error));
+            this.logger.error(`Redis error in getTopTraders for "${tokenMint}": ${err.message}`, err.stack);
             return [];
         }
     }
@@ -181,7 +183,8 @@ export class TraderAggregationService {
                 trades_count: position.tradesCount
             };
         } catch (error) {
-            this.logger.error(`Error in getTrader for "${tokenMint}" address "${address}": ${error?.message}`, error?.stack);
+            const err = error instanceof Error ? error : new Error(String(error));
+            this.logger.error(`Error in getTrader for "${tokenMint}" address "${address}": ${err.message}`, err.stack);
             return null;
         }
     }
@@ -212,7 +215,8 @@ export class TraderAggregationService {
                 };
             });
         } catch (error) {
-            this.logger.error(`DB error in getTopTradersFromDb for "${tokenMint}": ${error?.message}`, error?.stack);
+            const err = error instanceof Error ? error : new Error(String(error));
+            this.logger.error(`DB error in getTopTradersFromDb for "${tokenMint}": ${err.message}`, err.stack);
             return [];
         }
     }
