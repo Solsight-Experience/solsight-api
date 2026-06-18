@@ -10,14 +10,7 @@ import { HolderAggregationService } from "../aggregation/holder-aggregation.serv
 import { SwapEvent, TradeData, transformSwapToTradeForToken, calculateSwapPrices } from "../../types/swap-event.types";
 import { EnrichedHolder } from "../../types/holder-aggregation.types";
 import { TokenSocketData } from "../../types/token-socket.types";
-import {
-    ConfiguredTradeChannel,
-    INDEXER_TRADE_CHANNELS,
-    LEGACY_TRADE_CHANNEL,
-    TRADE_CHANNELS,
-    TradeChannels,
-    type AppConfig
-} from "../../../../config/configuration";
+import { ConfiguredTradeChannel, INDEXER_TRADE_CHANNELS, LEGACY_TRADE_CHANNEL } from "../../../../config/configuration";
 
 @Injectable()
 export class TokenSocketService implements OnModuleInit {

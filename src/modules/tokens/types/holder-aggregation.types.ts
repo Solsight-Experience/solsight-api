@@ -1,4 +1,33 @@
+import { Holder } from "../entities/holder.entity";
 import { HolderData } from "./swap-event.types";
+
+export type HolderUpsertRow = Pick<
+    Holder,
+    | "tokenMint"
+    | "network"
+    | "wallet"
+    | "balance"
+    | "lastActiveSlot"
+    | "lastActiveTs"
+    | "totalBoughtRaw"
+    | "totalSoldRaw"
+    | "totalBoughtUsd"
+    | "totalSoldUsd"
+    | "buyTxCount"
+    | "sellTxCount"
+    | "updatedAt"
+>;
+
+export type HolderEnrichmentInput = {
+    wallet: string;
+    balance: string | number;
+    lastActiveTs?: string | number;
+    totalBoughtUsd?: string | number;
+    totalSoldUsd?: string | number;
+    buyTxCount?: string | number;
+    sellTxCount?: string | number;
+    redisData?: Record<string, string>;
+};
 
 export interface HolderUpdateEvent {
     network?: string;

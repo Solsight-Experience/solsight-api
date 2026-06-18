@@ -6,41 +6,13 @@ import { PubSubService } from "../../../../redis/services/pubsub.service";
 import { HolderData, SwapEvent } from "../../types/swap-event.types";
 import { getWalletLabel } from "../../data/wallet-labels";
 import { JupiterService } from "../../../../infra/jupiter/jupiter.service";
-import { EnrichedHolder, HolderUpdateEvent, PriceUpdateEvent } from "../../types/holder-aggregation.types";
+import { EnrichedHolder, HolderUpdateEvent, PriceUpdateEvent, HolderUpsertRow, HolderEnrichmentInput } from "../../types/holder-aggregation.types";
 import { ClusterProvider } from "../../../../common/cluster/cluster.provider";
 import { Holder } from "../../entities/holder.entity";
 
 const HOLDER_TTL = 24 * 60 * 60; // 24 hours
 const PRICE_TTL = 60 * 60; // 1 hour
 const HOLDER_UPSERT_FLUSH_MS = 5_000;
-
-type HolderUpsertRow = Pick<
-    Holder,
-    | "tokenMint"
-    | "network"
-    | "wallet"
-    | "balance"
-    | "lastActiveSlot"
-    | "lastActiveTs"
-    | "totalBoughtRaw"
-    | "totalSoldRaw"
-    | "totalBoughtUsd"
-    | "totalSoldUsd"
-    | "buyTxCount"
-    | "sellTxCount"
-    | "updatedAt"
->;
-
-type HolderEnrichmentInput = {
-    wallet: string;
-    balance: string | number;
-    lastActiveTs?: string | number;
-    totalBoughtUsd?: string | number;
-    totalSoldUsd?: string | number;
-    buyTxCount?: string | number;
-    sellTxCount?: string | number;
-    redisData?: Record<string, string>;
-};
 
 @Injectable()
 export class HolderAggregationService implements OnModuleInit, OnModuleDestroy {
@@ -483,7 +455,8 @@ export class HolderAggregationService implements OnModuleInit, OnModuleDestroy {
 
     private toDecimalString(value: unknown): string {
         if (value == null || value === "") return "0";
-        return String(value);
+        if (typeof value === "string" || typeof value === "number") return String(value);
+        return "0";
     }
 
     private toNumber(value: unknown): number {
@@ -492,7 +465,8 @@ export class HolderAggregationService implements OnModuleInit, OnModuleDestroy {
     }
 
     private toInt(value: unknown): number {
-        const num = parseInt(String(value ?? "0"), 10);
+        const str = typeof value === "string" || typeof value === "number" ? String(value) : "0";
+        const num = parseInt(str ?? "0", 10);
         return Number.isFinite(num) ? num : 0;
     }
 }
