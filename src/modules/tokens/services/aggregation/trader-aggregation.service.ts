@@ -166,7 +166,7 @@ export class TraderAggregationService {
 
             const realizedPnl = parseFloat(String(position.realizedPnl));
             const tokensHeld = parseFloat(String(position.tokensHeld));
-            const costBasisUsd = parseFloat(String(position.costBasisUsd));
+            const _costBasisUsd = parseFloat(String(position.costBasisUsd));
             const totalBought = parseFloat(String(position.totalBoughtUsd));
             // DB fallback: no live price available, unrealized PnL is 0
             return {
