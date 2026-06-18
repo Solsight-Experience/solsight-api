@@ -2,7 +2,7 @@
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
 import { RedisService } from "../../../../redis/services/redis.service";
-import { SwapEvent, TopTrader } from "../../types/swap-event.type";
+import { SwapEvent, TopTrader } from "../../types/swap-event.types";
 import { TraderPosition } from "../../entities/trader-position.entity";
 
 const TRADER_TTL = 24 * 60 * 60; // 24 hours
