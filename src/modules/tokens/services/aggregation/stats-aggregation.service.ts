@@ -1,4 +1,4 @@
-import { Injectable, Logger } from "@nestjs/common";
+﻿import { Injectable, Logger } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
 import { RedisService } from "../../../../redis/services/redis.service";
@@ -66,7 +66,8 @@ export class StatsAggregationService {
             // Set TTL on history key (25 hours to be safe)
             await redis.expire(historyKey, 25 * 60 * 60);
         } catch (error) {
-            this.logger.error(`Redis error in storePriceData for "${tokenMint}":`, error);
+            const err = error instanceof Error ? error : new Error(String(error));
+            this.logger.error(`Redis error in storePriceData for "${tokenMint}": ${err.message}`, err.stack);
         }
     }
 
@@ -92,7 +93,8 @@ export class StatsAggregationService {
             await redis.zremrangebyscore(txnsKey, "-inf", cutoff);
             await redis.expire(txnsKey, 25 * 60 * 60);
         } catch (error) {
-            this.logger.error(`Redis error in storeVolumeAndTxns for "${tokenMint}":`, error);
+            const err = error instanceof Error ? error : new Error(String(error));
+            this.logger.error(`Redis error in storeVolumeAndTxns for "${tokenMint}": ${err.message}`, err.stack);
         }
     }
 
@@ -182,7 +184,8 @@ export class StatsAggregationService {
             }
             return totalVolume;
         } catch (error) {
-            this.logger.error(`Redis error in getVolume24h for "${tokenMint}":`, error);
+            const err = error instanceof Error ? error : new Error(String(error));
+            this.logger.error(`Redis error in getVolume24h for "${tokenMint}": ${err.message}`, err.stack);
             return 0;
         }
     }
@@ -209,7 +212,8 @@ export class StatsAggregationService {
             }
             return { total: buys + sells, buys, sells };
         } catch (error) {
-            this.logger.error(`Redis error in getTxns24h for "${tokenMint}":`, error);
+            const err = error instanceof Error ? error : new Error(String(error));
+            this.logger.error(`Redis error in getTxns24h for "${tokenMint}": ${err.message}`, err.stack);
             return { total: 0, buys: 0, sells: 0 };
         }
     }
@@ -224,7 +228,8 @@ export class StatsAggregationService {
             await redis.zremrangebyrank(tradesKey, 0, -(TRADES_MAX_SIZE + 1));
             await redis.expire(tradesKey, TRADES_TTL);
         } catch (error) {
-            this.logger.error(`Redis error in storeTradeData for "${tokenMint}":`, error);
+            const err = error instanceof Error ? error : new Error(String(error));
+            this.logger.error(`Redis error in storeTradeData for "${tokenMint}": ${err.message}`, err.stack);
         }
     }
 
@@ -250,7 +255,8 @@ export class StatsAggregationService {
 
             return { trades, total };
         } catch (error) {
-            this.logger.error(`Redis error in getTrades for "${tokenMint}":`, error);
+            const err = error instanceof Error ? error : new Error(String(error));
+            this.logger.error(`Redis error in getTrades for "${tokenMint}": ${err.message}`, err.stack);
             return { trades: [], total: 0 };
         }
     }
@@ -272,7 +278,8 @@ export class StatsAggregationService {
             if (oldPrice === 0) return null;
             return ((currentPrice - oldPrice) / oldPrice) * 100;
         } catch (error) {
-            this.logger.error(`Redis error in calculatePriceChange24h for "${tokenMint}":`, error);
+            const err = error instanceof Error ? error : new Error(String(error));
+            this.logger.error(`Redis error in calculatePriceChange24h for "${tokenMint}": ${err.message}`, err.stack);
             return null;
         }
     }
