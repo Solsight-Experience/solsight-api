@@ -125,9 +125,12 @@ export interface TopTrader {
     address: string;
     name: string | null;
     total_pnl: number;
+    realized_pnl: number;
+    unrealized_pnl: number;
     roi_percent: number;
     total_bought: number;
     total_sold: number;
+    tokens_held: number;
     win_rate: number;
     trades_count: number;
 }
