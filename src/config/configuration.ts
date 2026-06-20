@@ -97,7 +97,7 @@ export default () => ({
 
     email: {
         resendApiKey: process.env.RESEND_API_KEY ?? "",
-        fromAddress: process.env.EMAIL_FROM_ADDRESS ?? "alerts@solsight.app",
-        verifyBaseUrl: process.env.APP_BASE_URL ?? "http://localhost:3000"
+        fromAddress: process.env.EMAIL_FROM_ADDRESS ?? "onboarding@resend.dev",
+        verifyBaseUrl: process.env.APP_BASE_URL ?? "http://localhost:3001"
     }
 });

@@ -64,18 +64,18 @@ export class AuthController {
         }
     }
     @Post("register")
-    async register(@Body() registerDto: RegisterDto, @Res({ passthrough: true }) res: Response) {
-        const { user, accessToken } = await this.authService.register(registerDto);
+    async register(@Body() registerDto: RegisterDto) {
+        return this.authService.register(registerDto);
+    }
 
-        res.cookie("auth_token", accessToken, {
-            httpOnly: true,
-            secure: false,
-            sameSite: "lax",
-            path: "/",
-            maxAge: 7 * 24 * 60 * 60 * 1000
-        });
+    @Post("verify-email")
+    async verifyEmail(@Body("token") token: string) {
+        return this.authService.verifyEmail(token);
+    }
 
-        return { user };
+    @Post("resend-verification")
+    async resendVerification(@Body("email") email: string) {
+        return this.authService.resendVerificationEmail(email);
     }
 
     @Get("solana/nonce")

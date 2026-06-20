@@ -12,6 +12,9 @@ import { randomBytes } from "crypto";
 import { User } from "../../users/entities/user.entity";
 import { WalletIcon } from "../../wallets/entities/wallet.entity";
 import { DatabaseError, GoogleTokenProfile, JwtPayload, LoginDto, OauthLoginDto, RegisterDto } from "../types/auth.types";
+import { EmailSenderService } from "../../email/services/sender-service";
+import { Templates } from "../../email/services/sender-service/template-store";
+import { ConfigService } from "@nestjs/config";
 
 @Injectable()
 export class AuthService {
@@ -20,7 +23,9 @@ export class AuthService {
     constructor(
         private readonly userRepository: UserRepository,
         private readonly jwtService: JwtService,
-        private readonly walletsService: WalletsService
+        private readonly walletsService: WalletsService,
+        private readonly emailSenderService: EmailSenderService,
+        private readonly configService: ConfigService
     ) {}
 
     // --- Email/Password login ---
@@ -34,6 +39,8 @@ export class AuthService {
 
         const isPasswordValid = await bcrypt.compare(loginDto.password, user.password);
         if (!isPasswordValid) throw new UnauthorizedException("Password is incorrect");
+
+        if (!user.isEmailVerified) throw new UnauthorizedException("Please verify your email before logging in");
 
         void this.userRepository.update(user.id, { lastLoginAt: new Date() });
         const accessToken = await this.generateAccessToken(user);
@@ -122,19 +129,70 @@ export class AuthService {
         if (emailExists) throw new ConflictException("Email already exists");
 
         const hashedPassword = await bcrypt.hash(registerDto.password, 10);
-        const newUser = await this.userRepository.create({
+        const verificationToken = randomBytes(32).toString("hex");
+        const verificationExpires = new Date(Date.now() + 24 * 60 * 60 * 1000);
+
+        await this.userRepository.create({
             email: registerDto.email,
             username: registerDto.username || registerDto.email.split("@")[0],
             password: hashedPassword,
             firstName: registerDto.firstName,
             lastName: registerDto.lastName,
             isActive: true,
-            isEmailVerified: false
+            isEmailVerified: false,
+            emailVerificationToken: verificationToken,
+            emailVerificationTokenExpires: verificationExpires
         });
 
-        const accessToken = await this.generateAccessToken(newUser);
-        const { password, ...userWithoutPassword } = newUser;
-        return { user: userWithoutPassword, accessToken };
+        const clientBaseUrl = this.configService.get<string>("email.verifyBaseUrl");
+        const verificationUrl = `${clientBaseUrl}/verify-email?token=${verificationToken}`;
+
+        if (this.emailSenderService.hasKey) {
+            await this.emailSenderService.sendWithTemplate(
+                { to: registerDto.email, subject: "Verify your SolSight account" },
+                Templates.VERIFICATION([verificationUrl])
+            );
+        }
+
+        return { message: "Registration successful. Please check your email to verify your account." };
+    }
+
+    async verifyEmail(token: string) {
+        const user = await this.userRepository.findByEmailVerificationToken(token);
+        if (!user) throw new BadRequestException("Invalid verification token");
+
+        if (!user.emailVerificationTokenExpires || user.emailVerificationTokenExpires < new Date()) {
+            throw new BadRequestException("Verification token has expired");
+        }
+
+        await this.userRepository.update(user.id, {
+            isEmailVerified: true,
+            emailVerificationToken: null,
+            emailVerificationTokenExpires: null
+        });
+
+        return { message: "Email verified successfully. You can now log in." };
+    }
+
+    async resendVerificationEmail(email: string) {
+        const user = await this.userRepository.findByEmail(email);
+        if (!user) throw new NotFoundException("User not found");
+        if (user.isEmailVerified) throw new BadRequestException("Email is already verified");
+
+        const verificationToken = randomBytes(32).toString("hex");
+        const verificationExpires = new Date(Date.now() + 24 * 60 * 60 * 1000);
+
+        await this.userRepository.update(user.id, {
+            emailVerificationToken: verificationToken,
+            emailVerificationTokenExpires: verificationExpires
+        });
+
+        const clientBaseUrl = this.configService.get<string>("email.verifyBaseUrl");
+        const verificationUrl = `${clientBaseUrl}/verify-email?token=${verificationToken}`;
+
+        await this.emailSenderService.sendWithTemplate({ to: email, subject: "Verify your SolSight account" }, Templates.VERIFICATION([verificationUrl]));
+
+        return { message: "Verification email sent. Please check your inbox." };
     }
 
     // --- JWT ---
