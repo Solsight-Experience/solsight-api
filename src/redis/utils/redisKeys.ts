@@ -2,14 +2,16 @@ declare const redisKeyBrand: unique symbol;
 
 export type RedisKey = string & { readonly [redisKeyBrand]: true };
 
-type RedisKeyPart = string | number;
-type RedisKeyBuilder = (...args: RedisKeyPart[]) => string;
+type RedisKeyBuilder = (...args: never[]) => string;
+type RedisKeyMap<T extends Record<string, RedisKeyBuilder>> = { [K in keyof T]: (...args: Parameters<T[K]>) => RedisKey };
 
-export const redisKeys = <T extends Record<string, RedisKeyBuilder>>(keys: T): { [K in keyof T]: (...args: Parameters<T[K]>) => RedisKey } => {
-    const result = {} as { [K in keyof T]: (...args: Parameters<T[K]>) => RedisKey };
+export const redisKeys = <T extends Record<string, RedisKeyBuilder>>(keys: T): RedisKeyMap<T> => {
+    const result = {} as RedisKeyMap<T>;
 
-    for (const [name, builder] of Object.entries(keys)) {
-        result[name as keyof T] = ((...args: Array<string | number>) => builder(...args) as RedisKey) as (typeof result)[keyof T];
+    for (const name of Object.keys(keys) as Array<keyof T>) {
+        const builder = keys[name] as (...args: Parameters<T[typeof name]>) => string;
+
+        result[name] = ((...args: Parameters<T[typeof name]>) => builder(...args) as RedisKey) as RedisKeyMap<T>[typeof name];
     }
 
     return result;
