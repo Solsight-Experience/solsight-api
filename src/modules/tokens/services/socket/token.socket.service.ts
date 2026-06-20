@@ -218,8 +218,8 @@ export class TokenSocketService implements OnModuleInit {
         const candle = {
             open,
             close: currentOhlc.close,
-            high: Math.max(open, currentOhlc.high),
-            low: Math.min(open, currentOhlc.low)
+            high: currentOhlc.high,
+            low: currentOhlc.low
         };
 
         this.gateway.emit(room, "priceOHLC", {
