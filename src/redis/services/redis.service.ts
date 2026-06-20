@@ -7,6 +7,11 @@ export class RedisService implements OnModuleDestroy {
     private readonly redis: Redis | null;
     private readonly logger = new Logger(RedisService.name);
 
+    public static readonly KEYS = {
+        TOKEN_PRICE_LATEST: (network: string, mint: string) => `price:${network}:${mint}:latest`,
+        TOKEN_PRICE_HISTORY: (network: string, mint: string) => `price:${network}:${mint}:history`
+    };
+
     constructor(private readonly nestRedisService: NestRedisService) {
         try {
             this.redis = this.nestRedisService.getOrThrow();
