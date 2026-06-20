@@ -9,6 +9,9 @@ import { JupiterService } from "../../../../infra/jupiter/jupiter.service";
 import { EnrichedHolder, HolderUpdateEvent, PriceUpdateEvent, HolderUpsertRow, HolderEnrichmentInput } from "../../types/holder-aggregation.types";
 import { ClusterProvider } from "../../../../common/cluster/cluster.provider";
 import { Holder } from "../../entities/holder.entity";
+import { logError } from "src/common/errors/error-helper";
+import { TokenPriceService } from "../token-price.service";
+import { Cluster } from "src/common/cluster/cluster.types";
 
 const HOLDER_TTL = 24 * 60 * 60; // 24 hours
 const PRICE_TTL = 60 * 60; // 1 hour
@@ -22,6 +25,7 @@ export class HolderAggregationService implements OnModuleInit, OnModuleDestroy {
 
     constructor(
         private readonly redisService: RedisService,
+        private readonly tokenPriceService: TokenPriceService,
         private readonly pubSubService: PubSubService,
         private readonly jupiterService: JupiterService,
         private readonly clusterProvider: ClusterProvider,
@@ -144,7 +148,7 @@ export class HolderAggregationService implements OnModuleInit, OnModuleDestroy {
         if (!redis) return;
 
         const network = event.network || "mainnet";
-        const priceKey = `price:${network}:${event.mint}:latest`;
+        const priceKey = RedisService.KEYS.TOKEN_PRICE_LATEST(network, event.mint);
 
         try {
             await redis.hset(priceKey, {
@@ -162,7 +166,7 @@ export class HolderAggregationService implements OnModuleInit, OnModuleDestroy {
 
             await Promise.all(
                 topAddresses.map(async (address) => {
-                    const holderKey = `holder:${network}:${event.mint}:${address}`;
+                    const holderKey = RedisService.KEYS.HOLDER_MINT_WALLET(network, event.mint, address);
                     const data = await redis.hgetall(holderKey);
                     if (!data || !data.balance || !data.cost_basis) return;
 
@@ -173,8 +177,7 @@ export class HolderAggregationService implements OnModuleInit, OnModuleDestroy {
                 })
             );
         } catch (error) {
-            const err = error instanceof Error ? error : new Error(String(error));
-            this.logger.error(`Redis error in onPriceUpdate for "${event.mint}": ${err.message}`, err.stack);
+            logError(this.logger, `Redis error in onPriceUpdate for "${event.mint}":`, error);
         }
     }
 
@@ -391,11 +394,8 @@ export class HolderAggregationService implements OnModuleInit, OnModuleDestroy {
 
     private async resolvePrice(swap: SwapEvent, tokenMint: string): Promise<number> {
         if (swap.price_usd != null && swap.price_usd > 0) return swap.price_usd;
-        const priceData = await this.redisService.hgetall(`price:${tokenMint}:latest`);
-        if (priceData?.price_usd) {
-            const cached = parseFloat(priceData.price_usd);
-            if (cached > 0) return cached;
-        }
+        const priceData = await this.tokenPriceService.getPrice(tokenMint, swap.network as Cluster | undefined);
+        if (priceData.priceUsd > 0) return priceData.priceUsd;
         return swap.price_native;
     }
 
@@ -451,9 +451,12 @@ export class HolderAggregationService implements OnModuleInit, OnModuleDestroy {
     private async getPriceAndSupply(tokenMint: string, network: string): Promise<{ currentPriceUsd: number; totalSupply: number }> {
         const redis = this.redisService.getClient();
         const [priceData, totalSupplyStr] = redis
-            ? await Promise.all([redis.hgetall(`price:${network}:${tokenMint}:latest`), redis.get(`supply:${network}:${tokenMint}`)])
+            ? await Promise.all([
+                  this.tokenPriceService.getPrice(tokenMint, network as Cluster | undefined),
+                  redis.get(RedisService.KEYS.SUPPLY(network, tokenMint))
+              ])
             : [null, null];
-        let currentPriceUsd = priceData ? this.toNumber(priceData.price_usd) : 0;
+        let currentPriceUsd = priceData ? this.toNumber(priceData.priceUsd) : 0;
         let totalSupply = totalSupplyStr ? this.toNumber(totalSupplyStr) : 0;
 
         if (currentPriceUsd === 0 || totalSupply === 0) {

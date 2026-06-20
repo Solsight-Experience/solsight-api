@@ -10,7 +10,10 @@ export class RedisService implements OnModuleDestroy {
     public static readonly KEYS = {
         TOKEN_PRICE_LATEST: (network: string, mint: string) => `price:${network}:${mint}:latest`,
         TOKEN_PRICE_HISTORY: (network: string, mint: string) => `price:${network}:${mint}:history`,
-        TOKEN_METADATA: (network: string, mint: string) => `token:meta:${network}:${mint}`
+        TOKEN_METADATA: (network: string, mint: string) => `token:meta:${network}:${mint}`,
+        HOLDER_MINT_WALLET: (network: string, mint: string, wallet: string) => `holder:${network}:${mint}:${wallet}`,
+        SUPPLY: (network: string, mint: string) => `supply:${network}:${mint}`,
+        VOLUME_24H: (network: string, mint: string) => `volume:${network}:${mint}:24h`
     };
 
     public static readonly TTL = {

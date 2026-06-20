@@ -5,6 +5,8 @@ import { RedisService } from "../../../../redis/services/redis.service";
 import { Token } from "../../entities/token.entity";
 import { ClusterProvider } from "../../../../common/cluster/cluster.provider";
 import { SwapEvent, TokenStats, SwapPriceResult, TradeData, isValidPrice } from "../../types/swap-event.types";
+import { logError } from "src/common/errors/error-helper";
+import { TokenPriceService } from "../token-price.service";
 
 const TRADES_MAX_SIZE = 500;
 const TRADES_TTL = 25 * 60 * 60;
@@ -17,6 +19,7 @@ export class StatsAggregationService {
         private readonly redisService: RedisService,
         @InjectRepository(Token)
         private readonly tokenRepository: Repository<Token>,
+        private readonly tokenPriceService: TokenPriceService,
         private readonly clusterProvider: ClusterProvider
     ) {}
 
@@ -46,7 +49,7 @@ export class StatsAggregationService {
 
         try {
             // Store latest price
-            await this.redisService.hset(`price:${network}:${tokenMint}:latest`, {
+            await this.redisService.hset(RedisService.KEYS.TOKEN_PRICE_LATEST(network, tokenMint), {
                 price_usd: priceUsd,
                 price_native: priceNative,
                 slot: swap.slot,
@@ -55,7 +58,7 @@ export class StatsAggregationService {
 
             // Store price in history for 24h change calculation
             const now = Date.now();
-            const historyKey = `price:${network}:${tokenMint}:history`;
+            const historyKey = RedisService.KEYS.TOKEN_PRICE_HISTORY(network, tokenMint);
 
             // Add to sorted set with timestamp as score
             await redis.zadd(historyKey, now, `${priceUsd}:${now}`);
@@ -67,8 +70,7 @@ export class StatsAggregationService {
             // Set TTL on history key (25 hours to be safe)
             await redis.expire(historyKey, 25 * 60 * 60);
         } catch (error) {
-            const err = error instanceof Error ? error : new Error(String(error));
-            this.logger.error(`Redis error in storePriceData for "${tokenMint}": ${err.message}`, err.stack);
+            logError(this.logger, `Redis error in storePriceData for "${tokenMint}"`, error);
         }
     }
 
@@ -102,13 +104,13 @@ export class StatsAggregationService {
     async getStats(tokenMint: string): Promise<TokenStats> {
         // Get latest price from Redis (object with native and usd)
         const network = this.clusterProvider.cluster;
-        const latestPriceData = await this.redisService.hgetall(`price:${network}:${tokenMint}:latest`);
+        const latestPriceData = await this.tokenPriceService.getPrice(tokenMint, network);
 
         // Get token from database for other stats
         const token = await this.tokenRepository.findOneBy({ address: tokenMint, network: this.clusterProvider.cluster });
 
         // Calculate 24h price change (use USD price)
-        const priceUsd = latestPriceData?.price_usd != null ? parseFloat(latestPriceData.price_usd) : null;
+        const priceUsd = latestPriceData?.priceUsd;
         const priceChange24h = await this.calculatePriceChange24h(tokenMint, priceUsd);
 
         // Get volume and txns from Redis (real-time from swap events)
@@ -149,7 +151,7 @@ export class StatsAggregationService {
     }
 
     async getTotalSupply(tokenMint: string): Promise<number> {
-        const cacheKey = `supply:${this.clusterProvider.cluster}:${tokenMint}`;
+        const cacheKey = RedisService.KEYS.SUPPLY(this.clusterProvider.cluster, tokenMint);
         const cached = await this.redisService.get<number>(cacheKey);
         if (cached != null) return cached;
 
@@ -159,21 +161,12 @@ export class StatsAggregationService {
         return totalSupply;
     }
 
-    async getLatestPrice(tokenMint: string): Promise<{ native: number; usd: number } | null> {
-        const data = await this.redisService.hgetall(`price:${this.clusterProvider.cluster}:${tokenMint}:latest`);
-        if (!data) return null;
-        return {
-            usd: parseFloat(data.price_usd),
-            native: parseFloat(data.price_native)
-        };
-    }
-
     private async getVolume24h(tokenMint: string): Promise<number> {
         const redis = this.redisService.getClient();
         if (!redis) return 0;
 
         try {
-            const volumeKey = `volume:${this.clusterProvider.cluster}:${tokenMint}:24h`;
+            const volumeKey = RedisService.KEYS.VOLUME_24H(this.clusterProvider.cluster, tokenMint);
             const entries = await redis.zrange(volumeKey, 0, -1);
             if (!entries || entries.length === 0) return 0;
 
@@ -186,8 +179,7 @@ export class StatsAggregationService {
             }
             return totalVolume;
         } catch (error) {
-            const err = error instanceof Error ? error : new Error(String(error));
-            this.logger.error(`Redis error in getVolume24h for "${tokenMint}": ${err.message}`, err.stack);
+            logError(this.logger, `Redis error in getVolume24h for "${tokenMint}"`, error);
             return 0;
         }
     }
@@ -214,8 +206,7 @@ export class StatsAggregationService {
             }
             return { total: buys + sells, buys, sells };
         } catch (error) {
-            const err = error instanceof Error ? error : new Error(String(error));
-            this.logger.error(`Redis error in getTxns24h for "${tokenMint}": ${err.message}`, err.stack);
+            logError(this.logger, `Redis error in getTxns24h for "${tokenMint}"`, error);
             return { total: 0, buys: 0, sells: 0 };
         }
     }
@@ -230,8 +221,7 @@ export class StatsAggregationService {
             await redis.zremrangebyrank(tradesKey, 0, -(TRADES_MAX_SIZE + 1));
             await redis.expire(tradesKey, TRADES_TTL);
         } catch (error) {
-            const err = error instanceof Error ? error : new Error(String(error));
-            this.logger.error(`Redis error in storeTradeData for "${tokenMint}": ${err.message}`, err.stack);
+            logError(this.logger, `Redis error in storeTradeData for "${tokenMint}"`, error);
         }
     }
 
