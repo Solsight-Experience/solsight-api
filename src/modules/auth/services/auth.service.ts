@@ -225,4 +225,64 @@ export class AuthService {
             message: "Wallet verified and linked successfully"
         };
     }
+
+    async loginWithSolana(walletAddress: string, signature: string, walletIcon?: WalletIcon): Promise<{ user: Omit<User, "password">; accessToken: string }> {
+        const wallet = await this.walletsService.findOneByAddress(walletAddress);
+
+        if (!wallet || !wallet.nonce) {
+            throw new BadRequestException("Wallet not found or nonce not generated");
+        }
+
+        try {
+            const signatureUint8 = bs58.decode(signature);
+            const nonceUint8 = new TextEncoder().encode(wallet.nonce);
+            const publicKeyUint8 = bs58.decode(walletAddress);
+
+            const verified = nacl.sign.detached.verify(nonceUint8, signatureUint8, publicKeyUint8);
+
+            if (!verified) {
+                throw new UnauthorizedException("Invalid signature");
+            }
+        } catch {
+            throw new UnauthorizedException("Signature verification failed");
+        }
+
+        // Clear nonce
+        await this.walletsService.updateNonce(wallet.id, null);
+
+        let user: User | null = null;
+
+        if (wallet.userId) {
+            user = await this.userRepository.findById(wallet.userId);
+        }
+
+        if (!user) {
+            // Check if user with this generated email already exists
+            const generatedEmail = `solana_${walletAddress.toLowerCase()}@solsight.com`;
+            user = await this.userRepository.findByEmail(generatedEmail);
+
+            if (!user) {
+                // Auto-create new user
+                const dummyPassword = await bcrypt.hash(randomBytes(32).toString("hex"), 10);
+                const username = `sol_${walletAddress.slice(0, 6)}_${walletAddress.slice(-4)}`;
+
+                user = await this.userRepository.create({
+                    email: generatedEmail,
+                    username,
+                    password: dummyPassword,
+                    isActive: true,
+                    isEmailVerified: true
+                });
+            }
+
+            // Link the wallet to the user
+            await this.walletsService.updateUser(wallet.id, user.id, walletIcon || WalletIcon.PHANTOM);
+        }
+
+        void this.userRepository.update(user.id, { lastLoginAt: new Date() });
+        const accessToken = await this.generateAccessToken(user);
+        const { password, ...userWithoutPassword } = user;
+
+        return { user: userWithoutPassword, accessToken };
+    }
 }
