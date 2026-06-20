@@ -90,9 +90,10 @@ async function main() {
     console.log(`Total documents to ingest: ${docs.length}`);
     console.log(`Embedding model: ${EMBEDDING_MODEL}${EMBEDDING_API_URL ? ` (URL: ${EMBEDDING_API_URL})` : ""}`);
 
+    const useSsl = process.env.NODE_ENV === "production";
     const client = new Client({
         connectionString: DATABASE_URL,
-        ssl: { rejectUnauthorized: false }
+        ssl: useSsl ? { rejectUnauthorized: false } : false
     });
     await client.connect();
     console.log("Successfully connected to PostgreSQL");
