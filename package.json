@@ -25,6 +25,8 @@
         "migration:run": "ts-node -r tsconfig-paths/register src/database/cli-migration-runner.ts",
         "migration:revert": "pnpm typeorm migration:revert",
         "reset-schema": "bash scripts/reset-schemas.sh",
+        "rag:ingest": "ts-node -r tsconfig-paths/register -r dotenv/config src/scripts/ingest-rag-docs.ts",
+        "rag:ingest:clear": "ts-node -r tsconfig-paths/register -r dotenv/config src/scripts/ingest-rag-docs.ts --clear",
         "prepare": "husky"
     },
     "dependencies": {

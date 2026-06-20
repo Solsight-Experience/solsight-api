@@ -534,10 +534,14 @@ export class ChatService {
         // Inject RAG context from vector store if available
         const userQuery = recentMessages.findLast((m) => m.role === "user")?.content ?? "";
         if (userQuery) {
-            const ragPrompt = await this.ragService.buildContextPrompt(userQuery);
-            if (ragPrompt) {
-                messages.push({ role: "system", content: ragPrompt });
-                this.logger.debug("RAG context injected into prompt", ChatService.name);
+            try {
+                const ragPrompt = await this.ragService.buildContextPrompt(userQuery);
+                if (ragPrompt) {
+                    messages.push({ role: "system", content: ragPrompt });
+                    this.logger.debug("RAG context injected into prompt", ChatService.name);
+                }
+            } catch (error) {
+                this.logger.error("Failed to build RAG context", error, ChatService.name);
             }
         }
 
