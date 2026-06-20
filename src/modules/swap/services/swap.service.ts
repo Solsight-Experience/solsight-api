@@ -20,9 +20,7 @@ const FEE_FALLBACK_PRIORITY_LAMPORTS = 100_000;
 const TIP_FALLBACK_LAMPORTS = 50_000;
 const MAX_FEE_BUFFER_MULTIPLIER = 3;
 
-const FEE_CACHE_KEY = "swap:info:fees:v1";
 const FEE_CACHE_TTL_SECONDS = 5;
-const KORA_CACHE_KEY = "swap:info:gasless:v1";
 const KORA_CACHE_TTL_SECONDS = 60;
 
 @Injectable()
@@ -176,7 +174,7 @@ export class SwapService {
     }
 
     private async aggregateFeeFields(): Promise<CachedFeeFields> {
-        const cached = await this.redisService.get<CachedFeeFields>(FEE_CACHE_KEY);
+        const cached = await this.redisService.get<CachedFeeFields>(RedisService.KEYS.SWAP_FEE_CACHE());
         if (cached) {
             return cached;
         }
@@ -191,12 +189,12 @@ export class SwapService {
             maxAutoFeeLamports
         };
 
-        await this.redisService.set(FEE_CACHE_KEY, fields, FEE_CACHE_TTL_SECONDS);
+        await this.redisService.set(RedisService.KEYS.SWAP_FEE_CACHE(), fields, FEE_CACHE_TTL_SECONDS);
         return fields;
     }
 
     private async aggregateGaslessFields(): Promise<CachedGaslessFields> {
-        const cached = await this.redisService.get<CachedGaslessFields>(KORA_CACHE_KEY);
+        const cached = await this.redisService.get<CachedGaslessFields>(RedisService.KEYS.SWAP_KORA_CACHE());
         if (cached) {
             return cached;
         }
@@ -219,7 +217,7 @@ export class SwapService {
             payerPubkey
         };
 
-        await this.redisService.set(KORA_CACHE_KEY, fields, KORA_CACHE_TTL_SECONDS);
+        await this.redisService.set(RedisService.KEYS.SWAP_KORA_CACHE(), fields, KORA_CACHE_TTL_SECONDS);
         return fields;
     }
 

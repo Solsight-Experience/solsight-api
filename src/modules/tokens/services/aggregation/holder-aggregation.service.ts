@@ -13,8 +13,6 @@ import { logError } from "src/common/errors/error-helper";
 import { TokenPriceService } from "../token-price.service";
 import { Cluster } from "src/common/cluster/cluster.types";
 
-const HOLDER_TTL = 24 * 60 * 60; // 24 hours
-const PRICE_TTL = 60 * 60; // 1 hour
 const HOLDER_UPSERT_FLUSH_MS = 5_000;
 
 @Injectable()
@@ -36,20 +34,20 @@ export class HolderAggregationService implements OnModuleInit, OnModuleDestroy {
     async onModuleInit(): Promise<void> {
         this.flushTimer = setInterval(() => {
             void this.flushHolderUpserts().catch((error) => {
-                this.logger.error("Failed to flush holder upsert buffer:", error);
+                logError(this.logger, "Failed to flush holder upsert buffer", error);
             });
         }, HOLDER_UPSERT_FLUSH_MS);
 
         for (const network of ["mainnet", "devnet"]) {
             await this.pubSubService.subscribe<HolderUpdateEvent>(`solsight:holder_updates:${network}`, (message) => {
                 void this.onHolderUpdate({ ...message, network: message.network || network }).catch((error) => {
-                    this.logger.error("Error processing holder update:", error);
+                    logError(this.logger, "Error processing holder update", error);
                 });
             });
 
             await this.pubSubService.subscribe<PriceUpdateEvent>(`solsight:price_updates:${network}`, (message) => {
                 void this.onPriceUpdate({ ...message, network: message.network || network }).catch((error) => {
-                    this.logger.error("Error processing price update:", error);
+                    logError(this.logger, "Error processing price update", error);
                 });
             });
         }
@@ -65,8 +63,8 @@ export class HolderAggregationService implements OnModuleInit, OnModuleDestroy {
     async onHolderUpdate(event: HolderUpdateEvent): Promise<void> {
         const redis = this.redisService.getClient();
         const network = event.network || "mainnet";
-        const holderKey = `holder:${network}:${event.mint}:${event.wallet}`;
-        const rankingKey = `holders:${network}:${event.mint}:ranked`;
+        const holderKey = RedisService.KEYS.HOLDER_MINT_WALLET(network, event.mint, event.wallet);
+        const rankingKey = RedisService.KEYS.HOLDER_RANKING(network, event.mint);
 
         if (event.is_removed) {
             if (redis) {
@@ -74,7 +72,7 @@ export class HolderAggregationService implements OnModuleInit, OnModuleDestroy {
                     await redis.zrem(rankingKey, event.wallet);
                     await redis.del(holderKey);
                 } catch (error) {
-                    this.logger.error(`Redis error removing holder "${event.wallet}" for "${event.mint}":`, error);
+                    logError(this.logger, `Redis error removing holder "${event.wallet}" for "${event.mint}"`, error);
                 }
             }
 
@@ -127,17 +125,16 @@ export class HolderAggregationService implements OnModuleInit, OnModuleDestroy {
             }
 
             await redis.hset(holderKey, updateData);
-            await redis.expire(holderKey, HOLDER_TTL);
+            await redis.expire(holderKey, RedisService.TTL.HOLDER_MINT_WALLET);
 
             if (event.balance > 0) {
                 await redis.zadd(rankingKey, event.balance, event.wallet);
             } else {
                 await redis.zrem(rankingKey, event.wallet);
             }
-            await redis.expire(rankingKey, HOLDER_TTL);
+            await redis.expire(rankingKey, RedisService.TTL.HOLDER_RANKING);
         } catch (error) {
-            const err = error instanceof Error ? error : new Error(String(error));
-            this.logger.error(`Redis error in onHolderUpdate for "${event.mint}": ${err.message}`, err.stack);
+            logError(this.logger, `Redis error in onHolderUpdate for "${event.mint}"`, error);
         }
 
         this.queueHolderUpsert(event, network);
@@ -158,10 +155,10 @@ export class HolderAggregationService implements OnModuleInit, OnModuleDestroy {
                 source: event.source
             });
             this.logger.log(`Updated price for token: ${event.mint}, price=${event.price_usd}`);
-            await redis.expire(priceKey, PRICE_TTL);
+            await redis.expire(priceKey, RedisService.TTL.TOKEN_PRICE_LATEST);
 
             // Recalculate unrealized PnL for top 50 holders
-            const rankingKey = `holders:${network}:${event.mint}:ranked`;
+            const rankingKey = RedisService.KEYS.HOLDER_RANKING(network, event.mint);
             const topAddresses = await redis.zrevrange(rankingKey, 0, 49);
 
             await Promise.all(
@@ -198,8 +195,8 @@ export class HolderAggregationService implements OnModuleInit, OnModuleDestroy {
             const resolvedPrice = await this.resolvePrice(swap, tokenMint);
             const volumeUsd = tokenAmount * resolvedPrice;
 
-            const holderKey = `holder:${network}:${tokenMint}:${holderAddress}`;
-            const rankingKey = `holders:${network}:${tokenMint}:ranked`;
+            const holderKey = RedisService.KEYS.HOLDER_MINT_WALLET(network, tokenMint, holderAddress);
+            const rankingKey = RedisService.KEYS.HOLDER_RANKING(network, tokenMint);
             const now = Date.now();
 
             if (isBuy) {
@@ -233,7 +230,7 @@ export class HolderAggregationService implements OnModuleInit, OnModuleDestroy {
             }
 
             await redis.hset(holderKey, "last_tx_time", now);
-            await redis.expire(holderKey, HOLDER_TTL);
+            await redis.expire(holderKey, RedisService.TTL.HOLDER_MINT_WALLET);
 
             const balance = parseFloat((await redis.hget(holderKey, "balance")) || "0");
             if (balance > 0) {
@@ -241,10 +238,9 @@ export class HolderAggregationService implements OnModuleInit, OnModuleDestroy {
             } else {
                 await redis.zrem(rankingKey, holderAddress);
             }
-            await redis.expire(rankingKey, HOLDER_TTL);
+            await redis.expire(rankingKey, RedisService.TTL.HOLDER_RANKING);
         } catch (error) {
-            const err = error instanceof Error ? error : new Error(String(error));
-            this.logger.error(`Redis error in holder onSwapEvent: ${err.message}`, err.stack);
+            logError(this.logger, "Redis error in holder onSwapEvent", error);
         }
     }
 
@@ -254,12 +250,12 @@ export class HolderAggregationService implements OnModuleInit, OnModuleDestroy {
 
         try {
             const network = this.clusterProvider.cluster;
-            const rankingKey = `holders:${network}:${tokenMint}:ranked`;
+            const rankingKey = RedisService.KEYS.HOLDER_RANKING(network, tokenMint);
             const topAddresses = await redis.zrevrange(rankingKey, 0, limit - 1);
             const holderRows: HolderEnrichmentInput[] = [];
 
             for (const address of topAddresses) {
-                const holderKey = `holder:${network}:${tokenMint}:${address}`;
+                const holderKey = RedisService.KEYS.HOLDER_MINT_WALLET(network, tokenMint, address);
                 const data = await redis.hgetall(holderKey);
 
                 if (!data || Object.keys(data).length === 0) continue;
@@ -278,8 +274,7 @@ export class HolderAggregationService implements OnModuleInit, OnModuleDestroy {
 
             return this.enrichHolders(tokenMint, network, holderRows);
         } catch (error) {
-            const err = error instanceof Error ? error : new Error(String(error));
-            this.logger.error(`Redis error in getTopHolders for "${tokenMint}": ${err.message}`, err.stack);
+            logError(this.logger, `Redis error in getTopHolders for "${tokenMint}"`, error);
             return [];
         }
     }
@@ -294,7 +289,7 @@ export class HolderAggregationService implements OnModuleInit, OnModuleDestroy {
             const redisData =
                 row.redisData ??
                 (redis
-                    ? await redis.hgetall(`holder:${network}:${tokenMint}:${address}`).catch(() => ({}) as Record<string, string>)
+                    ? await redis.hgetall(RedisService.KEYS.HOLDER_MINT_WALLET(network, tokenMint, address)).catch(() => ({}) as Record<string, string>)
                     : ({} as Record<string, string>));
             const data = redisData && Object.keys(redisData).length > 0 ? redisData : {};
 
@@ -354,7 +349,7 @@ export class HolderAggregationService implements OnModuleInit, OnModuleDestroy {
 
         try {
             const network = this.clusterProvider.cluster;
-            const holderKey = `holder:${network}:${tokenMint}:${address}`;
+            const holderKey = RedisService.KEYS.HOLDER_MINT_WALLET(network, tokenMint, address);
             const data = await redis.hgetall(holderKey);
 
             if (!data || Object.keys(data).length === 0) return null;
@@ -364,8 +359,7 @@ export class HolderAggregationService implements OnModuleInit, OnModuleDestroy {
             const realizedPnl = parseFloat(data.realized_pnl || "0");
 
             // Fetch total supply for balance_percent calculation
-            const supplyKey = `supply:${network}:${tokenMint}`;
-            const totalSupplyStr = await redis.get(supplyKey);
+            const totalSupplyStr = await redis.get(RedisService.KEYS.SUPPLY(network, tokenMint));
             const totalSupply = totalSupplyStr ? parseFloat(totalSupplyStr) : 0;
             const balancePercent = totalSupply > 0 ? (balance / totalSupply) * 100 : 0;
 
@@ -386,8 +380,7 @@ export class HolderAggregationService implements OnModuleInit, OnModuleDestroy {
                 tx_count: parseInt(data.tx_count || "0", 10)
             };
         } catch (error) {
-            const err = error instanceof Error ? error : new Error(String(error));
-            this.logger.error(`Redis error in getHolder for "${tokenMint}" address "${address}": ${err.message}`, err.stack);
+            logError(this.logger, `Redis error in getHolder for "${tokenMint}" address "${address}"`, error);
             return null;
         }
     }
@@ -436,7 +429,7 @@ export class HolderAggregationService implements OnModuleInit, OnModuleDestroy {
             for (const row of rows) {
                 this.holderUpsertBuffer.set(this.holderBufferKey(row.network, row.tokenMint, row.wallet), row);
             }
-            this.logger.error(`Failed to upsert ${rows.length} holder rows:`, error);
+            logError(this.logger, `Failed to upsert ${rows.length} holder rows`, error);
         }
     }
 
@@ -444,7 +437,7 @@ export class HolderAggregationService implements OnModuleInit, OnModuleDestroy {
         try {
             await this.holderRepository.delete({ tokenMint: event.mint, network, wallet: event.wallet });
         } catch (error) {
-            this.logger.error(`Failed to delete holder ${network}:${event.mint}:${event.wallet}:`, error);
+            logError(this.logger, `Failed to delete holder ${network}:${event.mint}:${event.wallet}`, error);
         }
     }
 

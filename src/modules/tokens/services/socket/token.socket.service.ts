@@ -11,6 +11,7 @@ import { SwapEvent, TradeData, transformSwapToTradeForToken, calculateSwapPrices
 import { EnrichedHolder } from "../../types/holder-aggregation.types";
 import { TokenSocketData } from "../../types/token-socket.types";
 import { ConfiguredTradeChannel, INDEXER_TRADE_CHANNELS, LEGACY_TRADE_CHANNEL } from "../../../../config/configuration";
+import { logError } from "src/common/errors/error-helper";
 
 @Injectable()
 export class TokenSocketService implements OnModuleInit {
@@ -56,7 +57,7 @@ export class TokenSocketService implements OnModuleInit {
 
             await this.pubSubService.subscribe<SwapEvent>(channel, (swap) => {
                 void this.processSwapEvent({ ...swap, network: swap.network || network }).catch((error) => {
-                    this.logger.error("Error processing swap event:", error);
+                    logError(this.logger, "Error processing swap event", error);
                 });
             });
         }
@@ -64,7 +65,7 @@ export class TokenSocketService implements OnModuleInit {
         await this.pubSubService.subscribe<SwapEvent>(LEGACY_TRADE_CHANNEL, (swap) => {
             this.logger.warn(`Received swap on legacy Redis channel "${LEGACY_TRADE_CHANNEL}"; keep this only during the compatibility deploy`);
             void this.processSwapEvent({ ...swap, network: swap.network || "mainnet" }).catch((error) => {
-                this.logger.error("Error processing legacy swap event:", error);
+                logError(this.logger, "Error processing legacy swap event", error);
             });
         });
     }
@@ -105,7 +106,7 @@ export class TokenSocketService implements OnModuleInit {
 
         setInterval(() => {
             void this.emitScheduledRooms(domain, interval).catch((error) => {
-                this.logger.error(`Error emitting scheduled token socket data for ${domain}:${interval}`, error);
+                logError(this.logger, `Error emitting scheduled token socket data for ${domain}:${interval}`, error);
             });
         }, intervalMs);
     }

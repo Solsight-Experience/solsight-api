@@ -4,6 +4,7 @@ import { Repository } from "typeorm";
 import { OhlcCandle } from "../../entities/ohlc-candle.entity";
 import { OhlcData } from "../../types/swap-event.types";
 import { OhlcInterval } from "../socket/room/room.constants";
+import { logError } from "src/common/errors/error-helper";
 
 @Injectable()
 export class OhlcPersistorService {
@@ -34,7 +35,7 @@ export class OhlcPersistorService {
                 .orIgnore()
                 .execute();
         } catch (error) {
-            this.logger.error(`Failed to persist OHLC candle for ${network}:${tokenMint}:${interval}:${timestamp}:`, error);
+            logError(this.logger, `Failed to persist OHLC candle for ${network}:${tokenMint}:${interval}:${timestamp}`, error);
         }
     }
 }

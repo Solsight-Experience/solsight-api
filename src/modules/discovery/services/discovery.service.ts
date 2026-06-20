@@ -138,7 +138,7 @@ export class DiscoveryService implements OnModuleInit {
         const windowData: TokenOverview[][] = [];
 
         for (let w = startWindow; w <= endWindow; w++) {
-            const windowKey = `discovery:${this.network}:trending:${sort_by}:${w}`;
+            const windowKey = RedisService.KEYS.DISCOVERY_TRENDING_WINDOW(this.network, sort_by, w);
             let window = await this.redisService.get<TokenOverview[]>(windowKey);
 
             if (!window) {
@@ -159,7 +159,7 @@ export class DiscoveryService implements OnModuleInit {
             windowData.push(window);
         }
 
-        const totalKey = `discovery:${this.network}:trending:${sort_by}:total`;
+        const totalKey = RedisService.KEYS.DISCOVERY_TRENDING_TOTAL(this.network, sort_by);
         let total = await this.redisService.get<number>(totalKey);
         if (total === null) {
             total = await this.tokenRepository.count({ where: { network: this.network } });
@@ -360,7 +360,7 @@ export class DiscoveryService implements OnModuleInit {
         const windowData: CategoryOverview[][] = [];
 
         for (let w = startWindow; w <= endWindow; w++) {
-            const windowKey = `discovery:categories:${w}`;
+            const windowKey = RedisService.KEYS.DISCOVERY_CATEGORIES_WINDOW(w);
             let window = await this.redisService.get<CategoryOverview[]>(windowKey);
 
             if (!window) {
@@ -370,7 +370,7 @@ export class DiscoveryService implements OnModuleInit {
             windowData.push(window);
         }
 
-        const total = (await this.redisService.get<number>("discovery:categories:total")) ?? 0;
+        const total = (await this.redisService.get<number>(RedisService.KEYS.DISCOVERY_CATEGORIES_TOTAL())) ?? 0;
 
         const combined = windowData.flat();
         const startInCombined = offset - startWindow * WINDOW_SIZE;
@@ -390,11 +390,11 @@ export class DiscoveryService implements OnModuleInit {
             .filter((cat) => Number(cat.marketCap) > 0 && Number(cat.volume24h) > 0 && cat.top3Coins?.length > 0 && cat.top3CoinsId?.length > 0)
             .map((cat) => this.transformToCategory(cat));
 
-        await this.redisService.set("discovery:categories:total", valid.length, CATEGORIES_TTL);
+        await this.redisService.set(RedisService.KEYS.DISCOVERY_CATEGORIES_TOTAL(), valid.length, CATEGORIES_TTL);
 
         for (let i = 0; i < valid.length; i += WINDOW_SIZE) {
             const windowIndex = Math.floor(i / WINDOW_SIZE);
-            await this.redisService.set(`discovery:categories:${windowIndex}`, valid.slice(i, i + WINDOW_SIZE), CATEGORIES_TTL);
+            await this.redisService.set(RedisService.KEYS.DISCOVERY_CATEGORIES_WINDOW(windowIndex), valid.slice(i, i + WINDOW_SIZE), CATEGORIES_TTL);
         }
     }
 
@@ -457,7 +457,7 @@ export class DiscoveryService implements OnModuleInit {
     }
 
     async getCategoryDetail(categorySlug: string, _dto: GetCategoryDto) {
-        const cacheKey = `discovery:category:${categorySlug}`;
+        const cacheKey = RedisService.KEYS.DISCOVERY_CATEGORY_DETAIL(categorySlug);
 
         const cached = await this.redisService.get(cacheKey);
         if (cached) return cached;

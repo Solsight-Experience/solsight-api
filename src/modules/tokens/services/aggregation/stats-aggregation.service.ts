@@ -9,7 +9,6 @@ import { logError } from "src/common/errors/error-helper";
 import { TokenPriceService } from "../token-price.service";
 
 const TRADES_MAX_SIZE = 500;
-const TRADES_TTL = 25 * 60 * 60;
 
 @Injectable()
 export class StatsAggregationService {
@@ -68,7 +67,7 @@ export class StatsAggregationService {
             await redis.zremrangebyscore(historyKey, "-inf", cutoff);
 
             // Set TTL on history key (25 hours to be safe)
-            await redis.expire(historyKey, 25 * 60 * 60);
+            await redis.expire(historyKey, RedisService.TTL.TOKEN_PRICE_HISTORY);
         } catch (error) {
             logError(this.logger, `Redis error in storePriceData for "${tokenMint}"`, error);
         }
@@ -85,19 +84,18 @@ export class StatsAggregationService {
             const cutoff = now - 24 * 60 * 60 * 1000;
 
             // Store volume in sorted set (rolling 24h window)
-            const volumeKey = `volume:${network}:${tokenMint}:24h`;
+            const volumeKey = RedisService.KEYS.VOLUME_24H(network, tokenMint);
             await redis.zadd(volumeKey, now, `${volumeUsd}:${priceUsd}:${now}`);
             await redis.zremrangebyscore(volumeKey, "-inf", cutoff);
-            await redis.expire(volumeKey, 25 * 60 * 60);
+            await redis.expire(volumeKey, RedisService.TTL.VOLUME_24H);
 
             // Store transaction in sorted set (rolling 24h window)
-            const txnsKey = `txns:${network}:${tokenMint}:24h`;
+            const txnsKey = RedisService.KEYS.TXNS_24H(network, tokenMint);
             await redis.zadd(txnsKey, now, `${txType}:${priceUsd}:${now}`);
             await redis.zremrangebyscore(txnsKey, "-inf", cutoff);
-            await redis.expire(txnsKey, 25 * 60 * 60);
+            await redis.expire(txnsKey, RedisService.TTL.TXNS_24H);
         } catch (error) {
-            const err = error instanceof Error ? error : new Error(String(error));
-            this.logger.error(`Redis error in storeVolumeAndTxns for "${tokenMint}": ${err.message}`, err.stack);
+            logError(this.logger, `Redis error in storeVolumeAndTxns for "${tokenMint}"`, error);
         }
     }
 
@@ -157,7 +155,7 @@ export class StatsAggregationService {
 
         const token = await this.tokenRepository.findOneBy({ address: tokenMint, network: this.clusterProvider.cluster });
         const totalSupply = Number(token?.totalSupply ?? 0);
-        await this.redisService.set(cacheKey, totalSupply, 60);
+        await this.redisService.set(cacheKey, totalSupply, RedisService.TTL.SUPPLY);
         return totalSupply;
     }
 
@@ -189,7 +187,7 @@ export class StatsAggregationService {
         if (!redis) return { total: 0, buys: 0, sells: 0 };
 
         try {
-            const txnsKey = `txns:${this.clusterProvider.cluster}:${tokenMint}:24h`;
+            const txnsKey = RedisService.KEYS.TXNS_24H(this.clusterProvider.cluster, tokenMint);
             const entries = await redis.zrange(txnsKey, 0, -1);
             if (!entries || entries.length === 0) {
                 return { total: 0, buys: 0, sells: 0 };
@@ -216,10 +214,10 @@ export class StatsAggregationService {
         if (!redis) return;
 
         try {
-            const tradesKey = `trades:${network}:${tokenMint}`;
+            const tradesKey = RedisService.KEYS.TRADES_24H(network, tokenMint);
             await redis.zadd(tradesKey, tradeData.timestamp, JSON.stringify(tradeData));
             await redis.zremrangebyrank(tradesKey, 0, -(TRADES_MAX_SIZE + 1));
-            await redis.expire(tradesKey, TRADES_TTL);
+            await redis.expire(tradesKey, RedisService.TTL.TRADES_24H);
         } catch (error) {
             logError(this.logger, `Redis error in storeTradeData for "${tokenMint}"`, error);
         }
@@ -230,7 +228,7 @@ export class StatsAggregationService {
         if (!redis) return { trades: [], total: 0 };
 
         try {
-            const tradesKey = `trades:${this.clusterProvider.cluster}:${tokenMint}`;
+            const tradesKey = RedisService.KEYS.TRADES_24H(this.clusterProvider.cluster, tokenMint);
             const [entries, total] = await Promise.all([redis.zrevrange(tradesKey, 0, limit - 1), redis.zcard(tradesKey)]);
 
             if (!entries || entries.length === 0) return { trades: [], total: 0 };
@@ -247,8 +245,7 @@ export class StatsAggregationService {
 
             return { trades, total };
         } catch (error) {
-            const err = error instanceof Error ? error : new Error(String(error));
-            this.logger.error(`Redis error in getTrades for "${tokenMint}": ${err.message}`, err.stack);
+            logError(this.logger, `Redis error in getTrades for "${tokenMint}"`, error);
             return { trades: [], total: 0 };
         }
     }
@@ -260,7 +257,7 @@ export class StatsAggregationService {
         if (!redis) return null;
 
         try {
-            const historyKey = `price:${this.clusterProvider.cluster}:${tokenMint}:history`;
+            const historyKey = RedisService.KEYS.TOKEN_PRICE_HISTORY(this.clusterProvider.cluster, tokenMint);
             const oldest = await redis.zrange(historyKey, 0, 0);
             if (!oldest || oldest.length === 0) return null;
 
@@ -270,8 +267,7 @@ export class StatsAggregationService {
             if (oldPrice === 0) return null;
             return ((currentPrice - oldPrice) / oldPrice) * 100;
         } catch (error) {
-            const err = error instanceof Error ? error : new Error(String(error));
-            this.logger.error(`Redis error in calculatePriceChange24h for "${tokenMint}": ${err.message}`, err.stack);
+            logError(this.logger, `Redis error in calculatePriceChange24h for "${tokenMint}"`, error);
             return null;
         }
     }

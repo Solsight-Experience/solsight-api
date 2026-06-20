@@ -10,6 +10,7 @@ import { Transaction, TransactionStatus, TransactionType } from "../../transacti
 import { Token } from "../../tokens/entities/token.entity";
 import { SwapEvent, getTokenMintFromSwap } from "../../tokens/types/swap-event.types";
 import { TransactionInsertParam, TransactionInsertRow } from "../types/stream-consumer.types";
+import { logError } from "src/common/errors/error-helper";
 
 @Injectable()
 export class StreamConsumerService implements OnModuleInit {
@@ -38,14 +39,14 @@ export class StreamConsumerService implements OnModuleInit {
         for (const channel of INDEXER_TRADE_CHANNELS) {
             const network = channel.endsWith(":devnet") ? "devnet" : "mainnet";
             await this.pubSubService.subscribe<SwapEvent>(channel, (swap) => {
-                this.handleSwap({ ...swap, network: swap.network || network }).catch((err) => this.logger.error("Error handling swap event:", err));
+                this.handleSwap({ ...swap, network: swap.network || network }).catch((error) => logError(this.logger, "Error handling swap event", error));
             });
             this.logger.log(`Subscribed to Redis channel "${channel}" for DB persistence`);
         }
 
         await this.pubSubService.subscribe<SwapEvent>(LEGACY_TRADE_CHANNEL, (swap) => {
             this.logger.warn(`Received swap on legacy Redis channel "${LEGACY_TRADE_CHANNEL}"; keep this only during the compatibility deploy`);
-            this.handleSwap({ ...swap, network: swap.network || "mainnet" }).catch((err) => this.logger.error("Error handling swap event:", err));
+            this.handleSwap({ ...swap, network: swap.network || "mainnet" }).catch((error) => logError(this.logger, "Error handling swap event", error));
         });
         this.logger.log(`Subscribed to legacy Redis channel "${LEGACY_TRADE_CHANNEL}" for DB persistence`);
     }
@@ -83,7 +84,7 @@ export class StreamConsumerService implements OnModuleInit {
 
             await this.priceEventRepository.createQueryBuilder().insert().into(MarketPriceEvent).values(entity).orIgnore().execute();
         } catch (err) {
-            this.logger.error(`Failed to persist price event for sig ${swap.signature}:`, err);
+            logError(this.logger, `Failed to persist price event for sig ${swap.signature}`, err);
         }
     }
 
@@ -111,7 +112,7 @@ export class StreamConsumerService implements OnModuleInit {
 
             await this.insertTransactionIgnore(entity);
         } catch (err) {
-            this.logger.error(`Failed to persist transaction for sig ${swap.signature}:`, err);
+            logError(this.logger, `Failed to persist transaction for sig ${swap.signature}`, err);
         }
     }
 
@@ -162,7 +163,7 @@ export class StreamConsumerService implements OnModuleInit {
             try {
                 await this.tokenRepository.update({ address, network }, { price });
             } catch (err) {
-                this.logger.error(`Failed to update price for token ${address}:`, err);
+                logError(this.logger, `Failed to update price for token ${address}`, err);
             }
         }
         this.logger.debug(`Flushed prices for ${snapshot.size} tokens`);

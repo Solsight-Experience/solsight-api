@@ -3,6 +3,7 @@ import { PubSubService } from "../../../../redis/services/pubsub.service";
 import { RedisService } from "../../../../redis/services/redis.service";
 import { HolderCommand, TrackedMintState } from "../../types/holder-tracking.types";
 import { ClusterProvider } from "../../../../common/cluster/cluster.provider";
+import { logError } from "src/common/errors/error-helper";
 
 const HOLDER_COMMAND_CHANNEL = (network: string) => `solsight:holder_commands:${network}`;
 const HOLDER_RESPONSE_CHANNEL = (network: string) => `solsight:holder_responses:${network}`;
@@ -101,7 +102,7 @@ export class HolderTrackingService implements OnModuleInit, OnModuleDestroy {
 
             state.untrackTimer = setTimeout(() => {
                 void this.untrackAfterGracePeriod(mint).catch((error) => {
-                    this.logger.error(`Failed to untrack holder mint ${mint}`, error);
+                    logError(this.logger, `Failed to untrack holder mint ${mint}`, error);
                 });
             }, UNTRACK_GRACE_PERIOD_MS);
         }
@@ -189,7 +190,7 @@ export class HolderTrackingService implements OnModuleInit, OnModuleDestroy {
             await redis.publish(HOLDER_COMMAND_CHANNEL(this.clusterProvider.cluster), JSON.stringify(command));
             this.logger.log(`Sent track command for ${mint} (bootstrap: ${bootstrap})`);
         } catch (error) {
-            this.logger.error(`Failed to send track command for ${mint}:`, error);
+            logError(this.logger, `Failed to send track command for ${mint}`, error);
         }
     }
 
@@ -209,7 +210,7 @@ export class HolderTrackingService implements OnModuleInit, OnModuleDestroy {
             await redis.publish(HOLDER_COMMAND_CHANNEL(this.clusterProvider.cluster), JSON.stringify(command));
             this.logger.log(`Sent untrack command for ${mint}`);
         } catch (error) {
-            this.logger.error(`Failed to send untrack command for ${mint}:`, error);
+            logError(this.logger, `Failed to send untrack command for ${mint}`, error);
         }
     }
 }

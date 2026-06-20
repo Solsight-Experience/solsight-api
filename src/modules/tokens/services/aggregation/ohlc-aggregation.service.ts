@@ -6,17 +6,12 @@ import { SwapEvent, OhlcData, SwapPriceResult } from "../../types/swap-event.typ
 import { OhlcInterval } from "../socket/room/room.constants";
 import { OhlcHistoryPoint } from "../../types/ohlc-aggregation.types";
 import { OhlcPersistorService } from "./ohlc-persistor.service";
+import { logError } from "src/common/errors/error-helper";
 
 const INTERVAL_MS: Record<OhlcInterval, number> = {
     "10s": 10 * 1000,
     "1m": 60 * 1000,
     "5m": 5 * 60 * 1000
-};
-
-const INTERVAL_TTL: Record<OhlcInterval, number> = {
-    "10s": 60 * 60, // 1 hour
-    "1m": 6 * 60 * 60, // 6 hours
-    "5m": 24 * 60 * 60 // 24 hours
 };
 
 @Injectable()
@@ -63,8 +58,7 @@ export class OhlcAggregationService {
                 volume: parseFloat(data.volume) || 0
             };
         } catch (error) {
-            const err = error instanceof Error ? error : new Error(String(error));
-            this.logger.error(`Redis error in getOhlc for "${tokenMint}" interval "${interval}": ${err.message}`, err.stack);
+            logError(this.logger, `Redis error in getOhlc for "${tokenMint}" interval "${interval}"`, error);
             return null;
         }
     }
@@ -84,8 +78,10 @@ export class OhlcAggregationService {
             }
             this.seenBuckets.set(`${network}:${tokenMint}:${interval}`, bucket);
 
-            const bucketKey = this.bucketKey(network, tokenMint, interval, bucket);
-            const lastCloseKey = `ohlc:${network}:${tokenMint}:${interval}:last_close`;
+            const bucketKey = RedisService.KEYS.OHLC_BUCKET(network, tokenMint, interval, bucket);
+            const lastCloseKey = RedisService.KEYS.OHLC_LAST_CLOSE(network, tokenMint, interval);
+            const bucketTtl = RedisService.TTL.OHLC_BUCKET(interval);
+            const lastCloseTtl = RedisService.TTL.OHLC_LAST_CLOSE(interval);
 
             const luaScript = `
       local bucketKey = KEYS[1]
@@ -93,6 +89,7 @@ export class OhlcAggregationService {
       local price = tonumber(ARGV[1])
       local volume = tonumber(ARGV[2])
       local ttl = tonumber(ARGV[3])
+    local lastCloseTtl = tonumber(ARGV[4])
 
       local exists = redis.call('EXISTS', bucketKey)
       if exists == 0 then
@@ -132,15 +129,14 @@ export class OhlcAggregationService {
 
       -- Persist last_close for next candle's open
       redis.call('SET', lastCloseKey, price)
-      redis.call('EXPIRE', lastCloseKey, ttl * 3)
+    redis.call('EXPIRE', lastCloseKey, lastCloseTtl)
 
       return 1
     `;
 
-            await redis.eval(luaScript, 2, bucketKey, lastCloseKey, price, volume, INTERVAL_TTL[interval]);
+            await redis.eval(luaScript, 2, bucketKey, lastCloseKey, price, volume, bucketTtl, lastCloseTtl);
         } catch (error) {
-            const err = error instanceof Error ? error : new Error(String(error));
-            this.logger.error(`Redis error in updateOhlc for "${tokenMint}" interval "${interval}": ${err.message}`, err.stack);
+            logError(this.logger, `Redis error in updateOhlc for "${tokenMint}" interval "${interval}"`, error);
         }
     }
 
@@ -191,8 +187,7 @@ export class OhlcAggregationService {
 
             return points;
         } catch (error) {
-            const err = error instanceof Error ? error : new Error(String(error));
-            this.logger.error(`Redis error in getHistoricalOhlc for "${tokenMint}" interval "${interval}": ${err.message}`, err.stack);
+            logError(this.logger, `Redis error in getHistoricalOhlc for "${tokenMint}" interval "${interval}"`, error);
             return [];
         }
     }
@@ -266,7 +261,7 @@ export class OhlcAggregationService {
                 let cursor = "0";
 
                 do {
-                    const [nextCursor, keys] = await redis.scan(cursor, "MATCH", `ohlc:*:*:${interval}:*`, "COUNT", 250);
+                    const [nextCursor, keys] = await redis.scan(cursor, "MATCH", RedisService.KEYS.OHLC_BUCKET("*", "*", interval, "*"), "COUNT", 250);
                     cursor = nextCursor;
 
                     for (const key of keys) {
@@ -281,7 +276,7 @@ export class OhlcAggregationService {
                 } while (cursor !== "0");
             }
         } catch (error) {
-            this.logger.error("Failed to flush stale OHLC Redis buckets:", error);
+            logError(this.logger, "Failed to flush stale OHLC Redis buckets", error);
         } finally {
             this.isFlushingStaleBuckets = false;
         }
@@ -292,7 +287,7 @@ export class OhlcAggregationService {
     }
 
     private bucketKey(network: string, tokenMint: string, interval: OhlcInterval, bucket: number): string {
-        return `ohlc:${network}:${tokenMint}:${interval}:${bucket}`;
+        return RedisService.KEYS.OHLC_BUCKET(network, tokenMint, interval, bucket);
     }
 
     private parseBucketKey(key: string): { network: string; tokenMint: string; interval: OhlcInterval; bucket: number } | null {
