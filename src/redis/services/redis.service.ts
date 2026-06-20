@@ -9,7 +9,14 @@ export class RedisService implements OnModuleDestroy {
 
     public static readonly KEYS = {
         TOKEN_PRICE_LATEST: (network: string, mint: string) => `price:${network}:${mint}:latest`,
-        TOKEN_PRICE_HISTORY: (network: string, mint: string) => `price:${network}:${mint}:history`
+        TOKEN_PRICE_HISTORY: (network: string, mint: string) => `price:${network}:${mint}:history`,
+        TOKEN_METADATA: (network: string, mint: string) => `token:meta:${network}:${mint}`
+    };
+
+    public static readonly TTL = {
+        TOKEN_PRICE_LATEST: 60, // 1 minute
+        TOKEN_PRICE_HISTORY: 3600, // 1 hour
+        TOKEN_METADATA: 24 * 60 * 60 // 24 hours
     };
 
     constructor(private readonly nestRedisService: NestRedisService) {

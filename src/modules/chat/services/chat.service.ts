@@ -324,10 +324,11 @@ export class ChatService {
      * Returns the raw decimal fraction (e.g. 0.05 for 5%), or null if the quote fails.
      * Never throws — errors are swallowed so prepare_swap continues regardless.
      */
+    // TODO(Nam): use native executor service instead of Jupiter call
     private async fetchPriceImpact(inputMint: string, outputMint: string, amount: number): Promise<number | null> {
         try {
             if (!inputMint || !outputMint || amount <= 0) return null;
-            let inputDecimals = COMMON_DECIMALS[inputMint];
+            let inputDecimals = COMMON_DECIMALS[inputMint]; // TODO(Nam): token meta fetch always go through tokensService
             if (inputDecimals === undefined) {
                 const meta = await this.tokensService.getTokenMetadata(inputMint);
                 inputDecimals = meta?.decimals ?? 6;
@@ -348,6 +349,8 @@ export class ChatService {
             const timeoutId = setTimeout(() => controller.abort(), 5000);
 
             try {
+                // TODO(Nam): replace by jupiter service call, not direct API fetch
+                // Better: use native executor service to quote, it also provide price impact
                 const quoteUrl = this.configService.get<string>("jupiter.quoteApiUrl") || "https://api.jup.ag/swap/v1/quote";
                 const response = await fetch(`${quoteUrl}?${params.toString()}`, {
                     signal: controller.signal

@@ -16,17 +16,9 @@ import { StatsAggregationService } from "./aggregation/stats-aggregation.service
 import { OhlcInterval } from "./socket/room/room.constants";
 import { RedisService } from "../../../redis/services/redis.service";
 import { TradeData } from "../types/swap-event.types";
-import { COMMON_TOKEN_MINT } from "../constants/token.constant";
-import { SolPriceResponseDto } from "../dtos/sol-price.response.dto";
 import { ClusterProvider } from "../../../common/cluster/cluster.provider";
 import { HolderAggregationService } from "./aggregation/holder-aggregation.service";
 import { EnrichedHolder } from "../types/holder-aggregation.types";
-
-const TOKEN_META_KEY = (network: string, address: string) => `token:meta:${network}:${address}`;
-const TOKEN_META_TTL = 24 * 60 * 60;
-const PRICE_TTL_S = 60 * 60;
-const STALE_THRESHOLD_S = 5 * 60;
-const FRESH_MIN_TTL_S = PRICE_TTL_S - STALE_THRESHOLD_S;
 
 @Injectable()
 export class TokensService {
@@ -53,32 +45,6 @@ export class TokensService {
         return this.clusterProvider.cluster;
     }
 
-    async getSolPrice(): Promise<SolPriceResponseDto> {
-        const priceKey = `price:${this.network}:${COMMON_TOKEN_MINT.SOL}:latest`;
-        const cached = await this.redisService.hgetall(priceKey);
-
-        if (cached?.price_usd) {
-            const priceUsd = parseFloat(cached.price_usd);
-            if (priceUsd > 0) {
-                const ttl = await this.redisService.ttl(priceKey);
-                const isStale = ttl >= 0 && ttl < FRESH_MIN_TTL_S;
-                if (!isStale) {
-                    return { price_usd: priceUsd, source: "redis" };
-                }
-                this.logger.debug(`Redis SOL price stale (ttl=${ttl}s), falling back to CoinGecko`);
-            }
-        }
-
-        try {
-            const prices = await this.coinGeckoService.getSimplePrice(["solana"]);
-            const priceUsd = (prices as Record<string, { usd?: number }>)["solana"]?.usd ?? 0;
-            return { price_usd: priceUsd, source: "coingecko" };
-        } catch (error) {
-            this.logger.error("Failed to fetch SOL price from CoinGecko", error);
-            return { price_usd: 0, source: "coingecko" };
-        }
-    }
-
     private async cacheTokenMetadata(token: {
         address: string;
         symbol: string;
@@ -95,11 +61,11 @@ export class TokensService {
             decimals: token.decimals,
             coingeckoId: token.coingeckoId ?? null
         };
-        await this.redisService.set(TOKEN_META_KEY(this.network, token.address), JSON.stringify(meta), TOKEN_META_TTL);
+        await this.redisService.set(RedisService.KEYS.TOKEN_METADATA(this.network, token.address), JSON.stringify(meta), RedisService.TTL.TOKEN_METADATA);
     }
 
     async getTokenMetadata(address: string): Promise<TokenMetadata | null> {
-        const cached = await this.redisService.get<string>(TOKEN_META_KEY(this.network, address));
+        const cached = await this.redisService.get<string>(RedisService.KEYS.TOKEN_METADATA(this.network, address));
         if (cached) {
             try {
                 return JSON.parse(cached) as TokenMetadata;
@@ -123,7 +89,7 @@ export class TokensService {
             decimals: token.decimals,
             coingeckoId: token.coingeckoId ?? null
         };
-        await this.redisService.set(TOKEN_META_KEY(this.network, address), JSON.stringify(meta), TOKEN_META_TTL);
+        await this.redisService.set(RedisService.KEYS.TOKEN_METADATA(this.network, address), JSON.stringify(meta), RedisService.TTL.TOKEN_METADATA);
         return meta;
     }
 
@@ -241,7 +207,7 @@ export class TokensService {
 
         const uncached: string[] = [];
         for (const addr of addresses) {
-            const cached = await this.redisService.get<string>(TOKEN_META_KEY(this.network, addr));
+            const cached = await this.redisService.get<string>(RedisService.KEYS.TOKEN_METADATA(this.network, addr));
             if (cached) {
                 try {
                     result.set(addr, JSON.parse(cached) as TokenMetadata);
@@ -559,7 +525,7 @@ export class TokensService {
 
     async updateToken(address: string, data: Partial<Token>) {
         const token = await this.tokenRepository.upsert({ address, network: this.network, ...data }, ["address", "network"]);
-        await this.redisService.del(TOKEN_META_KEY(this.network, address));
+        await this.redisService.del(RedisService.KEYS.TOKEN_METADATA(this.network, address));
         return token;
     }
 }

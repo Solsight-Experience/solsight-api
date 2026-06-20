@@ -23,6 +23,7 @@ import { HolderTrackingService } from "./services/socket/holder-tracking.service
 import { TokenSummaryService } from "./services/token-summary.service";
 import { PromptBuilderService } from "./services/prompt-builder.service";
 import { GeminiModule } from "../../infra/gemini/gemini.module";
+import { TokenPriceService } from "./services/token-price.service";
 
 @Module({
     imports: [
@@ -46,7 +47,8 @@ import { GeminiModule } from "../../infra/gemini/gemini.module";
         HolderTrackingService,
         TokenSummaryService,
         PromptBuilderService,
-        TokenSeederService
+        TokenSeederService,
+        TokenPriceService
     ],
     controllers: [TokensController],
     exports: [TokensService, HolderTrackingService]
