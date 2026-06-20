@@ -70,22 +70,18 @@ export class TokenSocketService implements OnModuleInit {
     }
 
     private async processSwapEvent(swap: SwapEvent): Promise<void> {
-        // Skip swap if price_usd is not available
-        if (swap.price_usd == null) {
-            this.logger.warn(`Skipping swap ${swap.signature}: price_usd is null`);
-            return;
-        }
+        const hasPriceUsd = swap.price_usd != null && swap.price_usd > 0;
 
-        // Compute prices ONCE for all downstream consumers
+        // trader/holder aggregation tracks token quantities and cost basis —
+        // they use resolvePrice() internally, so they don't need price_usd upfront
+        await Promise.all([this.traderAggregation.onSwapEvent(swap), this.holderAggregation.onSwapEvent(swap)]);
+
+        // stats and OHLC require a valid USD price to be meaningful
+        if (!hasPriceUsd) return;
+
         const prices = calculateSwapPrices(swap);
 
-        // Update all aggregations
-        await Promise.all([
-            this.statsAggregation.onSwapEvent(swap, prices),
-            this.ohlcAggregation.onSwapEvent(swap, prices),
-            this.traderAggregation.onSwapEvent(swap),
-            this.holderAggregation.onSwapEvent(swap)
-        ]);
+        await Promise.all([this.statsAggregation.onSwapEvent(swap, prices), this.ohlcAggregation.onSwapEvent(swap, prices)]);
 
         // Buffer trades for scheduler emission
         const [supplyOut, supplyIn] = await Promise.all([

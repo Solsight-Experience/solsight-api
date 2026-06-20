@@ -112,6 +112,16 @@ export class HolderAggregationService implements OnModuleInit, OnModuleDestroy {
                 updateData.sell_tx_count = event.sell_tx_count;
             }
 
+            // Compute cost_basis and realized_pnl from indexer aggregate data (average cost method)
+            if (event.total_bought_raw > 0) {
+                const avgBuyPrice = event.total_bought_usd / event.total_bought_raw;
+                updateData.cost_basis = event.balance * avgBuyPrice;
+                const soldRaw = event.total_bought_raw - event.balance;
+                if (soldRaw > 0) {
+                    updateData.realized_pnl = event.total_sold_usd - soldRaw * avgBuyPrice;
+                }
+            }
+
             await redis.hset(holderKey, updateData);
             await redis.expire(holderKey, HOLDER_TTL);
 
@@ -122,7 +132,8 @@ export class HolderAggregationService implements OnModuleInit, OnModuleDestroy {
             }
             await redis.expire(rankingKey, HOLDER_TTL);
         } catch (error) {
-            this.logger.error(`Redis error in onHolderUpdate for "${event.mint}":`, error);
+            const err = error instanceof Error ? error : new Error(String(error));
+            this.logger.error(`Redis error in onHolderUpdate for "${event.mint}": ${err.message}`, err.stack);
         }
 
         this.queueHolderUpsert(event, network);
@@ -162,7 +173,8 @@ export class HolderAggregationService implements OnModuleInit, OnModuleDestroy {
                 })
             );
         } catch (error) {
-            this.logger.error(`Redis error in onPriceUpdate for "${event.mint}":`, error);
+            const err = error instanceof Error ? error : new Error(String(error));
+            this.logger.error(`Redis error in onPriceUpdate for "${event.mint}": ${err.message}`, err.stack);
         }
     }
 
@@ -180,8 +192,8 @@ export class HolderAggregationService implements OnModuleInit, OnModuleDestroy {
             const isBuy = swap.direction === "BUY";
 
             const tokenAmount = isBuy ? swap.token_out.amount_ui : swap.token_in.amount_ui;
-            const price = swap.price_usd ?? swap.price_native;
-            const volumeUsd = tokenAmount * price;
+            const resolvedPrice = await this.resolvePrice(swap, tokenMint);
+            const volumeUsd = tokenAmount * resolvedPrice;
 
             const holderKey = `holder:${network}:${tokenMint}:${holderAddress}`;
             const rankingKey = `holders:${network}:${tokenMint}:ranked`;
@@ -228,7 +240,8 @@ export class HolderAggregationService implements OnModuleInit, OnModuleDestroy {
             }
             await redis.expire(rankingKey, HOLDER_TTL);
         } catch (error) {
-            this.logger.error("Redis error in holder onSwapEvent:", error);
+            const err = error instanceof Error ? error : new Error(String(error));
+            this.logger.error(`Redis error in holder onSwapEvent: ${err.message}`, err.stack);
         }
     }
 
@@ -262,7 +275,8 @@ export class HolderAggregationService implements OnModuleInit, OnModuleDestroy {
 
             return this.enrichHolders(tokenMint, network, holderRows);
         } catch (error) {
-            this.logger.error(`Redis error in getTopHolders for "${tokenMint}":`, error);
+            const err = error instanceof Error ? error : new Error(String(error));
+            this.logger.error(`Redis error in getTopHolders for "${tokenMint}": ${err.message}`, err.stack);
             return [];
         }
     }
@@ -369,9 +383,20 @@ export class HolderAggregationService implements OnModuleInit, OnModuleDestroy {
                 tx_count: parseInt(data.tx_count || "0", 10)
             };
         } catch (error) {
-            this.logger.error(`Redis error in getHolder for "${tokenMint}" address "${address}":`, error);
+            const err = error instanceof Error ? error : new Error(String(error));
+            this.logger.error(`Redis error in getHolder for "${tokenMint}" address "${address}": ${err.message}`, err.stack);
             return null;
         }
+    }
+
+    private async resolvePrice(swap: SwapEvent, tokenMint: string): Promise<number> {
+        if (swap.price_usd != null && swap.price_usd > 0) return swap.price_usd;
+        const priceData = await this.redisService.hgetall(`price:${tokenMint}:latest`);
+        if (priceData?.price_usd) {
+            const cached = parseFloat(priceData.price_usd);
+            if (cached > 0) return cached;
+        }
+        return swap.price_native;
     }
 
     private getTokenMint(swap: SwapEvent): string {

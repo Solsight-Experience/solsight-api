@@ -50,15 +50,22 @@ export class StreamConsumerService implements OnModuleInit {
         this.logger.log(`Subscribed to legacy Redis channel "${LEGACY_TRADE_CHANNEL}" for DB persistence`);
     }
 
-    private async handleSwap(swap: SwapEvent): Promise<void> {
-        await Promise.all([this.persistPriceEvent(swap), this.persistTransaction(swap)]);
-
+    private resolvePrice(swap: SwapEvent): number {
+        if (swap.price_usd != null && swap.price_usd > 0) return swap.price_usd;
         const tokenMint = getTokenMintFromSwap(swap);
-        const price = swap.price_usd ?? swap.price_native;
-        if (price > 0) {
+        const network = this.eventNetwork(swap);
+        return this.latestPrices.get(`${network}:${tokenMint}`)?.price ?? swap.price_native;
+    }
+
+    private async handleSwap(swap: SwapEvent): Promise<void> {
+        // Store valid USD prices before persisting so resolvePrice can use them as fallback
+        const tokenMint = getTokenMintFromSwap(swap);
+        if (swap.price_usd != null && swap.price_usd > 0) {
             const network = this.eventNetwork(swap);
-            this.latestPrices.set(`${network}:${tokenMint}`, { network, address: tokenMint, price });
+            this.latestPrices.set(`${network}:${tokenMint}`, { network, address: tokenMint, price: swap.price_usd });
         }
+
+        await Promise.all([this.persistPriceEvent(swap), this.persistTransaction(swap)]);
     }
 
     private async persistPriceEvent(swap: SwapEvent): Promise<void> {
@@ -66,7 +73,7 @@ export class StreamConsumerService implements OnModuleInit {
             const entity = this.priceEventRepository.create({
                 tokenMint: getTokenMintFromSwap(swap),
                 network: this.eventNetwork(swap),
-                price: swap.price_usd ?? swap.price_native,
+                price: this.resolvePrice(swap),
                 slot: String(swap.slot),
                 timestamp: String(swap.timestamp),
                 txSignature: swap.signature,
@@ -97,7 +104,7 @@ export class StreamConsumerService implements OnModuleInit {
                 metadata: {
                     direction: swap.direction,
                     price_native: swap.price_native,
-                    price_usd: swap.price_usd,
+                    price_usd: this.resolvePrice(swap),
                     fee_amount_ui: swap.fee_amount_ui
                 }
             };
