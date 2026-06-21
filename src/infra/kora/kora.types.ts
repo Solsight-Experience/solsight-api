@@ -56,6 +56,11 @@ export interface KoraSignTransactionResponse {
     signer_pubkey: string;
 }
 
+export interface KoraSignAndSendTransactionResponse {
+    signature: string;
+    signed_transaction: string;
+}
+
 export interface KoraRpcError {
     code: number;
     message: string;
@@ -78,6 +83,11 @@ export interface KoraEstimateFeeResult {
 export interface KoraSignTransactionResult {
     signedTransaction: string;
     signerPubkey: string;
+}
+
+export interface KoraSignAndSendTransactionResult {
+    signature: string;
+    signedTransaction: string;
 }
 
 export interface KoraSignTransactionInput {

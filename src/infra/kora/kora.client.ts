@@ -18,6 +18,7 @@ import {
     KoraGetPayerSignerResponse,
     KoraGetSupportedTokensResponse,
     KoraRpcResponse,
+    KoraSignAndSendTransactionResponse,
     KoraSignTransactionRequest,
     KoraSignTransactionResponse
 } from "./kora.types";
@@ -49,6 +50,10 @@ export class KoraClient {
 
     signTransaction(request: KoraSignTransactionRequest): Promise<KoraSignTransactionResponse> {
         return this.rpc<KoraSignTransactionResponse>("signTransaction", request);
+    }
+
+    signAndSendTransaction(request: KoraSignTransactionRequest): Promise<KoraSignAndSendTransactionResponse> {
+        return this.rpc<KoraSignAndSendTransactionResponse>("signAndSendTransaction", request);
     }
 
     private async rpc<T>(method: string, params?: unknown): Promise<T> {

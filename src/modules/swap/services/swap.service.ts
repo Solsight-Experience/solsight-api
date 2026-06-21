@@ -84,15 +84,16 @@ export class SwapService {
     }
 
     async executeSwap(dto: ExecuteSwapDto, userId: string | null = null): Promise<{ signature: string }> {
-        let signedTransaction = dto.signedTransaction;
+        let result: { signature: string };
 
         if (dto.gaslessFeeToken) {
             if (!this.koraService.isEnabled()) {
                 throw new BadRequestException("Gasless transactions are not configured on this server.");
             }
             try {
-                const koraSigned = await this.koraService.signTransaction({ transaction: dto.signedTransaction });
-                signedTransaction = koraSigned.signedTransaction;
+                const koraSent = await this.koraService.signAndSendTransaction({ transaction: dto.signedTransaction });
+                await this.solanaService.confirmSignature(koraSent.signature);
+                result = { signature: koraSent.signature };
             } catch (error) {
                 if (error instanceof HttpException) {
                     throw error;
@@ -100,9 +101,10 @@ export class SwapService {
                 const message = error instanceof Error ? error.message : String(error);
                 throw new InternalServerErrorException(`Kora paymaster signing failed: ${message}`);
             }
+        } else {
+            result = await this.submitSignedTransaction(dto.signedTransaction);
         }
 
-        const result = await this.submitSignedTransaction(signedTransaction);
         this.persistSwapExecution(result.signature, dto, userId);
         return result;
     }

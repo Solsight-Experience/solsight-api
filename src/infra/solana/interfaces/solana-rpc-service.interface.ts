@@ -206,6 +206,7 @@ export interface SolanaRpcService {
         }>
     >;
     confirmTransaction(strategy: TransactionConfirmationStrategy, commitment?: Commitment): Promise<RpcResponseAndContext<SignatureResult>>;
+    confirmTransaction(signature: TransactionSignature, commitment?: Commitment): Promise<RpcResponseAndContext<SignatureResult>>;
     /**
      * Return the list of nodes that are currently participating in the cluster
      */
