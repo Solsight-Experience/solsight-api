@@ -51,6 +51,6 @@ import { TokenPriceService } from "./services/token-price.service";
         TokenPriceService
     ],
     controllers: [TokensController],
-    exports: [TokensService, HolderTrackingService]
+    exports: [TokensService, HolderTrackingService, TokenPriceService]
 })
 export class TokensModule {}
