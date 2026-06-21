@@ -77,4 +77,8 @@ export class UserRepository {
         const count = await this.repository.count({ where: { email } });
         return count > 0;
     }
+
+    async findByEmailVerificationToken(token: string): Promise<User | null> {
+        return this.repository.findOne({ where: { emailVerificationToken: token } });
+    }
 }
