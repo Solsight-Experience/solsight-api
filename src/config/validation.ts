@@ -41,9 +41,6 @@ export const validationSchema = Joi.object({
         .uri({ scheme: ["redis", "rediss"] })
         .optional(),
 
-    // Indexer Redis channels
-    TRADE_CHANNEL: Joi.string().min(1).optional(),
-
     // Solana
     SOLANA_RPC_URL: Joi.string().uri().optional(),
     SOLANA_NETWORK: Joi.string().valid("mainnet-beta", "devnet", "testnet").optional(),

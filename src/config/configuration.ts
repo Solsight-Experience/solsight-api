@@ -1,15 +1,11 @@
 export const TRADE_CHANNELS = {
-    legacy: "solsight:trade_events",
     mainnet: "solsight:trade_events:mainnet",
     devnet: "solsight:trade_events:devnet"
 } as const;
 
-export const LEGACY_TRADE_CHANNEL = TRADE_CHANNELS.legacy;
 export const INDEXER_TRADE_CHANNELS = [TRADE_CHANNELS.mainnet, TRADE_CHANNELS.devnet] as const;
-export const CONFIGURED_TRADE_CHANNELS = [TRADE_CHANNELS.legacy] as const;
 
 export type TradeChannels = (typeof TRADE_CHANNELS)[keyof typeof TRADE_CHANNELS];
-export type ConfiguredTradeChannel = (typeof CONFIGURED_TRADE_CHANNELS)[number];
 
 const configuration = () => ({
     port: parseInt(process.env.PORT || "", 10) || 3000,
@@ -30,10 +26,6 @@ const configuration = () => ({
 
     redis: {
         url: process.env.REDIS_URL || "redis://localhost:6379"
-    },
-
-    indexer: {
-        tradeChannel: (process.env.TRADE_CHANNEL as ConfiguredTradeChannel | undefined) || TRADE_CHANNELS.legacy
     },
 
     solana: {

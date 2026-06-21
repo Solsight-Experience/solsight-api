@@ -10,7 +10,7 @@ import { HolderAggregationService } from "../aggregation/holder-aggregation.serv
 import { SwapEvent, TradeData, transformSwapToTradeForToken, calculateSwapPrices } from "../../types/swap-event.types";
 import { EnrichedHolder } from "../../types/holder-aggregation.types";
 import { TokenSocketData } from "../../types/token-socket.types";
-import { ConfiguredTradeChannel, INDEXER_TRADE_CHANNELS, LEGACY_TRADE_CHANNEL } from "../../../../config/configuration";
+import { INDEXER_TRADE_CHANNELS } from "../../../../config/configuration";
 import { logError } from "src/common/errors/error-helper";
 
 @Injectable()
@@ -32,12 +32,6 @@ export class TokenSocketService implements OnModuleInit {
 
     async onModuleInit() {
         this.logger.log("Token socket service initialized");
-        const configuredTradeChannel = this.configService.get<ConfiguredTradeChannel>("indexer.tradeChannel");
-        if (configuredTradeChannel === LEGACY_TRADE_CHANNEL) {
-            this.logger.warn(
-                `TRADE_CHANNEL resolves to legacy "${LEGACY_TRADE_CHANNEL}"; this can double-process swaps while namespaced channels are also subscribed`
-            );
-        }
 
         // Subscribe to Redis trades channel
         await this.subscribeToTrades();
@@ -52,8 +46,8 @@ export class TokenSocketService implements OnModuleInit {
 
     private async subscribeToTrades(): Promise<void> {
         for (const channel of INDEXER_TRADE_CHANNELS) {
-            const network = channel.endsWith(":devnet") ? "devnet" : "mainnet";
-            this.logger.log(`Subscribing to Redis channel: ${channel}`);
+            const network = channel.split(":").pop();
+            this.logger.log(`Subscribing to Redis channel: ${channel!}`);
 
             await this.pubSubService.subscribe<SwapEvent>(channel, (swap) => {
                 void this.processSwapEvent({ ...swap, network: swap.network || network }).catch((error) => {
@@ -61,13 +55,6 @@ export class TokenSocketService implements OnModuleInit {
                 });
             });
         }
-
-        await this.pubSubService.subscribe<SwapEvent>(LEGACY_TRADE_CHANNEL, (swap) => {
-            this.logger.warn(`Received swap on legacy Redis channel "${LEGACY_TRADE_CHANNEL}"; keep this only during the compatibility deploy`);
-            void this.processSwapEvent({ ...swap, network: swap.network || "mainnet" }).catch((error) => {
-                logError(this.logger, "Error processing legacy swap event", error);
-            });
-        });
     }
 
     private async processSwapEvent(swap: SwapEvent): Promise<void> {

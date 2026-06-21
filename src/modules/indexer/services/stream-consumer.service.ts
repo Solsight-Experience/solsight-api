@@ -3,7 +3,7 @@ import { ConfigService } from "@nestjs/config";
 import { Cron } from "@nestjs/schedule";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
-import { INDEXER_TRADE_CHANNELS, LEGACY_TRADE_CHANNEL, type TradeChannels } from "../../../config/configuration";
+import { INDEXER_TRADE_CHANNELS } from "../../../config/configuration";
 import { PubSubService } from "../../../redis/services/pubsub.service";
 import { MarketPriceEvent } from "../entities/market-price-event.entity";
 import { Transaction, TransactionStatus, TransactionType } from "../../transactions/entities/transaction.entity";
@@ -29,13 +29,6 @@ export class StreamConsumerService implements OnModuleInit {
     ) {}
 
     async onModuleInit(): Promise<void> {
-        const configuredTradeChannel = this.configService.get<TradeChannels>("indexer.tradeChannel");
-        if (configuredTradeChannel === LEGACY_TRADE_CHANNEL) {
-            this.logger.warn(
-                `TRADE_CHANNEL resolves to legacy "${LEGACY_TRADE_CHANNEL}"; this can double-process swaps while namespaced channels are also subscribed`
-            );
-        }
-
         for (const channel of INDEXER_TRADE_CHANNELS) {
             const network = channel.endsWith(":devnet") ? "devnet" : "mainnet";
             await this.pubSubService.subscribe<SwapEvent>(channel, (swap) => {
@@ -43,12 +36,6 @@ export class StreamConsumerService implements OnModuleInit {
             });
             this.logger.log(`Subscribed to Redis channel "${channel}" for DB persistence`);
         }
-
-        await this.pubSubService.subscribe<SwapEvent>(LEGACY_TRADE_CHANNEL, (swap) => {
-            this.logger.warn(`Received swap on legacy Redis channel "${LEGACY_TRADE_CHANNEL}"; keep this only during the compatibility deploy`);
-            this.handleSwap({ ...swap, network: swap.network || "mainnet" }).catch((error) => logError(this.logger, "Error handling swap event", error));
-        });
-        this.logger.log(`Subscribed to legacy Redis channel "${LEGACY_TRADE_CHANNEL}" for DB persistence`);
     }
 
     private resolvePrice(swap: SwapEvent): number {
