@@ -64,18 +64,18 @@ export class AuthController {
         }
     }
     @Post("register")
-    async register(@Body() registerDto: RegisterDto, @Res({ passthrough: true }) res: Response) {
-        const { user, accessToken } = await this.authService.register(registerDto);
+    async register(@Body() registerDto: RegisterDto) {
+        return this.authService.register(registerDto);
+    }
 
-        res.cookie("auth_token", accessToken, {
-            httpOnly: true,
-            secure: false,
-            sameSite: "lax",
-            path: "/",
-            maxAge: 7 * 24 * 60 * 60 * 1000
-        });
+    @Post("verify-email")
+    async verifyEmail(@Body("token") token: string) {
+        return this.authService.verifyEmail(token);
+    }
 
-        return { user };
+    @Post("resend-verification")
+    async resendVerification(@Body("email") email: string) {
+        return this.authService.resendVerificationEmail(email);
     }
 
     @Get("solana/nonce")
@@ -87,5 +87,29 @@ export class AuthController {
     @Post("solana/verify")
     async verifySolanaWallet(@Body() verifySolanaDto: VerifySolanaDto, @CurrentUser() user: CurrentUserPayload) {
         return await this.authService.verifySolanaWallet(verifySolanaDto.walletAddress, verifySolanaDto.signature, verifySolanaDto.walletIcon, user.id);
+    }
+
+    @Post("solana/login")
+    async loginWithSolana(@Body() verifySolanaDto: VerifySolanaDto, @Res({ passthrough: true }) res: Response) {
+        try {
+            const { user, accessToken } = await this.authService.loginWithSolana(
+                verifySolanaDto.walletAddress,
+                verifySolanaDto.signature,
+                verifySolanaDto.walletIcon
+            );
+
+            res.cookie("auth_token", accessToken, {
+                httpOnly: true,
+                sameSite: "lax",
+                maxAge: 7 * 24 * 60 * 60 * 1000,
+                secure: process.env.NODE_ENV === "production",
+                path: "/"
+            });
+
+            return { user, message: "Login successful" };
+        } catch (error) {
+            const message = error instanceof Error ? error.message : "Wallet login failed";
+            throw new HttpException(message, HttpStatus.BAD_REQUEST);
+        }
     }
 }
