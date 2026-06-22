@@ -29,6 +29,8 @@ export type HolderEnrichmentInput = {
     redisData?: Record<string, string>;
 };
 
+export type HolderAccountType = "WALLET" | "LP" | "DEV" | "BURN" | "CEX";
+
 export interface HolderUpdateEvent {
     network?: string;
     mint: string;
@@ -68,7 +70,7 @@ export interface EnrichedHolder extends HolderData {
     realized_pnl: number;
     remaining_usd: number;
     funding_label: string | null;
-    account_type: string | null;
+    account_type: HolderAccountType | null;
     buy_tx_count: number;
     sell_tx_count: number;
 }
