@@ -47,7 +47,7 @@ export class TokenSocketService implements OnModuleInit {
     private async subscribeToTrades(): Promise<void> {
         for (const channel of INDEXER_TRADE_CHANNELS) {
             const network = channel.split(":").pop();
-            this.logger.log(`Subscribing to Redis channel: ${channel!}`);
+            this.logger.log(`Subscribing to Redis channel: ${channel}`);
 
             await this.pubSubService.subscribe<SwapEvent>(channel, (swap) => {
                 void this.processSwapEvent({ ...swap, network: swap.network || network }).catch((error) => {
