@@ -4,6 +4,7 @@ export type {
     KoraEstimateFeeResult,
     KoraGetPaymentInstructionInput,
     KoraPaymentInstructionResult,
+    KoraSignAndSendTransactionResult,
     KoraSignTransactionInput,
     KoraSignTransactionResult
 } from "./kora.types";

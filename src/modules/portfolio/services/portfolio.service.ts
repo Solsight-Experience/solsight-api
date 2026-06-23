@@ -4,7 +4,6 @@ import { Repository } from "typeorm";
 import { WalletsService } from "../../wallets/services/wallets.service";
 import { HeliusResolver } from "../../../infra/solana/helius.resolver";
 import { SolanaService } from "../../../infra/solana/solana.service";
-import { CoinGeckoService } from "../../../infra/coingecko/coingecko.service";
 import { CACHE_MANAGER } from "@nestjs/cache-manager";
 import { Cache } from "cache-manager";
 import axios from "axios";
@@ -30,8 +29,7 @@ import {
 } from "../types";
 import { EnhancedTransaction, NativeTransfer, TokenTransfer } from "../../../infra/solana/constants/types";
 import { Wallet } from "../../wallets/entities/wallet.entity";
-
-const SOL_COINGECKO_ID = "solana";
+import { TokenPriceService } from "src/modules/tokens/services/token-price.service";
 
 const DEX_SOURCES = ["JUPITER", "RAYDIUM", "ORCA", "METEORA", "PHOENIX", "OPENBOOK", "SOLFI"];
 const SOL_MINT = "So11111111111111111111111111111111111111112";
@@ -47,7 +45,7 @@ export class PortfolioService {
         private readonly heliusResolver: HeliusResolver,
         private readonly solanaService: SolanaService,
         private readonly tokenService: TokensService,
-        private readonly coinGeckoService: CoinGeckoService,
+        private readonly tokenPriceService: TokenPriceService,
         @Inject(CACHE_MANAGER) private cacheManager: Cache,
         @InjectRepository(Transaction)
         private readonly transactionRepository: Repository<Transaction>,
@@ -153,34 +151,6 @@ export class PortfolioService {
         );
     }
 
-    private async getSolPriceUsd(): Promise<number> {
-        try {
-            const data = await this.coinGeckoService.getSimplePrice([SOL_COINGECKO_ID]);
-            return data[SOL_COINGECKO_ID]?.usd ?? 0;
-        } catch (error) {
-            this.logger.error("Failed to fetch SOL price", error);
-            return 0;
-        }
-    }
-
-    private async getSolPriceHistory(fromSec: number, toSec: number): Promise<Map<number, number>> {
-        const fromDay = Math.floor(fromSec / 86400) * 86400;
-        const toDay = Math.ceil(toSec / 86400) * 86400;
-
-        try {
-            const data = await this.coinGeckoService.getMarketChartRange(SOL_COINGECKO_ID, "usd", fromDay, toDay);
-            const priceChart = new Map<number, number>();
-            for (const [tsMs, price] of data.prices) {
-                const dayTs = Math.floor(tsMs / 1000 / 86400) * 86400;
-                priceChart.set(dayTs, price);
-            }
-            return priceChart;
-        } catch (error) {
-            this.logger.error("Failed to fetch SOL price history", error);
-            return new Map();
-        }
-    }
-
     private getSolPriceNear(timestampSec: number, priceChart: Map<number, number>): number {
         const dayTs = Math.floor(timestampSec / 86400) * 86400;
         if (priceChart.has(dayTs)) return priceChart.get(dayTs)!;
@@ -198,49 +168,10 @@ export class PortfolioService {
         const timestamps = trades.map((t) => t.timestamp);
         const minTs = Math.min(...timestamps);
         const maxTs = Math.max(...timestamps);
-        const priceChart = await this.getSolPriceHistory(minTs, maxTs);
+        const priceChart = await this.tokenPriceService.getPriceHistory(COMMON_TOKEN_MINT.SOL, minTs, maxTs);
         if (priceChart.size === 0) return fallback;
         const prices = Array.from(priceChart.values());
         return prices.reduce((a, b) => a + b, 0) / prices.length;
-    }
-
-    private async getTokenPrices(mintAddresses: string[], tokenMetaMap: Map<string, TokenMetadata>): Promise<Map<string, number>> {
-        if (mintAddresses.length === 0) {
-            return new Map();
-        }
-
-        const coingeckoIdToMintMap = new Map<string, string>();
-        const coingeckoIds: string[] = [];
-
-        for (const mint of mintAddresses) {
-            const coingeckoId = tokenMetaMap.get(mint)?.coingeckoId;
-            if (coingeckoId) {
-                coingeckoIds.push(coingeckoId);
-                coingeckoIdToMintMap.set(coingeckoId, mint);
-            }
-        }
-
-        if (coingeckoIds.length === 0) {
-            return new Map();
-        }
-
-        try {
-            const prices = await this.coinGeckoService.getSimplePrice(coingeckoIds);
-            const priceMap = new Map<string, number>();
-
-            for (const coingeckoId in prices) {
-                if (prices[coingeckoId]?.usd) {
-                    const mint = coingeckoIdToMintMap.get(coingeckoId);
-                    if (mint) {
-                        priceMap.set(mint, prices[coingeckoId].usd);
-                    }
-                }
-            }
-            return priceMap;
-        } catch (error) {
-            this.logger.error("Failed to fetch token prices", error);
-            return new Map();
-        }
     }
 
     async getOverview(userId: string, walletAddresses?: string[], _timeFrame?: string) {
@@ -255,10 +186,10 @@ export class PortfolioService {
         );
         const allTokenAccounts: ParsedTokenAccount[] = tokenAccountGroups.reduce((accumulator, group) => accumulator.concat(group), [] as ParsedTokenAccount[]);
 
-        const [solPrice] = await Promise.all([this.getSolPriceUsd(), Promise.resolve(allTokenAccounts)]);
+        const solPrice = await this.tokenPriceService.getPrice(COMMON_TOKEN_MINT.SOL);
 
         const total_balance_sol = wallets.reduce((acc, w) => acc + Number(w.balance || 0), 0);
-        let total_balance_usd = total_balance_sol * solPrice;
+        let total_balance_usd = total_balance_sol * solPrice.priceUsd;
 
         const aggregatedTokens = new Map<string, AggregatedTokenHolding>();
 
@@ -283,11 +214,11 @@ export class PortfolioService {
             data.info = tokenMetaMap.get(mint);
         }
 
-        const tokenPrices = await this.getTokenPrices(mintAddresses, tokenMetaMap);
+        const tokenPrices = await this.tokenPriceService.getPrices(mintAddresses);
 
         const positions = Array.from(aggregatedTokens.entries()).map(([mint, data]) => {
-            const price = tokenPrices.get(mint) || 0;
-            const valueUsd = data.amount * price;
+            const price = tokenPrices.get(mint);
+            const valueUsd = data.amount * (price?.priceUsd ?? 0);
             return {
                 mint,
                 ...data.info,
@@ -320,7 +251,7 @@ export class PortfolioService {
         }));
 
         // Add SOL to allocation
-        const solValueUsd = total_balance_sol * solPrice;
+        const solValueUsd = total_balance_sol * solPrice.priceUsd;
         if (solValueUsd > 0) {
             allocation.push({
                 name: "Solana",
@@ -335,20 +266,20 @@ export class PortfolioService {
 
         const pnlMap = this.calculatePnl(trades);
 
-        const avgHistoricalSolPrice = await this.getAvgHistoricalSolPrice(trades, solPrice);
+        const avgHistoricalSolPrice = await this.getAvgHistoricalSolPrice(trades, solPrice.priceUsd);
 
         const realized_usd = Array.from(pnlMap.values()).reduce((acc, r) => acc + r.pnl * avgHistoricalSolPrice, 0);
 
         const unrealized_usd = Array.from(pnlMap.entries()).reduce((acc, [mint, r]) => {
             if (r.totalTokensBought <= 0) return acc;
-            const currentPrice = tokenPrices.get(mint) || 0;
+            const currentPrice = tokenPrices.get(mint)?.priceUsd ?? 0;
             const currentValue = r.totalTokensBought * currentPrice;
-            const costBasisUsd = r.totalSolSpent * solPrice;
+            const costBasisUsd = r.totalSolSpent * solPrice.priceUsd;
             return acc + (currentValue - costBasisUsd);
         }, 0);
 
         const total_pnl = realized_usd + unrealized_usd;
-        const total_investment_usd = Array.from(pnlMap.values()).reduce((acc, r) => acc + r.investment * solPrice, 0);
+        const total_investment_usd = Array.from(pnlMap.values()).reduce((acc, r) => acc + r.investment * solPrice.priceUsd, 0);
         const roi_percent = total_investment_usd > 0 ? (total_pnl / total_investment_usd) * 100 : 0;
 
         return {
@@ -458,7 +389,7 @@ export class PortfolioService {
         // Fetch historical SOL prices for the chart range
         const historyFrom = filteredTrades.length > 0 ? filteredTrades[0].timestamp : startTimeSec;
         const historyTo = Math.floor(now / 1000);
-        const solPriceChart = await this.getSolPriceHistory(historyFrom, historyTo);
+        const solPriceChart = await this.tokenPriceService.getPriceHistory(COMMON_TOKEN_MINT.SOL, historyFrom, historyTo);
 
         // Single-pass: track cumulative realized PnL per interval using average cost basis
         const runningHoldings = new Map<string, { totalTokensBought: number; totalSolSpent: number }>();
@@ -532,7 +463,7 @@ export class PortfolioService {
         }
 
         const [solPrice, walletTokenAccounts] = await Promise.all([
-            this.getSolPriceUsd(),
+            this.tokenPriceService.getPrice(COMMON_TOKEN_MINT.SOL),
             Promise.all(
                 targetWallets.map(async (w) => ({
                     wallet: w,
@@ -582,10 +513,10 @@ export class PortfolioService {
             data.info = tokenMetaMap.get(mint);
         }
 
-        const tokenPrices = await this.getTokenPrices(mintAddresses, tokenMetaMap);
+        const tokenPrices = await this.tokenPriceService.getPrices(mintAddresses);
 
         const positions: PortfolioPositionResponseDto[] = Array.from(aggregatedTokens.entries()).map(([mint, data]) => {
-            const price = tokenPrices.get(mint) || 0;
+            const price = tokenPrices.get(mint)?.priceUsd || 0;
             const valueUsd = data.amount * price;
             return {
                 mint,
@@ -602,14 +533,14 @@ export class PortfolioService {
         });
 
         const totalSolBalance = targetWallets.reduce((acc, w) => acc + Number(w.balance || 0), 0);
-        const solValueUsd = totalSolBalance * solPrice;
+        const solValueUsd = totalSolBalance * solPrice.priceUsd;
 
         // Add SOL as a position
         if (totalSolBalance > 0 || showZeroBalance) {
             positions.push({
                 ...this.defaultSolMeta(),
                 amount: totalSolBalance,
-                price: solPrice,
+                price: solPrice.priceUsd,
                 value_usd: solValueUsd,
                 pnl: 0, // Placeholder
                 pnl_percent: 0 // Placeholder
@@ -998,7 +929,7 @@ export class PortfolioService {
     }
 
     async getActivities(userId: string, walletAddress?: string, type: string = "all", limit: number = 20, before?: string, from?: number, to?: number) {
-        const [userWallets, solPrice] = await Promise.all([this.walletsService.findByUserId(userId), this.getSolPriceUsd()]);
+        const [userWallets, solPrice] = await Promise.all([this.walletsService.findByUserId(userId), this.tokenPriceService.getPrice(COMMON_TOKEN_MINT.SOL)]);
 
         let targetAddresses: string[];
         if (walletAddress) {
@@ -1046,7 +977,7 @@ export class PortfolioService {
         }
         const tokenMetaMap = await this.tokenService.findMany(Array.from(uniqueMints));
 
-        const mappedActivities = await Promise.all(sliced.map(({ tx, addr }) => this.mapToActivity(tx, addr, solPrice, tokenMetaMap)));
+        const mappedActivities = await Promise.all(sliced.map(({ tx, addr }) => this.mapToActivity(tx, addr, solPrice.priceUsd, tokenMetaMap)));
         const activities = mappedActivities.filter((a): a is PortfolioActivity => a !== null);
 
         await this.enrichActivitiesWithSwapDetails(activities, tokenMetaMap);
@@ -1076,7 +1007,7 @@ export class PortfolioService {
             return this.getEmptyPerformance();
         }
 
-        const [trades, solPrice] = await Promise.all([this.fetchAllTrades(wallets), this.getSolPriceUsd()]);
+        const [trades, solPrice] = await Promise.all([this.fetchAllTrades(wallets), this.tokenPriceService.getPrice(COMMON_TOKEN_MINT.SOL)]);
 
         const pnlMap = this.calculatePnl(trades);
 
@@ -1085,11 +1016,11 @@ export class PortfolioService {
         }
 
         // Use avg historical SOL price over the trade period for realized PnL USD conversion
-        const avgHistoricalSolPrice = await this.getAvgHistoricalSolPrice(trades, solPrice);
+        const avgHistoricalSolPrice = await this.getAvgHistoricalSolPrice(trades, solPrice.priceUsd);
 
         const tokenPerformance = Array.from(pnlMap.values()).map((record) => {
             const pnl = record.pnl * avgHistoricalSolPrice;
-            const investmentUsd = record.investment * solPrice;
+            const investmentUsd = record.investment * solPrice.priceUsd;
             const roi_percent = investmentUsd > 0 ? (pnl / investmentUsd) * 100 : 0;
             return {
                 token: record.symbol,
@@ -1105,7 +1036,7 @@ export class PortfolioService {
         const worst_performers = tokenPerformance.slice(-3).reverse();
 
         const total_pnl = tokenPerformance.reduce((acc, t) => acc + t.pnl, 0);
-        const total_investment_usd = Array.from(pnlMap.values()).reduce((acc, r) => acc + r.investment * solPrice, 0);
+        const total_investment_usd = Array.from(pnlMap.values()).reduce((acc, r) => acc + r.investment * solPrice.priceUsd, 0);
         const total_roi_percent = total_investment_usd > 0 ? (total_pnl / total_investment_usd) * 100 : 0;
 
         const winning_trades = tokenPerformance.filter((t) => t.pnl > 0).length;
@@ -1466,11 +1397,11 @@ export class PortfolioService {
         const tokenAccountsPromise: Promise<ParsedTokenAccount[]> = this.solanaService.getParsedTokenAccountsByOwner(pubkey);
 
         const [solPrice, total_balance_sol, tokenAccounts] = await Promise.all([
-            this.getSolPriceUsd(),
+            this.tokenPriceService.getPrice(COMMON_TOKEN_MINT.SOL),
             this.solanaService.getBalance(pubkey),
             tokenAccountsPromise
         ]);
-        let total_balance_usd = total_balance_sol * solPrice;
+        let total_balance_usd = total_balance_sol * solPrice.priceUsd;
 
         const aggregatedTokens = new Map<string, AggregatedTokenHolding>();
         for (const acc of tokenAccounts) {
@@ -1491,14 +1422,14 @@ export class PortfolioService {
             data.info = tokenMetaMap.get(mint);
         }
 
-        const tokenPrices = await this.getTokenPrices(mintAddresses, tokenMetaMap);
+        const tokenPrices = await this.tokenPriceService.getPrices(mintAddresses);
 
         let tokenTotalUsd = 0;
         const top_tokens: OverviewToken[] = [];
-        const allocation: AllocationItem[] = [{ symbol: "SOL", value_usd: total_balance_sol * solPrice, percentage: 0 }];
+        const allocation: AllocationItem[] = [{ symbol: "SOL", value_usd: total_balance_sol * solPrice.priceUsd, percentage: 0 }];
 
         for (const [mint, data] of aggregatedTokens) {
-            const price = tokenPrices.get(mint) || 0;
+            const price = tokenPrices.get(mint)?.priceUsd || 0;
             const valueUsd = data.amount * price;
             tokenTotalUsd += valueUsd;
             top_tokens.push({
@@ -1551,7 +1482,7 @@ export class PortfolioService {
         const tokenAccountsPromise: Promise<ParsedTokenAccount[]> = this.solanaService.getParsedTokenAccountsByOwner(pubkey);
 
         const [solPrice, totalSolBalance, tokenAccounts] = await Promise.all([
-            this.getSolPriceUsd(),
+            this.tokenPriceService.getPrice(COMMON_TOKEN_MINT.SOL),
             this.solanaService.getBalance(pubkey),
             tokenAccountsPromise
         ]);
@@ -1575,10 +1506,10 @@ export class PortfolioService {
             data.info = tokenMetaMap.get(mint);
         }
 
-        const tokenPrices = await this.getTokenPrices(mintAddresses, tokenMetaMap);
+        const tokenPrices = await this.tokenPriceService.getPrices(mintAddresses);
 
         const positions: PortfolioPositionResponseDto[] = Array.from(aggregatedTokens.entries()).map(([mint, data]) => {
-            const price = tokenPrices.get(mint) || 0;
+            const price = tokenPrices.get(mint)?.priceUsd || 0;
             return {
                 mint,
                 name: data.info?.name || "Unknown Token",
@@ -1597,8 +1528,8 @@ export class PortfolioService {
             positions.push({
                 ...this.defaultSolMeta(),
                 amount: totalSolBalance,
-                price: solPrice,
-                value_usd: totalSolBalance * solPrice,
+                price: solPrice.priceUsd,
+                value_usd: totalSolBalance * solPrice.priceUsd,
                 pnl: 0,
                 pnl_percent: 0
             });
@@ -1679,7 +1610,7 @@ export class PortfolioService {
     }
 
     async getActivitiesByAddress(walletAddress: string, type: string = "all", limit: number = 20, before?: string, from?: number, to?: number) {
-        const solPrice = await this.getSolPriceUsd();
+        const solPrice = await this.tokenPriceService.getPrice(COMMON_TOKEN_MINT.SOL);
 
         let txs = await this.fetchWalletActivities(walletAddress, type, limit, before);
         if (from) txs = txs.filter((tx) => (tx.timestamp ?? 0) >= Number(from));
@@ -1696,7 +1627,7 @@ export class PortfolioService {
         }
         const tokenMetaMap = await this.tokenService.findMany(Array.from(uniqueMints));
 
-        const mappedActivities = await Promise.all(sliced.map((tx) => this.mapToActivity(tx, walletAddress, solPrice, tokenMetaMap)));
+        const mappedActivities = await Promise.all(sliced.map((tx) => this.mapToActivity(tx, walletAddress, solPrice.priceUsd, tokenMetaMap)));
         const activities = mappedActivities.filter((a): a is NonNullable<typeof a> => a !== null);
 
         await this.enrichActivitiesWithSwapDetails(activities, tokenMetaMap);
@@ -1774,9 +1705,9 @@ export class PortfolioService {
             tokenTransfers: this.getStoredTokenTransfers(row.metadata)
         }));
 
-        const SOL_MINT = "So11111111111111111111111111111111111111112";
+        const SOL_MINT = COMMON_TOKEN_MINT.SOL;
         const historyFrom = filteredTrades.length > 0 ? filteredTrades[0].timestamp : startTimeSec;
-        const solPriceChart = await this.getSolPriceHistory(historyFrom, Math.floor(now / 1000));
+        const solPriceChart = await this.tokenPriceService.getPriceHistory(COMMON_TOKEN_MINT.SOL, historyFrom, Math.floor(now / 1000));
 
         const runningHoldings = new Map<string, { totalTokensBought: number; totalSolSpent: number }>();
         let cumulativePnlSol = 0;

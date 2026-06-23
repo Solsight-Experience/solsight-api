@@ -1,5 +1,5 @@
 import { Injectable, Logger } from "@nestjs/common";
-import { AddressLookupTableAccount, LAMPORTS_PER_SOL, PublicKey, RecentPrioritizationFees } from "@solana/web3.js";
+import { AddressLookupTableAccount, Commitment, LAMPORTS_PER_SOL, PublicKey, RecentPrioritizationFees } from "@solana/web3.js";
 import { TOKEN_PROGRAM_ID, getAssociatedTokenAddress } from "@solana/spl-token";
 import { HeliusResolver } from "./helius.resolver";
 import { ClusterProvider } from "../../common/cluster/cluster.provider";
@@ -123,6 +123,10 @@ export class SolanaService {
             commitment
         );
         return { signature };
+    }
+
+    async confirmSignature(signature: string, commitment: Commitment = "confirmed"): Promise<void> {
+        await this.heliusResolver.get().confirmTransaction(signature, commitment);
     }
 
     async getRecentPrioritizationFees(): Promise<RecentPrioritizationFees[]> {

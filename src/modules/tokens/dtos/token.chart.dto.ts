@@ -9,6 +9,16 @@ export class ChartQueryDto {
     @IsNumber()
     @Type(() => Number)
     limit?: number;
+
+    @IsOptional()
+    @IsNumber()
+    @Type(() => Number)
+    from?: number;
+
+    @IsOptional()
+    @IsNumber()
+    @Type(() => Number)
+    to?: number;
 }
 
 export class ChartCandlePointDto {

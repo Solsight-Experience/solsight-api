@@ -1,8 +1,12 @@
-﻿import { Injectable, Logger } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
+import { Cron } from "@nestjs/schedule";
+import { ClusterProvider } from "../../../../common/cluster/cluster.provider";
 import { RedisService } from "../../../../redis/services/redis.service";
 import { SwapEvent, OhlcData, SwapPriceResult } from "../../types/swap-event.types";
 import { OhlcInterval } from "../socket/room/room.constants";
 import { OhlcHistoryPoint } from "../../types/ohlc-aggregation.types";
+import { OhlcPersistorService } from "./ohlc-persistor.service";
+import { logError } from "src/common/errors/error-helper";
 
 const INTERVAL_MS: Record<OhlcInterval, number> = {
     "10s": 10 * 1000,
@@ -10,34 +14,36 @@ const INTERVAL_MS: Record<OhlcInterval, number> = {
     "5m": 5 * 60 * 1000
 };
 
-const INTERVAL_TTL: Record<OhlcInterval, number> = {
-    "10s": 60 * 60, // 1 hour
-    "1m": 6 * 60 * 60, // 6 hours
-    "5m": 24 * 60 * 60 // 24 hours
-};
-
 @Injectable()
 export class OhlcAggregationService {
     private readonly logger = new Logger(OhlcAggregationService.name);
+    private readonly seenBuckets = new Map<string, number>();
+    private isFlushingStaleBuckets = false;
 
-    constructor(private readonly redisService: RedisService) {}
+    constructor(
+        private readonly redisService: RedisService,
+        private readonly clusterProvider: ClusterProvider,
+        private readonly ohlcPersistor: OhlcPersistorService
+    ) {}
 
     async onSwapEvent(swap: SwapEvent, prices: SwapPriceResult): Promise<void> {
         const intervals: OhlcInterval[] = ["10s", "1m", "5m"];
 
         for (const interval of intervals) {
-            await this.updateOhlc(swap.token_out.mint, interval, prices.priceUsdTokenOut, prices.volumeUsdTokenOut);
-            await this.updateOhlc(swap.token_in.mint, interval, prices.priceUsdTokenIn, prices.volumeUsdTokenIn);
+            const network = this.eventNetwork(swap);
+            await this.updateOhlc(swap.token_out.mint, network, interval, prices.priceUsdTokenOut, prices.volumeUsdTokenOut);
+            await this.updateOhlc(swap.token_in.mint, network, interval, prices.priceUsdTokenIn, prices.volumeUsdTokenIn);
         }
     }
 
     async getOhlc(tokenMint: string, interval: OhlcInterval): Promise<OhlcData | null> {
+        const network = this.clusterProvider.cluster;
         const redis = this.redisService.getClient();
         if (!redis) return null;
 
         try {
             const bucket = this.getBucketTimestamp(interval);
-            const key = `ohlc:${tokenMint}:${interval}:${bucket}`;
+            const key = this.bucketKey(network, tokenMint, interval, bucket);
             const data = await redis.hgetall(key);
 
             if (!data || Object.keys(data).length === 0) {
@@ -52,20 +58,30 @@ export class OhlcAggregationService {
                 volume: parseFloat(data.volume) || 0
             };
         } catch (error) {
-            const err = error instanceof Error ? error : new Error(String(error));
-            this.logger.error(`Redis error in getOhlc for "${tokenMint}" interval "${interval}": ${err.message}`, err.stack);
+            logError(this.logger, `Redis error in getOhlc for "${tokenMint}" interval "${interval}"`, error);
             return null;
         }
     }
 
-    private async updateOhlc(tokenMint: string, interval: OhlcInterval, price: number, volume: number): Promise<void> {
+    private async updateOhlc(tokenMint: string, network: string, interval: OhlcInterval, price: number, volume: number): Promise<void> {
         const redis = this.redisService.getClient();
         if (!redis) return;
 
         try {
             const bucket = this.getBucketTimestamp(interval);
-            const bucketKey = `ohlc:${tokenMint}:${interval}:${bucket}`;
-            const lastCloseKey = `ohlc:${tokenMint}:${interval}:last_close`;
+            const previousBucket = this.seenBuckets.get(`${network}:${tokenMint}:${interval}`);
+            if (previousBucket != null && previousBucket !== bucket) {
+                const previous = await this.readBucket(network, tokenMint, interval, previousBucket);
+                if (previous) {
+                    await this.ohlcPersistor.flushFinishedBucket(tokenMint, network, interval, previousBucket, previous);
+                }
+            }
+            this.seenBuckets.set(`${network}:${tokenMint}:${interval}`, bucket);
+
+            const bucketKey = RedisService.KEYS.OHLC_BUCKET(network, tokenMint, interval, bucket);
+            const lastCloseKey = RedisService.KEYS.OHLC_LAST_CLOSE(network, tokenMint, interval);
+            const bucketTtl = RedisService.TTL.OHLC_BUCKET(interval);
+            const lastCloseTtl = RedisService.TTL.OHLC_LAST_CLOSE(interval);
 
             const luaScript = `
       local bucketKey = KEYS[1]
@@ -73,6 +89,7 @@ export class OhlcAggregationService {
       local price = tonumber(ARGV[1])
       local volume = tonumber(ARGV[2])
       local ttl = tonumber(ARGV[3])
+    local lastCloseTtl = tonumber(ARGV[4])
 
       local exists = redis.call('EXISTS', bucketKey)
       if exists == 0 then
@@ -112,15 +129,14 @@ export class OhlcAggregationService {
 
       -- Persist last_close for next candle's open
       redis.call('SET', lastCloseKey, price)
-      redis.call('EXPIRE', lastCloseKey, ttl * 3)
+    redis.call('EXPIRE', lastCloseKey, lastCloseTtl)
 
       return 1
     `;
 
-            await redis.eval(luaScript, 2, bucketKey, lastCloseKey, price, volume, INTERVAL_TTL[interval]);
+            await redis.eval(luaScript, 2, bucketKey, lastCloseKey, price, volume, bucketTtl, lastCloseTtl);
         } catch (error) {
-            const err = error instanceof Error ? error : new Error(String(error));
-            this.logger.error(`Redis error in updateOhlc for "${tokenMint}" interval "${interval}": ${err.message}`, err.stack);
+            logError(this.logger, `Redis error in updateOhlc for "${tokenMint}" interval "${interval}"`, error);
         }
     }
 
@@ -133,6 +149,7 @@ export class OhlcAggregationService {
     ): Promise<Array<OhlcData & { timestamp: number }>> {
         const redis = this.redisService.getClient();
         if (!redis) return [];
+        const network = this.clusterProvider.cluster;
 
         try {
             const intervalMs = INTERVAL_MS[interval];
@@ -147,7 +164,7 @@ export class OhlcAggregationService {
 
             const pipeline = redis.pipeline();
             for (const bucket of limitedBuckets) {
-                pipeline.hgetall(`ohlc:${tokenMint}:${interval}:${bucket}`);
+                pipeline.hgetall(this.bucketKey(network, tokenMint, interval, bucket));
             }
 
             const results = await pipeline.exec();
@@ -170,8 +187,7 @@ export class OhlcAggregationService {
 
             return points;
         } catch (error) {
-            const err = error instanceof Error ? error : new Error(String(error));
-            this.logger.error(`Redis error in getHistoricalOhlc for "${tokenMint}" interval "${interval}": ${err.message}`, err.stack);
+            logError(this.logger, `Redis error in getHistoricalOhlc for "${tokenMint}" interval "${interval}"`, error);
             return [];
         }
     }
@@ -205,9 +221,10 @@ export class OhlcAggregationService {
             const data: OhlcHistoryPoint[] = [];
 
             // Fetch historical buckets
+            const network = this.clusterProvider.cluster;
             for (let i = limit - 1; i >= 0; i--) {
                 const bucketTime = Math.floor((now - i * intervalMs) / intervalMs) * intervalMs;
-                const key = `ohlc:${tokenMint}:${ohlcInterval}:${bucketTime}`;
+                const key = this.bucketKey(network, tokenMint, ohlcInterval, bucketTime);
                 const ohlcData = await redis.hgetall(key);
 
                 if (ohlcData && Object.keys(ohlcData).length > 0) {
@@ -228,5 +245,74 @@ export class OhlcAggregationService {
             this.logger.error(`Redis error in getOhlcData for "${tokenMint}": ${err.message}`, err.stack);
             return [];
         }
+    }
+
+    @Cron("0 * * * * *")
+    async flushStaleBucketsFromRedis(): Promise<void> {
+        if (this.isFlushingStaleBuckets) return;
+        const redis = this.redisService.getClient();
+        if (!redis) return;
+
+        this.isFlushingStaleBuckets = true;
+        try {
+            for (const interval of Object.keys(INTERVAL_MS) as OhlcInterval[]) {
+                const intervalMs = INTERVAL_MS[interval];
+                const staleBefore = Math.floor((Date.now() - intervalMs * 2) / intervalMs) * intervalMs;
+                let cursor = "0";
+
+                do {
+                    const [nextCursor, keys] = await redis.scan(cursor, "MATCH", RedisService.KEYS.OHLC_BUCKET("*", "*", interval, "*"), "COUNT", 250);
+                    cursor = nextCursor;
+
+                    for (const key of keys) {
+                        const parsed = this.parseBucketKey(key);
+                        if (!parsed || parsed.interval !== interval || parsed.bucket >= staleBefore) continue;
+
+                        const candle = await this.readBucket(parsed.network, parsed.tokenMint, parsed.interval, parsed.bucket);
+                        if (!candle) continue;
+
+                        await this.ohlcPersistor.flushFinishedBucket(parsed.tokenMint, parsed.network, parsed.interval, parsed.bucket, candle);
+                    }
+                } while (cursor !== "0");
+            }
+        } catch (error) {
+            logError(this.logger, "Failed to flush stale OHLC Redis buckets", error);
+        } finally {
+            this.isFlushingStaleBuckets = false;
+        }
+    }
+
+    private eventNetwork(swap: SwapEvent): string {
+        return swap.network || "mainnet";
+    }
+
+    private bucketKey(network: string, tokenMint: string, interval: OhlcInterval, bucket: number): string {
+        return RedisService.KEYS.OHLC_BUCKET(network, tokenMint, interval, bucket);
+    }
+
+    private parseBucketKey(key: string): { network: string; tokenMint: string; interval: OhlcInterval; bucket: number } | null {
+        const [prefix, network, tokenMint, interval, bucketRaw] = key.split(":");
+        if (prefix !== "ohlc" || !network || !tokenMint || !this.isOhlcInterval(interval)) return null;
+        const bucket = Number(bucketRaw);
+        if (!Number.isFinite(bucket)) return null;
+        return { network, tokenMint, interval, bucket };
+    }
+
+    private isOhlcInterval(value: string): value is OhlcInterval {
+        return value in INTERVAL_MS;
+    }
+
+    private async readBucket(network: string, tokenMint: string, interval: OhlcInterval, bucket: number): Promise<OhlcData | null> {
+        const redis = this.redisService.getClient();
+        if (!redis) return null;
+        const data = await redis.hgetall(this.bucketKey(network, tokenMint, interval, bucket));
+        if (!data || Object.keys(data).length === 0) return null;
+        return {
+            open: parseFloat(data.open) || 0,
+            high: parseFloat(data.high) || 0,
+            low: parseFloat(data.low) || 0,
+            close: parseFloat(data.close) || 0,
+            volume: parseFloat(data.volume) || 0
+        };
     }
 }

@@ -2,10 +2,10 @@
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
 import { RedisService } from "../../../../redis/services/redis.service";
+import { ClusterProvider } from "../../../../common/cluster/cluster.provider";
 import { SwapEvent, TopTrader } from "../../types/swap-event.types";
 import { TraderPosition } from "../../entities/trader-position.entity";
-
-const TRADER_TTL = 24 * 60 * 60; // 24 hours
+import { logError } from "src/common/errors/error-helper";
 
 @Injectable()
 export class TraderAggregationService {
@@ -13,6 +13,7 @@ export class TraderAggregationService {
 
     constructor(
         private readonly redisService: RedisService,
+        private readonly clusterProvider: ClusterProvider,
         @InjectRepository(TraderPosition)
         private readonly traderPositionRepo: Repository<TraderPosition>
     ) {}
@@ -29,12 +30,13 @@ export class TraderAggregationService {
             const traderAddress = swap.maker;
             const isBuy = swap.direction === "BUY";
             const tokenAmount = isBuy ? swap.token_out.amount_ui : swap.token_in.amount_ui;
+            const network = swap.network || this.clusterProvider.cluster;
 
             const resolvedPrice = await this.resolvePrice(swap, tokenMint);
             const volumeUsd = tokenAmount * resolvedPrice;
 
-            const traderKey = `trader:${tokenMint}:${traderAddress}`;
-            const rankingKey = `traders:${tokenMint}:by_volume`;
+            const traderKey = RedisService.KEYS.TRADER_POSITION(network, tokenMint, traderAddress);
+            const rankingKey = RedisService.KEYS.TRADER_RANKING(network, tokenMint);
 
             // Load current state — fall back to DB if Redis has expired
             let data = await redis.hgetall(traderKey);
@@ -84,9 +86,9 @@ export class TraderAggregationService {
                 total_sell_trades: totalSellTrades,
                 trades_count: tradesCount
             });
-            pipeline.expire(traderKey, TRADER_TTL);
+            pipeline.expire(traderKey, RedisService.TTL.TRADER_POSITION);
             pipeline.zadd(rankingKey, totalVolume, traderAddress);
-            pipeline.expire(rankingKey, TRADER_TTL);
+            pipeline.expire(rankingKey, RedisService.TTL.TRADER_RANKING);
             await pipeline.exec();
 
             // Persist to DB
@@ -107,8 +109,7 @@ export class TraderAggregationService {
                 ["walletAddress", "tokenMint"]
             );
         } catch (error) {
-            const err = error instanceof Error ? error : new Error(String(error));
-            this.logger.error(`Error in trader onSwapEvent: ${err.message}`, err.stack);
+            logError(this.logger, "Error in trader onSwapEvent", error);
         }
     }
 
@@ -117,20 +118,21 @@ export class TraderAggregationService {
         if (!redis) return this.getTopTradersFromDb(tokenMint, limit);
 
         try {
-            const rankingKey = `traders:${tokenMint}:by_volume`;
+            const network = this.clusterProvider.cluster;
+            const rankingKey = RedisService.KEYS.TRADER_RANKING(network, tokenMint);
             const topAddresses = await redis.zrevrange(rankingKey, 0, limit - 1);
 
             if (topAddresses.length === 0) {
                 return this.getTopTradersFromDb(tokenMint, limit);
             }
 
-            const priceData = await redis.hgetall(`price:${tokenMint}:latest`);
+            const priceData = await redis.hgetall(RedisService.KEYS.TOKEN_PRICE_LATEST(network, tokenMint));
             const currentPrice = priceData?.price_usd ? parseFloat(priceData.price_usd) : 0;
 
             const traders: TopTrader[] = [];
 
             for (const address of topAddresses) {
-                const traderKey = `trader:${tokenMint}:${address}`;
+                const traderKey = RedisService.KEYS.TRADER_POSITION(network, tokenMint, address);
                 const data = await redis.hgetall(traderKey);
 
                 if (data && Object.keys(data).length > 0) {
@@ -140,8 +142,7 @@ export class TraderAggregationService {
 
             return traders;
         } catch (error) {
-            const err = error instanceof Error ? error : new Error(String(error));
-            this.logger.error(`Redis error in getTopTraders for "${tokenMint}": ${err.message}`, err.stack);
+            logError(this.logger, `Redis error in getTopTraders for "${tokenMint}"`, error);
             return [];
         }
     }
@@ -151,11 +152,12 @@ export class TraderAggregationService {
         if (!redis) return null;
 
         try {
-            const traderKey = `trader:${tokenMint}:${address}`;
+            const network = this.clusterProvider.cluster;
+            const traderKey = RedisService.KEYS.TRADER_POSITION(network, tokenMint, address);
             const data = await redis.hgetall(traderKey);
 
             if (data && Object.keys(data).length > 0) {
-                const priceData = await redis.hgetall(`price:${tokenMint}:latest`);
+                const priceData = await redis.hgetall(RedisService.KEYS.TOKEN_PRICE_LATEST(network, tokenMint));
                 const currentPrice = priceData?.price_usd ? parseFloat(priceData.price_usd) : 0;
                 return this.mapToTopTrader(address, data, currentPrice);
             }
@@ -183,8 +185,7 @@ export class TraderAggregationService {
                 trades_count: position.tradesCount
             };
         } catch (error) {
-            const err = error instanceof Error ? error : new Error(String(error));
-            this.logger.error(`Error in getTrader for "${tokenMint}" address "${address}": ${err.message}`, err.stack);
+            logError(this.logger, `Error in getTrader for "${tokenMint}" address "${address}"`, error);
             return null;
         }
     }
@@ -215,8 +216,7 @@ export class TraderAggregationService {
                 };
             });
         } catch (error) {
-            const err = error instanceof Error ? error : new Error(String(error));
-            this.logger.error(`DB error in getTopTradersFromDb for "${tokenMint}": ${err.message}`, err.stack);
+            logError(this.logger, `DB error in getTopTradersFromDb for "${tokenMint}"`, error);
             return [];
         }
     }
@@ -242,7 +242,8 @@ export class TraderAggregationService {
 
     private async resolvePrice(swap: SwapEvent, tokenMint: string): Promise<number> {
         if (swap.price_usd != null && swap.price_usd > 0) return swap.price_usd;
-        const priceData = await this.redisService.hgetall(`price:${tokenMint}:latest`);
+        const network = swap.network || this.clusterProvider.cluster;
+        const priceData = await this.redisService.hgetall(RedisService.KEYS.TOKEN_PRICE_LATEST(network, tokenMint));
         if (priceData?.price_usd) {
             const cached = parseFloat(priceData.price_usd);
             if (cached > 0) return cached;

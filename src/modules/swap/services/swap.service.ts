@@ -20,9 +20,7 @@ const FEE_FALLBACK_PRIORITY_LAMPORTS = 100_000;
 const TIP_FALLBACK_LAMPORTS = 50_000;
 const MAX_FEE_BUFFER_MULTIPLIER = 3;
 
-const FEE_CACHE_KEY = "swap:info:fees:v1";
 const FEE_CACHE_TTL_SECONDS = 5;
-const KORA_CACHE_KEY = "swap:info:gasless:v1";
 const KORA_CACHE_TTL_SECONDS = 60;
 
 @Injectable()
@@ -86,15 +84,16 @@ export class SwapService {
     }
 
     async executeSwap(dto: ExecuteSwapDto, userId: string | null = null): Promise<{ signature: string }> {
-        let signedTransaction = dto.signedTransaction;
+        let result: { signature: string };
 
         if (dto.gaslessFeeToken) {
             if (!this.koraService.isEnabled()) {
                 throw new BadRequestException("Gasless transactions are not configured on this server.");
             }
             try {
-                const koraSigned = await this.koraService.signTransaction({ transaction: dto.signedTransaction });
-                signedTransaction = koraSigned.signedTransaction;
+                const koraSent = await this.koraService.signAndSendTransaction({ transaction: dto.signedTransaction });
+                await this.solanaService.confirmSignature(koraSent.signature);
+                result = { signature: koraSent.signature };
             } catch (error) {
                 if (error instanceof HttpException) {
                     throw error;
@@ -102,9 +101,10 @@ export class SwapService {
                 const message = error instanceof Error ? error.message : String(error);
                 throw new InternalServerErrorException(`Kora paymaster signing failed: ${message}`);
             }
+        } else {
+            result = await this.submitSignedTransaction(dto.signedTransaction);
         }
 
-        const result = await this.submitSignedTransaction(signedTransaction);
         this.persistSwapExecution(result.signature, dto, userId);
         return result;
     }
@@ -176,7 +176,7 @@ export class SwapService {
     }
 
     private async aggregateFeeFields(): Promise<CachedFeeFields> {
-        const cached = await this.redisService.get<CachedFeeFields>(FEE_CACHE_KEY);
+        const cached = await this.redisService.get<CachedFeeFields>(RedisService.KEYS.SWAP_FEE_CACHE());
         if (cached) {
             return cached;
         }
@@ -191,12 +191,12 @@ export class SwapService {
             maxAutoFeeLamports
         };
 
-        await this.redisService.set(FEE_CACHE_KEY, fields, FEE_CACHE_TTL_SECONDS);
+        await this.redisService.set(RedisService.KEYS.SWAP_FEE_CACHE(), fields, FEE_CACHE_TTL_SECONDS);
         return fields;
     }
 
     private async aggregateGaslessFields(): Promise<CachedGaslessFields> {
-        const cached = await this.redisService.get<CachedGaslessFields>(KORA_CACHE_KEY);
+        const cached = await this.redisService.get<CachedGaslessFields>(RedisService.KEYS.SWAP_KORA_CACHE());
         if (cached) {
             return cached;
         }
@@ -219,7 +219,7 @@ export class SwapService {
             payerPubkey
         };
 
-        await this.redisService.set(KORA_CACHE_KEY, fields, KORA_CACHE_TTL_SECONDS);
+        await this.redisService.set(RedisService.KEYS.SWAP_KORA_CACHE(), fields, KORA_CACHE_TTL_SECONDS);
         return fields;
     }
 
