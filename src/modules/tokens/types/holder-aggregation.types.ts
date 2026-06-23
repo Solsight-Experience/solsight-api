@@ -30,7 +30,6 @@ export type HolderEnrichmentInput = {
 };
 
 export type HolderAccountType = "WALLET" | "LP" | "DEV" | "BURN" | "CEX";
-
 export interface HolderUpdateEvent {
     network?: string;
     mint: string;
