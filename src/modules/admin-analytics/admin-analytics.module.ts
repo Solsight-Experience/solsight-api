@@ -7,10 +7,11 @@ import { AdminNotificationsService } from "./services/admin-notifications.servic
 import { AnalyticsRepository } from "./repositories/analytics.repository";
 import { SwapExecution } from "./entities/swap-execution.entity";
 import { User } from "../users/entities/user.entity";
+import { Transaction } from "../transactions/entities/transaction.entity";
 import { NotificationsModule } from "../notifications/notifications.module";
 
 @Module({
-    imports: [TypeOrmModule.forFeature([SwapExecution, User]), NotificationsModule],
+    imports: [TypeOrmModule.forFeature([SwapExecution, User, Transaction]), NotificationsModule],
     controllers: [AdminAnalyticsController, AdminNotificationsController],
     providers: [AdminAnalyticsService, AdminNotificationsService, AnalyticsRepository],
     exports: [AdminAnalyticsService]
