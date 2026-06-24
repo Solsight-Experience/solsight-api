@@ -1,23 +1,24 @@
 import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
 import { Cron } from "@nestjs/schedule";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
+import { INDEXER_TRADE_CHANNELS } from "../../../config/configuration";
 import { PubSubService } from "../../../redis/services/pubsub.service";
 import { MarketPriceEvent } from "../entities/market-price-event.entity";
 import { Transaction, TransactionStatus, TransactionType } from "../../transactions/entities/transaction.entity";
 import { Token } from "../../tokens/entities/token.entity";
 import { SwapEvent, getTokenMintFromSwap } from "../../tokens/types/swap-event.types";
 import { TransactionInsertParam, TransactionInsertRow } from "../types/stream-consumer.types";
-
-const TRADES_CHANNEL = "trades";
-const INDEXER_NETWORK = "mainnet";
+import { logError } from "src/common/errors/error-helper";
 
 @Injectable()
 export class StreamConsumerService implements OnModuleInit {
     private readonly logger = new Logger(StreamConsumerService.name);
-    private latestPricesByToken = new Map<string, number>();
+    private latestPrices = new Map<string, { network: string; address: string; price: number }>();
 
     constructor(
+        private readonly configService: ConfigService,
         private readonly pubSubService: PubSubService,
         @InjectRepository(MarketPriceEvent)
         private readonly priceEventRepository: Repository<MarketPriceEvent>,
@@ -28,23 +29,28 @@ export class StreamConsumerService implements OnModuleInit {
     ) {}
 
     async onModuleInit(): Promise<void> {
-        await this.pubSubService.subscribe<SwapEvent>(TRADES_CHANNEL, (swap) => {
-            this.handleSwap(swap).catch((err) => this.logger.error("Error handling swap event:", err));
-        });
-        this.logger.log(`Subscribed to Redis channel "${TRADES_CHANNEL}" for DB persistence`);
+        for (const channel of INDEXER_TRADE_CHANNELS) {
+            const network = channel.endsWith(":devnet") ? "devnet" : "mainnet";
+            await this.pubSubService.subscribe<SwapEvent>(channel, (swap) => {
+                this.handleSwap({ ...swap, network: swap.network || network }).catch((error) => logError(this.logger, "Error handling swap event", error));
+            });
+            this.logger.log(`Subscribed to Redis channel "${channel}" for DB persistence`);
+        }
     }
 
     private resolvePrice(swap: SwapEvent): number {
         if (swap.price_usd != null && swap.price_usd > 0) return swap.price_usd;
         const tokenMint = getTokenMintFromSwap(swap);
-        return this.latestPricesByToken.get(tokenMint) ?? swap.price_native;
+        const network = this.eventNetwork(swap);
+        return this.latestPrices.get(`${network}:${tokenMint}`)?.price ?? swap.price_native;
     }
 
     private async handleSwap(swap: SwapEvent): Promise<void> {
         // Store valid USD prices before persisting so resolvePrice can use them as fallback
         const tokenMint = getTokenMintFromSwap(swap);
         if (swap.price_usd != null && swap.price_usd > 0) {
-            this.latestPricesByToken.set(tokenMint, swap.price_usd);
+            const network = this.eventNetwork(swap);
+            this.latestPrices.set(`${network}:${tokenMint}`, { network, address: tokenMint, price: swap.price_usd });
         }
 
         await Promise.all([this.persistPriceEvent(swap), this.persistTransaction(swap)]);
@@ -54,7 +60,7 @@ export class StreamConsumerService implements OnModuleInit {
         try {
             const entity = this.priceEventRepository.create({
                 tokenMint: getTokenMintFromSwap(swap),
-                network: INDEXER_NETWORK,
+                network: this.eventNetwork(swap),
                 price: this.resolvePrice(swap),
                 slot: String(swap.slot),
                 timestamp: String(swap.timestamp),
@@ -65,7 +71,7 @@ export class StreamConsumerService implements OnModuleInit {
 
             await this.priceEventRepository.createQueryBuilder().insert().into(MarketPriceEvent).values(entity).orIgnore().execute();
         } catch (err) {
-            this.logger.error(`Failed to persist price event for sig ${swap.signature}:`, err);
+            logError(this.logger, `Failed to persist price event for sig ${swap.signature}`, err);
         }
     }
 
@@ -73,7 +79,7 @@ export class StreamConsumerService implements OnModuleInit {
         try {
             const entity: TransactionInsertRow = {
                 signature: swap.signature,
-                network: INDEXER_NETWORK,
+                network: this.eventNetwork(swap),
                 type: TransactionType.SWAP,
                 status: TransactionStatus.CONFIRMED,
                 amount: swap.token_in.amount_ui,
@@ -93,7 +99,7 @@ export class StreamConsumerService implements OnModuleInit {
 
             await this.insertTransactionIgnore(entity);
         } catch (err) {
-            this.logger.error(`Failed to persist transaction for sig ${swap.signature}:`, err);
+            logError(this.logger, `Failed to persist transaction for sig ${swap.signature}`, err);
         }
     }
 
@@ -136,17 +142,21 @@ export class StreamConsumerService implements OnModuleInit {
 
     @Cron("*/30 * * * * *")
     async flushTokenPrices(): Promise<void> {
-        if (!this.latestPricesByToken.size) return;
-        const snapshot = new Map(this.latestPricesByToken);
-        this.latestPricesByToken.clear();
+        if (!this.latestPrices.size) return;
+        const snapshot = new Map(this.latestPrices);
+        this.latestPrices.clear();
 
-        for (const [address, price] of snapshot) {
+        for (const { network, address, price } of snapshot.values()) {
             try {
-                await this.tokenRepository.update({ address, network: INDEXER_NETWORK }, { price });
+                await this.tokenRepository.update({ address, network }, { price });
             } catch (err) {
-                this.logger.error(`Failed to update price for token ${address}:`, err);
+                logError(this.logger, `Failed to update price for token ${address}`, err);
             }
         }
         this.logger.debug(`Flushed prices for ${snapshot.size} tokens`);
+    }
+
+    private eventNetwork(swap: SwapEvent): string {
+        return swap.network || "mainnet";
     }
 }

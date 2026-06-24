@@ -6,11 +6,15 @@ import { TraderAggregationService } from "../services/aggregation/trader-aggrega
 import { ChartQueryDto } from "../dtos/token.chart.dto";
 import { TradesQueryDto } from "../dtos/token.trades.dto";
 import { TokenFilterConditionDto } from "../dtos/token.filter.dto";
+import { TokenPriceService } from "../services/token-price.service";
+import { COMMON_TOKEN_MINT } from "../constants/token.constant";
+import { SolPriceResponseDto } from "../dtos/sol-price.response.dto";
 
 @Controller("tokens")
 export class TokensController {
     constructor(
         private readonly tokensService: TokensService,
+        private readonly tokenPriceService: TokenPriceService,
         private readonly tokenSummaryService: TokenSummaryService,
         private readonly traderAggregationService: TraderAggregationService
     ) {}
@@ -32,8 +36,9 @@ export class TokensController {
     }
 
     @Get("sol-price")
-    getSolPrice() {
-        return this.tokensService.getSolPrice();
+    async getSolPrice(): Promise<SolPriceResponseDto> {
+        const result = await this.tokenPriceService.getPrice(COMMON_TOKEN_MINT.SOL);
+        return { price_usd: result.priceUsd, source: result.source === "redis" ? "redis" : "coingecko" };
     }
 
     @Get(":address/chart")
@@ -49,6 +54,11 @@ export class TokensController {
     @Get(":address/top-traders")
     getTopTraders(@Param("address") address: string) {
         return this.traderAggregationService.getTopTraders(address, 10);
+    }
+
+    @Get(":address/holders")
+    getHolders(@Param("address") address: string, @Query("limit") limit: number = 50) {
+        return this.tokensService.getHolders(address, Math.min(Number(limit) || 50, 500));
     }
 
     @Get(":address")

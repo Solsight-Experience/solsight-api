@@ -8,7 +8,8 @@ import { PublicKey } from "@solana/web3.js";
 import { ParsedTokenAccount } from "../../../infra/solana/solana.types";
 import { WalletsResponse, Position, WalletSummary, Wallet as WalletDto } from "../dtos/wallet.response.dto";
 import { TokensService } from "../../tokens/services/tokens.service";
-import { CoinGeckoService } from "../../../infra/coingecko/coingecko.service";
+import { TokenPriceService } from "src/modules/tokens/services/token-price.service";
+import { COMMON_TOKEN_MINT } from "src/modules/tokens/constants/token.constant";
 
 @Injectable()
 export class WalletsService {
@@ -19,7 +20,7 @@ export class WalletsService {
         private readonly walletRepository: Repository<Wallet>,
         private readonly solanaService: SolanaService,
         private readonly tokensService: TokensService,
-        private readonly coinGeckoService: CoinGeckoService
+        private readonly tokenPriceService: TokenPriceService
     ) {}
 
     async createWithNonce(address: string, nonce: string): Promise<Wallet> {
@@ -89,10 +90,10 @@ export class WalletsService {
         // Refetch wallets to get the potentially updated balances
         const updatedWallets = await this.findByUserId(userId);
 
-        const solPrice = await this.getSolPriceUsd();
+        const solPrice = await this.tokenPriceService.getPrice(COMMON_TOKEN_MINT.SOL);
 
         // Get detailed wallet info with positions
-        const walletsWithDetails = await Promise.all(updatedWallets.map((w) => this.getWalletDetail(w, solPrice)));
+        const walletsWithDetails = await Promise.all(updatedWallets.map((w) => this.getWalletDetail(w, solPrice.priceUsd)));
 
         const total_wallets = walletsWithDetails.length;
         const total_balance_sol = walletsWithDetails.reduce((acc, w) => acc + w.balance_sol, 0);
@@ -140,7 +141,7 @@ export class WalletsService {
             if (holdings.length === 0) return [];
 
             const mints = holdings.map((h) => h.mintAddress);
-            const [metadataMap, priceMap] = await Promise.all([this.tokensService.findMany(mints), this.tokensService.getPrices(mints)]);
+            const [metadataMap, priceMap] = await Promise.all([this.tokensService.findMany(mints), this.tokenPriceService.getPrices(mints)]);
 
             const positions: Position[] = [];
             for (const { mintAddress, balance } of holdings) {
@@ -232,9 +233,9 @@ export class WalletsService {
 
         // Refetch with updated balance
         const updatedWallet = await this.findById(wallet.id);
-        const solPrice = await this.getSolPriceUsd();
+        const solPrice = await this.tokenPriceService.getPrice(COMMON_TOKEN_MINT.SOL);
 
-        return await this.getWalletDetail(updatedWallet, solPrice);
+        return await this.getWalletDetail(updatedWallet, solPrice.priceUsd);
     }
 
     async updateBalance(walletId: string): Promise<Wallet> {
@@ -327,20 +328,6 @@ export class WalletsService {
 
         await this.walletRepository.update({ id: wallet.id }, { isDefault: true });
         return await this.findById(wallet.id);
-    }
-
-    // Get SOL price in USD from CoinGecko
-    private async getSolPriceUsd(): Promise<number> {
-        try {
-            const marketData = await this.coinGeckoService.getCoinsMarketData(["solana"], "usd");
-            if (marketData && marketData.length > 0) {
-                return marketData[0].current_price;
-            }
-            return 0;
-        } catch (error) {
-            this.logger.error("Failed to get SOL price from CoinGecko", error);
-            return 0;
-        }
     }
 
     async delete(id: string): Promise<void> {

@@ -58,6 +58,7 @@ export interface TokenInfo {
 }
 
 export interface SwapEvent {
+    network?: string;
     event_id: string;
     event_type: string;
     timestamp: number;

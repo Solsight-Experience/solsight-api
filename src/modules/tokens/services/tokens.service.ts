@@ -3,6 +3,7 @@ import { InjectRepository } from "@nestjs/typeorm";
 import { Between, FindOptionsOrder, FindOptionsOrderValue, FindOptionsWhere, ILike, In, LessThanOrEqual, MoreThanOrEqual, Repository } from "typeorm";
 import { Token } from "../entities/token.entity";
 import { OhlcCandle } from "../entities/ohlc-candle.entity";
+import { Holder } from "../entities/holder.entity";
 import { TokenResponseDto, TokenDetailsResponseDto, TokenMetadata } from "../dtos/token.response.dto";
 import { SolanaService } from "../../../infra/solana/solana.service";
 import { JupiterService } from "../../../infra/jupiter/jupiter.service";
@@ -15,15 +16,9 @@ import { StatsAggregationService } from "./aggregation/stats-aggregation.service
 import { OhlcInterval } from "./socket/room/room.constants";
 import { RedisService } from "../../../redis/services/redis.service";
 import { TradeData } from "../types/swap-event.types";
-import { COMMON_TOKEN_MINT } from "../constants/token.constant";
-import { SolPriceResponseDto } from "../dtos/sol-price.response.dto";
 import { ClusterProvider } from "../../../common/cluster/cluster.provider";
-
-const TOKEN_META_KEY = (network: string, address: string) => `token:meta:${network}:${address}`;
-const TOKEN_META_TTL = 24 * 60 * 60;
-const PRICE_TTL_S = 60 * 60;
-const STALE_THRESHOLD_S = 5 * 60;
-const FRESH_MIN_TTL_S = PRICE_TTL_S - STALE_THRESHOLD_S;
+import { HolderAggregationService } from "./aggregation/holder-aggregation.service";
+import { EnrichedHolder } from "../types/holder-aggregation.types";
 
 @Injectable()
 export class TokensService {
@@ -34,43 +29,20 @@ export class TokensService {
         private readonly tokenRepository: Repository<Token>,
         @InjectRepository(OhlcCandle)
         private readonly ohlcCandleRepository: Repository<OhlcCandle>,
+        @InjectRepository(Holder)
+        private readonly holderRepository: Repository<Holder>,
         private readonly clusterProvider: ClusterProvider,
         private readonly solanaService: SolanaService,
         private readonly jupiterService: JupiterService,
         private readonly coinGeckoService: CoinGeckoService,
         private readonly ohlcAggregationService: OhlcAggregationService,
         private readonly statsAggregationService: StatsAggregationService,
+        private readonly holderAggregationService: HolderAggregationService,
         private readonly redisService: RedisService
     ) {}
 
     private get network(): string {
         return this.clusterProvider.cluster;
-    }
-
-    async getSolPrice(): Promise<SolPriceResponseDto> {
-        const priceKey = `price:${COMMON_TOKEN_MINT.SOL}:latest`;
-        const cached = await this.redisService.hgetall(priceKey);
-
-        if (cached?.price_usd) {
-            const priceUsd = parseFloat(cached.price_usd);
-            if (priceUsd > 0) {
-                const ttl = await this.redisService.ttl(priceKey);
-                const isStale = ttl >= 0 && ttl < FRESH_MIN_TTL_S;
-                if (!isStale) {
-                    return { price_usd: priceUsd, source: "redis" };
-                }
-                this.logger.debug(`Redis SOL price stale (ttl=${ttl}s), falling back to CoinGecko`);
-            }
-        }
-
-        try {
-            const prices = await this.coinGeckoService.getSimplePrice(["solana"]);
-            const priceUsd = (prices as Record<string, { usd?: number }>)["solana"]?.usd ?? 0;
-            return { price_usd: priceUsd, source: "coingecko" };
-        } catch (error) {
-            this.logger.error("Failed to fetch SOL price from CoinGecko", error);
-            return { price_usd: 0, source: "coingecko" };
-        }
     }
 
     private async cacheTokenMetadata(token: {
@@ -89,11 +61,11 @@ export class TokensService {
             decimals: token.decimals,
             coingeckoId: token.coingeckoId ?? null
         };
-        await this.redisService.set(TOKEN_META_KEY(this.network, token.address), JSON.stringify(meta), TOKEN_META_TTL);
+        await this.redisService.set(RedisService.KEYS.TOKEN_METADATA(this.network, token.address), JSON.stringify(meta), RedisService.TTL.TOKEN_METADATA);
     }
 
     async getTokenMetadata(address: string): Promise<TokenMetadata | null> {
-        const cached = await this.redisService.get<string>(TOKEN_META_KEY(this.network, address));
+        const cached = await this.redisService.get<string>(RedisService.KEYS.TOKEN_METADATA(this.network, address));
         if (cached) {
             try {
                 return JSON.parse(cached) as TokenMetadata;
@@ -117,7 +89,7 @@ export class TokensService {
             decimals: token.decimals,
             coingeckoId: token.coingeckoId ?? null
         };
-        await this.redisService.set(TOKEN_META_KEY(this.network, address), JSON.stringify(meta), TOKEN_META_TTL);
+        await this.redisService.set(RedisService.KEYS.TOKEN_METADATA(this.network, address), JSON.stringify(meta), RedisService.TTL.TOKEN_METADATA);
         return meta;
     }
 
@@ -173,69 +145,13 @@ export class TokensService {
         return tokenData;
     }
 
-    /**
-     * Batch-fetch USD price + 24h change for the given token addresses.
-     *
-     * Source priority per token:
-     *   1. Redis hash `price:{mint}:latest` (populated by indexer swap aggregation)
-     *   2. `tokens.price` / `tokens.priceChange24h` columns (CoinGecko-seeded fallback)
-     *
-     * Tokens with no price data resolve to `{ priceUsd: 0, priceChange24h: 0 }`.
-     * Returns a map keyed by mint address so callers can do their own joins.
-     */
-    async getPrices(addresses: string[]): Promise<Map<string, { priceUsd: number; priceChange24h: number }>> {
-        const result = new Map<string, { priceUsd: number; priceChange24h: number }>();
-        if (addresses.length === 0) return result;
-
-        const needFallback: string[] = [];
-
-        await Promise.all(
-            addresses.map(async (addr) => {
-                try {
-                    const cached = await this.redisService.hgetall(`price:${addr}:latest`);
-                    if (cached?.price_usd) {
-                        const priceUsd = parseFloat(cached.price_usd);
-                        if (Number.isFinite(priceUsd) && priceUsd > 0) {
-                            result.set(addr, { priceUsd, priceChange24h: 0 });
-                            return;
-                        }
-                    }
-                } catch (error) {
-                    this.logger.debug(`Redis price lookup failed for ${addr}: ${(error as Error).message}`);
-                }
-                needFallback.push(addr);
-            })
-        );
-
-        if (needFallback.length > 0) {
-            const tokens = await this.tokenRepository.find({
-                where: { address: In(needFallback), network: this.network },
-                select: ["address", "price", "priceChange24h"]
-            });
-
-            for (const t of tokens) {
-                const priceUsd = Number(t.price) || 0;
-                const priceChange24h = Number(t.priceChange24h) || 0;
-                result.set(t.address, { priceUsd, priceChange24h });
-            }
-        }
-
-        for (const addr of addresses) {
-            if (!result.has(addr)) {
-                result.set(addr, { priceUsd: 0, priceChange24h: 0 });
-            }
-        }
-
-        return result;
-    }
-
     async findMany(addresses: string[]): Promise<Map<string, TokenMetadata>> {
         const result = new Map<string, TokenMetadata>();
         if (addresses.length === 0) return result;
 
         const uncached: string[] = [];
         for (const addr of addresses) {
-            const cached = await this.redisService.get<string>(TOKEN_META_KEY(this.network, addr));
+            const cached = await this.redisService.get<string>(RedisService.KEYS.TOKEN_METADATA(this.network, addr));
             if (cached) {
                 try {
                     result.set(addr, JSON.parse(cached) as TokenMetadata);
@@ -413,10 +329,11 @@ export class TokensService {
     async getChartData(address: string, query: ChartQueryDto): Promise<ChartResponseDto> {
         const { interval, limit = 500 } = query;
         const limitNum = Number(limit);
+        const { from, to } = this.resolveChartWindow(interval, limitNum, query.from, query.to);
 
         if (this.REALTIME_INTERVALS.includes(interval as OhlcInterval)) {
-            const raw = await this.ohlcAggregationService.getHistoricalOhlc(address, interval as OhlcInterval, limitNum);
-            const points = raw.map((p) => ({
+            const raw = await this.ohlcAggregationService.getHistoricalOhlc(address, interval as OhlcInterval, limitNum, from, to);
+            const redisPoints = raw.map((p) => ({
                 timestamp: p.timestamp,
                 open: p.open,
                 high: p.high,
@@ -424,15 +341,30 @@ export class TokensService {
                 close: p.close,
                 volume: p.volume ?? 0
             }));
+
+            const persistedPoints = this.mapCandles(
+                await this.ohlcCandleRepository.find({
+                    where: { tokenMint: address, network: this.network, interval, timestamp: Between(from, to) },
+                    order: { timestamp: "ASC" }
+                })
+            );
+            const pointsByTimestamp = new Map<number, (typeof redisPoints)[number]>();
+            for (const point of persistedPoints) {
+                pointsByTimestamp.set(point.timestamp, point);
+            }
+            for (const point of redisPoints) {
+                pointsByTimestamp.set(point.timestamp, point);
+            }
+            const points = Array.from(pointsByTimestamp.values())
+                .sort((a, b) => a.timestamp - b.timestamp)
+                .slice(-limitNum);
             for (let i = 1; i < points.length; i++) {
                 points[i].open = points[i - 1].close;
             }
             return { interval, points };
         }
 
-        const days = this.calcDays(interval, limitNum);
-        const to = Date.now();
-        const from = to - days * 86_400_000;
+        const days = this.resolveCoinGeckoDays(from, to, interval, limitNum);
 
         const cached = await this.ohlcCandleRepository.find({
             where: { tokenMint: address, network: this.network, interval, timestamp: Between(from, to) },
@@ -495,13 +427,49 @@ export class TokensService {
         return points;
     }
 
+    private resolveChartWindow(interval: string, limit: number, from?: number, to?: number): { from: number; to: number } {
+        const end = Number.isFinite(Number(to)) ? Number(to) : Date.now();
+        const start = Number.isFinite(Number(from)) ? Number(from) : end - this.calcDays(interval, limit) * 86_400_000;
+        return { from: Math.min(start, end), to: Math.max(start, end) };
+    }
+
+    private resolveCoinGeckoDays(from: number, to: number, interval: string, limit: number): number {
+        const requestedDays = Math.max(1, Math.ceil((to - from) / 86_400_000));
+        const fallbackDays = this.calcDays(interval, limit);
+        const raw = Math.max(requestedDays, fallbackDays);
+        const validDays = [1, 7, 14, 30, 90, 180, 365];
+        return validDays.find((d) => d >= raw) ?? 365;
+    }
+
     async getTrades(address: string, limit = 50): Promise<{ trades: TradeData[]; total: number }> {
         return this.statsAggregationService.getTrades(address, limit);
     }
 
+    async getHolders(address: string, limit = 50): Promise<EnrichedHolder[]> {
+        const holders = await this.holderRepository.find({
+            where: { tokenMint: address, network: this.network },
+            order: { balance: "DESC" },
+            take: Math.min(limit, 500)
+        });
+
+        return this.holderAggregationService.enrichHolders(
+            address,
+            this.network,
+            holders.map((holder) => ({
+                wallet: holder.wallet,
+                balance: holder.balance,
+                lastActiveTs: holder.lastActiveTs,
+                totalBoughtUsd: holder.totalBoughtUsd,
+                totalSoldUsd: holder.totalSoldUsd,
+                buyTxCount: holder.buyTxCount,
+                sellTxCount: holder.sellTxCount
+            }))
+        );
+    }
+
     async updateToken(address: string, data: Partial<Token>) {
         const token = await this.tokenRepository.upsert({ address, network: this.network, ...data }, ["address", "network"]);
-        await this.redisService.del(TOKEN_META_KEY(this.network, address));
+        await this.redisService.del(RedisService.KEYS.TOKEN_METADATA(this.network, address));
         return token;
     }
 }

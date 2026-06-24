@@ -7,6 +7,7 @@ import type {
     KoraEstimateFeeResult,
     KoraGetPaymentInstructionInput,
     KoraPaymentInstructionResult,
+    KoraSignAndSendTransactionResult,
     KoraSignTransactionInput,
     KoraSignTransactionResult
 } from "./kora.types";
@@ -132,6 +133,22 @@ export class KoraService {
             };
         } catch (error) {
             this.throwWrapped("signTransaction", error);
+        }
+    }
+
+    async signAndSendTransaction(input: KoraSignTransactionInput): Promise<KoraSignAndSendTransactionResult> {
+        this.requireEnabled("signAndSendTransaction");
+        try {
+            const response = await this.getClient().signAndSendTransaction({
+                transaction: input.transaction,
+                signer_key: input.signerKey
+            });
+            return {
+                signature: response.signature,
+                signedTransaction: response.signed_transaction
+            };
+        } catch (error) {
+            this.throwWrapped("signAndSendTransaction", error);
         }
     }
 
