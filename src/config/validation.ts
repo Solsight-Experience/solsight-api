@@ -44,6 +44,8 @@ export const validationSchema = Joi.object({
     // Solana
     SOLANA_RPC_URL: Joi.string().uri().optional(),
     SOLANA_NETWORK: Joi.string().valid("mainnet-beta", "devnet", "testnet").optional(),
+    IF_PROGRAM_ID: Joi.string().optional(),
+    IF_AUTHORITY: Joi.string().optional(),
 
     // Helius — required: app expects an authenticated RPC endpoint
     HELIUS_RPC_URL: Joi.string().uri().required(),
@@ -72,15 +74,31 @@ export const validationSchema = Joi.object({
     JUPITER_SWAP_API_URL: Joi.string().uri().optional(),
     JUPITER_SWAP_API_KEY: Joi.string().optional(),
 
+    // Jito tip-floor feed — public, unauthenticated; default in configuration.ts
+    JITO_TIP_FLOOR_URL: Joi.string().uri().optional(),
+
+    // Executor
+    EXECUTOR_PROVIDER: Joi.string().valid("jupiter", "solsight").optional(),
+    SOLSIGHT_EXECUTOR_API_URL: Joi.string().uri().optional(),
+    SOLSIGHT_EXECUTOR_API_KEY: Joi.string().optional(),
+
+    // Kora paymaster — all optional; service short-circuits when KORA_RPC_URL is unset
+    KORA_RPC_URL: Joi.string().uri().optional(),
+    KORA_API_KEY: Joi.string().optional(),
+    KORA_HMAC_SECRET: Joi.string().optional(),
+
     // CoinGecko
     COINGECKO_API_URL: Joi.string().uri().optional(),
-    COINGECKO_API_KEY: Joi.string().optional(),
+    COINGECKO_API_KEY: Joi.string().allow("").optional(),
     COINGECKO_LIST_API: Joi.string().uri().optional(),
 
-    // OpenAI (default AI provider)
+    // OpenAI (default AI provider) — EMBEDDING_* vars share the same SDK and fall back to OPENAI_* values
     OPENAI_API_KEY: Joi.string().optional(),
     OPENAI_API_URL: Joi.string().uri().optional(),
     OPENAI_MODEL: Joi.string().optional(),
+    EMBEDDING_API_KEY: Joi.string().optional(),
+    EMBEDDING_API_URL: Joi.string().uri().optional(),
+    EMBEDDING_MODEL: Joi.string().optional(),
 
     // Zalo OA Bot — non-core (alerts only)
     ZALO_BOT_TOKEN: Joi.string().allow("").optional(),

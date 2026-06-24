@@ -23,6 +23,11 @@ export default () => ({
         network: process.env.SOLANA_NETWORK || "mainnet-beta"
     },
 
+    staking: {
+        ifProgramId: process.env.IF_PROGRAM_ID || "4tsHWpfGh94M3gmDBYj96jquEpGbtyLYz4q87roAXbZU",
+        ifAuthority: process.env.IF_AUTHORITY || "HJnpCRqahd2Zunhx1VyY9d9Hj7UyLSNWQEavybJC3MSa"
+    },
+
     helius: {
         rpcUrl: process.env.HELIUS_RPC_URL,
         apiKey: process.env.HELIUS_API_KEY
@@ -35,16 +40,37 @@ export default () => ({
         swapApiKey: process.env.JUPITER_SWAP_API_KEY
     },
 
+    jito: {
+        tipFloorUrl: process.env.JITO_TIP_FLOOR_URL ?? "https://bundles.jito.wtf/api/v1/bundles/tip_floor"
+    },
+
+    executor: {
+        provider: process.env.EXECUTOR_PROVIDER || "jupiter"
+    },
+
+    solsightExecutor: {
+        apiUrl: process.env.SOLSIGHT_EXECUTOR_API_URL ?? "http://localhost:8080",
+        apiKey: process.env.SOLSIGHT_EXECUTOR_API_KEY
+    },
+
+    kora: {
+        rpcUrl: process.env.KORA_RPC_URL,
+        apiKey: process.env.KORA_API_KEY,
+        hmacSecret: process.env.KORA_HMAC_SECRET
+    },
+
     coingecko: {
         apiUrl: process.env.COINGECKO_API_URL || "https://api.coingecko.com/api/v3",
-        apiKey: process.env.COINGECKO_API_KEY || "",
-        searchTokenId: process.env.COINGECKO_LIST_API || "https://api.coingecko.com/api/v3/coins/list?include_platform=true"
+        apiKey: process.env.COINGECKO_API_KEY || ""
     },
 
     openai: {
         apiKey: process.env.OPENAI_API_KEY,
         apiUrl: process.env.OPENAI_API_URL,
-        model: process.env.OPENAI_MODEL || "gpt-4o"
+        model: process.env.OPENAI_MODEL || "gpt-4o",
+        embeddingApiKey: process.env.EMBEDDING_API_KEY,
+        embeddingApiUrl: process.env.EMBEDDING_API_URL,
+        embeddingModel: process.env.EMBEDDING_MODEL
     },
 
     jwt: {
@@ -73,7 +99,7 @@ export default () => ({
 
     email: {
         resendApiKey: process.env.RESEND_API_KEY ?? "",
-        fromAddress: process.env.EMAIL_FROM_ADDRESS ?? "alerts@solsight.app",
-        verifyBaseUrl: process.env.APP_BASE_URL ?? "http://localhost:3000"
+        fromAddress: process.env.EMAIL_FROM_ADDRESS ?? "onboarding@resend.dev",
+        verifyBaseUrl: process.env.APP_BASE_URL ?? "http://localhost:3001"
     }
 });

@@ -2,11 +2,7 @@ import { Injectable, Logger } from "@nestjs/common";
 import { WebsocketGateway } from "../../../websocket/websocket.gateway";
 import { EmailSubscriptionService } from "../../email/services/email-subscription.service";
 import { Notification, NotificationChannel } from "../entities/notification.entity";
-
-export interface NotificationDeliveryPayload {
-    notification: Notification;
-    channels: NotificationChannel[];
-}
+import { NotificationDeliveryPayload } from "../types/notification-delivery.types";
 
 @Injectable()
 export class NotificationDeliveryService {
@@ -26,7 +22,7 @@ export class NotificationDeliveryService {
                     this.deliverViaWebSocket(notification);
                     break;
                 case NotificationChannel.EMAIL:
-                    this.deliverViaEmail(notification);
+                    void this.deliverViaEmail(notification);
                     break;
                 default:
                     this.logger.warn(`Unknown notification channel: ${channel as string}`);

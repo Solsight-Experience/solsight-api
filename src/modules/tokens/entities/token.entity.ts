@@ -1,7 +1,8 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, ManyToOne, JoinColumn } from "typeorm";
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, ManyToOne, JoinColumn, Index } from "typeorm";
 import { Category } from "./category.entity";
 
 @Entity("tokens")
+@Index(["address", "network"], { unique: true })
 export class Token {
     @PrimaryGeneratedColumn("uuid")
     id: string;
@@ -15,40 +16,40 @@ export class Token {
     @Column()
     name: string;
 
-    @Column({ nullable: true })
-    logoUri?: string;
+    @Column({ type: "varchar", nullable: true })
+    logoUri?: string | null;
 
-    @Column({ nullable: true })
-    coingeckoId?: string;
+    @Column({ type: "varchar", nullable: true })
+    coingeckoId?: string | null;
 
-    @Column({ default: "solana" })
+    @Column({ default: "mainnet" })
     network: string;
 
     @Column({ type: "text", nullable: true })
-    description?: string;
+    description?: string | null;
 
-    @Column({ nullable: true })
-    website?: string;
+    @Column({ type: "varchar", nullable: true })
+    website?: string | null;
 
     @Column({ type: "jsonb", nullable: true })
     socialLinks?: {
-        twitter?: string;
-        telegram?: string;
-        discord?: string;
-    };
+        twitter?: string | null;
+        telegram?: string | null;
+        discord?: string | null;
+    } | null;
 
     @Column({ type: "int", default: 9 })
     decimals: number;
 
     // Supply Info
     @Column({ type: "decimal", precision: 30, scale: 0, nullable: true })
-    totalSupply?: number;
+    totalSupply?: number | null;
 
     @Column({ type: "decimal", precision: 30, scale: 0, nullable: true })
-    circulatingSupply?: number;
+    circulatingSupply?: number | null;
 
     @Column({ type: "decimal", precision: 30, scale: 0, nullable: true })
-    maxSupply?: number;
+    maxSupply?: number | null;
 
     // Price & Market
     @Column({ type: "decimal", precision: 30, scale: 9, default: 0 })

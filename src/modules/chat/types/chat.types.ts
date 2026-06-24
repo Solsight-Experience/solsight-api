@@ -1,3 +1,5 @@
+import { SearchResult } from "../../../infra/vectorstore/vectorstore.types";
+
 export interface ChatMessageDto {
     role: "user" | "assistant" | "tool";
     content: string;
@@ -11,16 +13,29 @@ export interface ChatSession {
     processing: boolean;
 }
 
+export interface PageContext {
+    pathname: string;
+    tokenAddress?: string;
+}
+
 export interface SendMessagePayload {
     message: string;
     sessionId: string;
     userId?: string;
     walletAddress?: string;
+    pageContext?: PageContext;
+}
+
+export interface ChatRequest {
+    user?: {
+        id?: string;
+        walletAddress?: string;
+    };
 }
 
 export interface ChatResponsePayload {
     sessionId: string;
-    type: "text" | "token_brief" | "portfolio_summary" | "navigation" | "trade_intent";
+    type: "text" | "token_brief" | "portfolio_summary" | "portfolio_activities" | "portfolio_performance" | "navigation" | "trade_intent" | "slippage_action";
     content?: string;
     data?: Record<string, unknown>;
 }
@@ -39,4 +54,14 @@ export interface ChatErrorPayload {
 export interface ChatToolProgressPayload {
     sessionId: string;
     label: string;
+}
+
+export interface RagDocumentInput {
+    content: string;
+    metadata?: Record<string, unknown>;
+}
+
+export interface RagContext {
+    context: string;
+    sources: SearchResult[];
 }

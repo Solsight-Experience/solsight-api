@@ -1,0 +1,22 @@
+const SOL_ADDRESS = "So11111111111111111111111111111111111111112";
+const USDC_ADDRESS = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+const USDT_ADDRESS = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB";
+const BONK_ADDRESS = "DezXAZ8z7PnrnRJjz3wXBoRgixCa6v5B1pPB263";
+const JUP_ADDRESS = "JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN";
+
+export const COMMON_SYMBOLS: Record<string, string> = {
+    SOL: SOL_ADDRESS,
+    WSOL: SOL_ADDRESS,
+    USDC: USDC_ADDRESS,
+    USDT: USDT_ADDRESS,
+    BONK: BONK_ADDRESS,
+    JUP: JUP_ADDRESS
+};
+
+export const COMMON_DECIMALS: Record<string, number> = {
+    [SOL_ADDRESS]: 9,
+    [USDC_ADDRESS]: 6,
+    [USDT_ADDRESS]: 6,
+    [BONK_ADDRESS]: 5,
+    [JUP_ADDRESS]: 6
+};

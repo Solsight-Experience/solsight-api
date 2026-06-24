@@ -8,6 +8,7 @@ import { JwtStrategy } from "./strategies/jwt.strategy";
 import { JwtAuthGuard } from "./guards/jwt-auth.guard";
 import { UsersModule } from "../users/users.module";
 import { WalletsModule } from "../wallets/wallets.module";
+import { EmailModule } from "../email/email.module";
 
 import { User } from "../users/entities/user.entity";
 import { UserRepository } from "./repositories/user.repository";
@@ -15,9 +16,11 @@ import { UserRepository } from "./repositories/user.repository";
 @Module({
     imports: [
         ConfigModule.forRoot(),
-        UsersModule,
         WalletsModule,
+        UsersModule,
+        EmailModule,
         TypeOrmModule.forFeature([User]),
+
         JwtModule.registerAsync({
             imports: [ConfigModule],
             useFactory: (configService: ConfigService) => ({

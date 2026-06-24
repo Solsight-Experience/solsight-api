@@ -2,6 +2,7 @@ import { Injectable } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository, MoreThan } from "typeorm";
 import { ConfigService } from "@nestjs/config";
+import { randomBytes } from "crypto";
 import { EmailSubscription } from "../entities/email-subscription.entity";
 import { EmailApiService } from "./email-api.service";
 
@@ -89,6 +90,6 @@ export class EmailSubscriptionService {
     }
 
     private makeToken(): string {
-        return require("crypto").randomBytes(16).toString("hex");
+        return randomBytes(16).toString("hex");
     }
 }

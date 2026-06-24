@@ -47,15 +47,20 @@ export class UserRepository {
      * Cập nhật user
      */
     async update(id: string, userData: Partial<User>): Promise<User | null> {
-        await this.repository.update(id, userData);
-        return this.findById(id); // ← Giờ đã đúng type
+        const user = await this.findById(id);
+        if (!user) return null;
+        this.repository.merge(user, userData);
+        return this.repository.save(user);
     }
 
     /**
      * Xóa user (soft delete)
      */
     async softDelete(id: string): Promise<void> {
-        await this.repository.update(id, { isActive: false });
+        const user = await this.findById(id);
+        if (!user) return;
+        user.isActive = false;
+        await this.repository.save(user);
     }
 
     /**
@@ -71,5 +76,9 @@ export class UserRepository {
     async existsByEmail(email: string): Promise<boolean> {
         const count = await this.repository.count({ where: { email } });
         return count > 0;
+    }
+
+    async findByEmailVerificationToken(token: string): Promise<User | null> {
+        return this.repository.findOne({ where: { emailVerificationToken: token } });
     }
 }

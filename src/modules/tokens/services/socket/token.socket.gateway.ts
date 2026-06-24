@@ -12,19 +12,19 @@ export class TokenSocketGateway {
         private readonly gateway: WebsocketGateway,
         private readonly holderTracking: HolderTrackingService
     ) {
-        this.gateway.register("token:subscribe", this.subscribe.bind(this));
-        this.gateway.register("token:unsubscribe", this.unsubscribe.bind(this));
+        this.gateway.register<TokenSubscribeDto>("token:subscribe", (client, payload) => this.subscribe(client, payload));
+        this.gateway.register<TokenUnsubscribeDto>("token:unsubscribe", (client, payload) => this.unsubscribe(client, payload));
     }
 
     subscribe(client: Socket, payload: TokenSubscribeDto) {
         this.logger.log(`Client ${client.id} subscribing to token room with payload: ${JSON.stringify(payload)}`, TokenSocketGateway.name);
         try {
             const room = RoomFactory.create(payload);
-            client.join(room);
+            void client.join(room);
 
             // Notify holder tracking service if this is a holders room
             if (room.startsWith("holders:")) {
-                this.holderTracking.onHolderRoomJoin(room).catch((err) => {
+                void this.holderTracking.onHolderRoomJoin(room).catch((err) => {
                     this.logger.error("Error in holder room join:", err, TokenSocketGateway.name);
                 });
             }
@@ -36,13 +36,11 @@ export class TokenSocketGateway {
     unsubscribe(client: Socket, payload: TokenUnsubscribeDto) {
         try {
             const room = RoomFactory.create(payload);
-            client.leave(room);
+            void client.leave(room);
 
             // Notify holder tracking service if this is a holders room
             if (room.startsWith("holders:")) {
-                this.holderTracking.onHolderRoomLeave(room).catch((err) => {
-                    this.logger.error("Error in holder room leave:", err, TokenSocketGateway.name);
-                });
+                this.holderTracking.onHolderRoomLeave(room);
             }
         } catch (error) {
             this.logger.error("Error in unsubscribe:", error, TokenSocketGateway.name);
@@ -53,7 +51,7 @@ export class TokenSocketGateway {
         return this.gateway.getActiveRooms(`${domain}:`);
     }
 
-    emit(room: string, event: string, data: any) {
+    emit<TData>(room: string, event: string, data: TData) {
         this.gateway.emit(room, event, { room, data });
     }
 }

@@ -17,13 +17,13 @@ export class UserFilterDto {
     isActive?: boolean;
 
     @IsOptional()
-    @Transform(({ value }) => parseInt(value, 10) || 1)
+    @Transform(({ value }: { value: string }) => parseInt(value, 10) || 1)
     @IsInt()
     @Min(1)
     page: number = 1;
 
     @IsOptional()
-    @Transform(({ value }) => parseInt(value, 10) || 10)
+    @Transform(({ value }: { value: string }) => parseInt(value, 10) || 10)
     @IsInt()
     @Min(1)
     limit: number = 10;

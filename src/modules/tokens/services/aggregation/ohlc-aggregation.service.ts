@@ -1,7 +1,8 @@
-import { Injectable, Logger } from "@nestjs/common";
+﻿import { Injectable, Logger } from "@nestjs/common";
 import { RedisService } from "../../../../redis/services/redis.service";
-import { SwapEvent, OhlcData, SwapPriceResult } from "../../types/swap-event.type";
+import { SwapEvent, OhlcData, SwapPriceResult } from "../../types/swap-event.types";
 import { OhlcInterval } from "../socket/room/room.constants";
+import { OhlcHistoryPoint } from "../../types/ohlc-aggregation.types";
 
 const INTERVAL_MS: Record<OhlcInterval, number> = {
     "10s": 10 * 1000,
@@ -51,7 +52,8 @@ export class OhlcAggregationService {
                 volume: parseFloat(data.volume) || 0
             };
         } catch (error) {
-            this.logger.error(`Redis error in getOhlc for "${tokenMint}" interval "${interval}":`, error);
+            const err = error instanceof Error ? error : new Error(String(error));
+            this.logger.error(`Redis error in getOhlc for "${tokenMint}" interval "${interval}": ${err.message}`, err.stack);
             return null;
         }
     }
@@ -117,7 +119,8 @@ export class OhlcAggregationService {
 
             await redis.eval(luaScript, 2, bucketKey, lastCloseKey, price, volume, INTERVAL_TTL[interval]);
         } catch (error) {
-            this.logger.error(`Redis error in updateOhlc for "${tokenMint}" interval "${interval}":`, error);
+            const err = error instanceof Error ? error : new Error(String(error));
+            this.logger.error(`Redis error in updateOhlc for "${tokenMint}" interval "${interval}": ${err.message}`, err.stack);
         }
     }
 
@@ -167,7 +170,8 @@ export class OhlcAggregationService {
 
             return points;
         } catch (error) {
-            this.logger.error(`Redis error in getHistoricalOhlc for "${tokenMint}" interval "${interval}":`, error);
+            const err = error instanceof Error ? error : new Error(String(error));
+            this.logger.error(`Redis error in getHistoricalOhlc for "${tokenMint}" interval "${interval}": ${err.message}`, err.stack);
             return [];
         }
     }
@@ -178,20 +182,7 @@ export class OhlcAggregationService {
         return Math.floor(now / intervalMs) * intervalMs;
     }
 
-    async getOhlcData(
-        tokenMint: string,
-        interval: string,
-        limit: number = 500
-    ): Promise<
-        Array<{
-            timestamp: number;
-            open: number;
-            high: number;
-            low: number;
-            close: number;
-            volume: number;
-        }>
-    > {
+    async getOhlcData(tokenMint: string, interval: string, limit: number = 500): Promise<OhlcHistoryPoint[]> {
         const redis = this.redisService.getClient();
         if (!redis) return [];
 
@@ -211,7 +202,7 @@ export class OhlcAggregationService {
             const ohlcInterval = intervalMap[interval] || "1m";
             const intervalMs = INTERVAL_MS[ohlcInterval];
             const now = Date.now();
-            const data: Array<any> = [];
+            const data: OhlcHistoryPoint[] = [];
 
             // Fetch historical buckets
             for (let i = limit - 1; i >= 0; i--) {
@@ -233,7 +224,8 @@ export class OhlcAggregationService {
 
             return data;
         } catch (error) {
-            this.logger.error(`Redis error in getOhlcData for "${tokenMint}":`, error);
+            const err = error instanceof Error ? error : new Error(String(error));
+            this.logger.error(`Redis error in getOhlcData for "${tokenMint}": ${err.message}`, err.stack);
             return [];
         }
     }

@@ -1,8 +1,11 @@
-import { Controller, Post, Body, UseGuards, Get, Request, Query, Res, HttpException, HttpStatus } from "@nestjs/common";
+import { Controller, Post, Body, UseGuards, Get, Query, Res, HttpException, HttpStatus } from "@nestjs/common";
 import { VerifySolanaDto } from "../dtos/verify-solana.dto";
-import { AuthService, LoginDto, OauthLoginDto } from "../services/auth.service";
+import { AuthService } from "../services/auth.service";
+import { LoginDto, OauthLoginDto, RegisterDto } from "../types/auth.types";
 import { JwtAuthGuard } from "../guards/jwt-auth.guard";
 import { Response } from "express";
+import { CurrentUser, CurrentUserPayload } from "../../../common/decorators/current-user.decorator";
+
 @Controller("auth")
 export class AuthController {
     constructor(private readonly authService: AuthService) {}
@@ -55,23 +58,24 @@ export class AuthController {
             });
 
             return { user, message: "Login successful" };
-        } catch (err) {
-            throw new HttpException(err.message || "OAuth login failed", HttpStatus.BAD_REQUEST);
+        } catch (error) {
+            const message = error instanceof Error ? error.message : "OAuth login failed";
+            throw new HttpException(message, HttpStatus.BAD_REQUEST);
         }
     }
     @Post("register")
-    async register(@Body() registerDto: LoginDto, @Res({ passthrough: true }) res: Response) {
-        const { user, accessToken } = await this.authService.register(registerDto);
+    async register(@Body() registerDto: RegisterDto) {
+        return this.authService.register(registerDto);
+    }
 
-        res.cookie("auth_token", accessToken, {
-            httpOnly: true,
-            secure: false,
-            sameSite: "lax",
-            path: "/",
-            maxAge: 7 * 24 * 60 * 60 * 1000
-        });
+    @Post("verify-email")
+    async verifyEmail(@Body("token") token: string) {
+        return this.authService.verifyEmail(token);
+    }
 
-        return { user };
+    @Post("resend-verification")
+    async resendVerification(@Body("email") email: string) {
+        return this.authService.resendVerificationEmail(email);
     }
 
     @Get("solana/nonce")
@@ -81,7 +85,31 @@ export class AuthController {
 
     @UseGuards(JwtAuthGuard)
     @Post("solana/verify")
-    async verifySolanaWallet(@Body() verifySolanaDto: VerifySolanaDto, @Request() req) {
-        return await this.authService.verifySolanaWallet(verifySolanaDto.walletAddress, verifySolanaDto.signature, verifySolanaDto.walletIcon, req.user.id);
+    async verifySolanaWallet(@Body() verifySolanaDto: VerifySolanaDto, @CurrentUser() user: CurrentUserPayload) {
+        return await this.authService.verifySolanaWallet(verifySolanaDto.walletAddress, verifySolanaDto.signature, verifySolanaDto.walletIcon, user.id);
+    }
+
+    @Post("solana/login")
+    async loginWithSolana(@Body() verifySolanaDto: VerifySolanaDto, @Res({ passthrough: true }) res: Response) {
+        try {
+            const { user, accessToken } = await this.authService.loginWithSolana(
+                verifySolanaDto.walletAddress,
+                verifySolanaDto.signature,
+                verifySolanaDto.walletIcon
+            );
+
+            res.cookie("auth_token", accessToken, {
+                httpOnly: true,
+                sameSite: "lax",
+                maxAge: 7 * 24 * 60 * 60 * 1000,
+                secure: process.env.NODE_ENV === "production",
+                path: "/"
+            });
+
+            return { user, message: "Login successful" };
+        } catch (error) {
+            const message = error instanceof Error ? error.message : "Wallet login failed";
+            throw new HttpException(message, HttpStatus.BAD_REQUEST);
+        }
     }
 }

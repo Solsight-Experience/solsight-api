@@ -1,56 +1,13 @@
-import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
+﻿import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
 import { RedisService } from "../../../../redis/services/redis.service";
 import { PubSubService } from "../../../../redis/services/pubsub.service";
-import { SwapEvent, HolderData } from "../../types/swap-event.type";
+import { HolderData, SwapEvent } from "../../types/swap-event.types";
 import { getWalletLabel } from "../../data/wallet-labels";
 import { JupiterService } from "../../../../infra/jupiter/jupiter.service";
+import { EnrichedHolder, HolderUpdateEvent, PriceUpdateEvent } from "../../types/holder-aggregation.types";
 
 const HOLDER_TTL = 24 * 60 * 60; // 24 hours
 const PRICE_TTL = 60 * 60; // 1 hour
-
-interface HolderUpdateEvent {
-    mint: string;
-    wallet: string;
-    balance: number;
-    balance_change: number;
-    last_active_slot: number;
-    last_active_ts: number;
-    slot: number;
-    signature: string;
-    is_new_holder: boolean;
-    is_removed: boolean;
-    rank: number | null;
-    rank_change: number | null;
-    // Trade-related fields from indexer
-    total_bought_raw: number;
-    total_sold_raw: number;
-    total_bought_usd: number;
-    total_sold_usd: number;
-    buy_tx_count: number;
-    sell_tx_count: number;
-}
-
-interface PriceUpdateEvent {
-    mint: string;
-    price_usd: number;
-    price_native: number;
-    slot: number;
-    source: string;
-}
-
-export interface EnrichedHolder extends HolderData {
-    last_active_ts: number;
-    avg_buy_price: number;
-    avg_sell_price: number;
-    cost_basis: number;
-    unrealized_pnl: number;
-    realized_pnl: number;
-    remaining_usd: number;
-    funding_label: string | null;
-    account_type: string | null;
-    buy_tx_count: number;
-    sell_tx_count: number;
-}
 
 @Injectable()
 export class HolderAggregationService implements OnModuleInit {
@@ -63,20 +20,16 @@ export class HolderAggregationService implements OnModuleInit {
     ) {}
 
     async onModuleInit(): Promise<void> {
-        await this.pubSubService.subscribe("solsight:holder_updates", async (message) => {
-            try {
-                await this.onHolderUpdate(message as HolderUpdateEvent);
-            } catch (error) {
+        await this.pubSubService.subscribe<HolderUpdateEvent>("solsight:holder_updates", (message) => {
+            void this.onHolderUpdate(message).catch((error) => {
                 this.logger.error("Error processing holder update:", error);
-            }
+            });
         });
 
-        await this.pubSubService.subscribe("solsight:price_updates", async (message) => {
-            try {
-                await this.onPriceUpdate(message as PriceUpdateEvent);
-            } catch (error) {
+        await this.pubSubService.subscribe<PriceUpdateEvent>("solsight:price_updates", (message) => {
+            void this.onPriceUpdate(message).catch((error) => {
                 this.logger.error("Error processing price update:", error);
-            }
+            });
         });
     }
 
@@ -121,6 +74,16 @@ export class HolderAggregationService implements OnModuleInit {
                 updateData.sell_tx_count = event.sell_tx_count;
             }
 
+            // Compute cost_basis and realized_pnl from indexer aggregate data (average cost method)
+            if (event.total_bought_raw > 0) {
+                const avgBuyPrice = event.total_bought_usd / event.total_bought_raw;
+                updateData.cost_basis = event.balance * avgBuyPrice;
+                const soldRaw = event.total_bought_raw - event.balance;
+                if (soldRaw > 0) {
+                    updateData.realized_pnl = event.total_sold_usd - soldRaw * avgBuyPrice;
+                }
+            }
+
             await redis.hset(holderKey, updateData);
             await redis.expire(holderKey, HOLDER_TTL);
 
@@ -131,7 +94,8 @@ export class HolderAggregationService implements OnModuleInit {
             }
             await redis.expire(rankingKey, HOLDER_TTL);
         } catch (error) {
-            this.logger.error(`Redis error in onHolderUpdate for "${event.mint}":`, error);
+            const err = error instanceof Error ? error : new Error(String(error));
+            this.logger.error(`Redis error in onHolderUpdate for "${event.mint}": ${err.message}`, err.stack);
         }
     }
 
@@ -168,7 +132,8 @@ export class HolderAggregationService implements OnModuleInit {
                 })
             );
         } catch (error) {
-            this.logger.error(`Redis error in onPriceUpdate for "${event.mint}":`, error);
+            const err = error instanceof Error ? error : new Error(String(error));
+            this.logger.error(`Redis error in onPriceUpdate for "${event.mint}": ${err.message}`, err.stack);
         }
     }
 
@@ -185,8 +150,8 @@ export class HolderAggregationService implements OnModuleInit {
             const isBuy = swap.direction === "BUY";
 
             const tokenAmount = isBuy ? swap.token_out.amount_ui : swap.token_in.amount_ui;
-            const price = swap.price_usd ?? swap.price_native;
-            const volumeUsd = tokenAmount * price;
+            const resolvedPrice = await this.resolvePrice(swap, tokenMint);
+            const volumeUsd = tokenAmount * resolvedPrice;
 
             const holderKey = `holder:${tokenMint}:${holderAddress}`;
             const rankingKey = `holders:${tokenMint}:ranked`;
@@ -233,7 +198,8 @@ export class HolderAggregationService implements OnModuleInit {
             }
             await redis.expire(rankingKey, HOLDER_TTL);
         } catch (error) {
-            this.logger.error("Redis error in holder onSwapEvent:", error);
+            const err = error instanceof Error ? error : new Error(String(error));
+            this.logger.error(`Redis error in holder onSwapEvent: ${err.message}`, err.stack);
         }
     }
 
@@ -331,7 +297,8 @@ export class HolderAggregationService implements OnModuleInit {
 
             return holders;
         } catch (error) {
-            this.logger.error(`Redis error in getTopHolders for "${tokenMint}":`, error);
+            const err = error instanceof Error ? error : new Error(String(error));
+            this.logger.error(`Redis error in getTopHolders for "${tokenMint}": ${err.message}`, err.stack);
             return [];
         }
     }
@@ -373,9 +340,20 @@ export class HolderAggregationService implements OnModuleInit {
                 tx_count: parseInt(data.tx_count || "0", 10)
             };
         } catch (error) {
-            this.logger.error(`Redis error in getHolder for "${tokenMint}" address "${address}":`, error);
+            const err = error instanceof Error ? error : new Error(String(error));
+            this.logger.error(`Redis error in getHolder for "${tokenMint}" address "${address}": ${err.message}`, err.stack);
             return null;
         }
+    }
+
+    private async resolvePrice(swap: SwapEvent, tokenMint: string): Promise<number> {
+        if (swap.price_usd != null && swap.price_usd > 0) return swap.price_usd;
+        const priceData = await this.redisService.hgetall(`price:${tokenMint}:latest`);
+        if (priceData?.price_usd) {
+            const cached = parseFloat(priceData.price_usd);
+            if (cached > 0) return cached;
+        }
+        return swap.price_native;
     }
 
     private getTokenMint(swap: SwapEvent): string {

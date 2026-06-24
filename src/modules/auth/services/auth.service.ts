@@ -4,34 +4,17 @@ import bs58 from "bs58";
 import * as crypto from "crypto";
 
 // src/auth/services/auth.service.ts
-import { BadRequestException, Injectable, Logger, UnauthorizedException, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Injectable, Logger, UnauthorizedException, NotFoundException, ConflictException } from "@nestjs/common";
 import { JwtService } from "@nestjs/jwt";
 import * as bcrypt from "bcrypt";
 import { UserRepository } from "../repositories/user.repository";
 import { randomBytes } from "crypto";
-export interface LoginDto {
-    email: string;
-    password: string;
-}
-
-export interface RegisterDto {
-    email: string;
-    username?: string;
-    password: string;
-    firstName?: string;
-    lastName?: string;
-}
-
-export interface OauthLoginDto {
-    provider: "google";
-    token: string;
-}
-
-export interface JwtPayload {
-    sub: string;
-    email: string;
-    username: string;
-}
+import { User } from "../../users/entities/user.entity";
+import { WalletIcon } from "../../wallets/entities/wallet.entity";
+import { DatabaseError, GoogleTokenProfile, JwtPayload, LoginDto, OauthLoginDto, RegisterDto } from "../types/auth.types";
+import { EmailSenderService } from "../../email/services/sender-service";
+import { Templates } from "../../email/services/sender-service/template-store";
+import { ConfigService } from "@nestjs/config";
 
 @Injectable()
 export class AuthService {
@@ -40,7 +23,9 @@ export class AuthService {
     constructor(
         private readonly userRepository: UserRepository,
         private readonly jwtService: JwtService,
-        private readonly walletsService: WalletsService
+        private readonly walletsService: WalletsService,
+        private readonly emailSenderService: EmailSenderService,
+        private readonly configService: ConfigService
     ) {}
 
     // --- Email/Password login ---
@@ -53,7 +38,9 @@ export class AuthService {
         }
 
         const isPasswordValid = await bcrypt.compare(loginDto.password, user.password);
-        if (!isPasswordValid) throw new BadRequestException("Password is incorrect");
+        if (!isPasswordValid) throw new UnauthorizedException("Password is incorrect");
+
+        if (!user.isEmailVerified) throw new UnauthorizedException("Please verify your email before logging in");
 
         void this.userRepository.update(user.id, { lastLoginAt: new Date() });
         const accessToken = await this.generateAccessToken(user);
@@ -78,7 +65,7 @@ export class AuthService {
                 throw new BadRequestException("Invalid Google token");
             }
 
-            const profile = await googleRes.json();
+            const profile = (await googleRes.json()) as GoogleTokenProfile;
             this.logger.log(`Google profile: ${JSON.stringify(profile)}`);
 
             if (!profile.email) {
@@ -109,8 +96,9 @@ export class AuthService {
                     });
 
                     this.logger.log(`OAuth user created: ${user.id}`);
-                } catch (dbError) {
-                    this.logger.error(`Database error: ${dbError}`);
+                } catch (error) {
+                    const dbError = error as DatabaseError;
+                    this.logger.error(`Database error: ${dbError.message}`);
                     this.logger.error(`Error code: ${dbError.code}`);
                     this.logger.error(`Error detail: ${dbError.detail}`);
                     throw new BadRequestException(`Failed to create user: ${dbError.message}`);
@@ -131,33 +119,84 @@ export class AuthService {
                 throw error;
             }
 
-            throw new BadRequestException(`OAuth login failed: ${error.message}`);
+            throw new BadRequestException(`OAuth login failed: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
     // --- Register ---
     async register(registerDto: RegisterDto) {
         const emailExists = await this.userRepository.existsByEmail(registerDto.email);
-        if (emailExists) throw new BadRequestException("Email already exists");
+        if (emailExists) throw new ConflictException("Email already exists");
 
         const hashedPassword = await bcrypt.hash(registerDto.password, 10);
-        const newUser = await this.userRepository.create({
+        const verificationToken = randomBytes(32).toString("hex");
+        const verificationExpires = new Date(Date.now() + 24 * 60 * 60 * 1000);
+
+        await this.userRepository.create({
             email: registerDto.email,
             username: registerDto.username || registerDto.email.split("@")[0],
             password: hashedPassword,
             firstName: registerDto.firstName,
             lastName: registerDto.lastName,
             isActive: true,
-            isEmailVerified: false
+            isEmailVerified: false,
+            emailVerificationToken: verificationToken,
+            emailVerificationTokenExpires: verificationExpires
         });
 
-        const accessToken = await this.generateAccessToken(newUser);
-        const { password, ...userWithoutPassword } = newUser;
-        return { user: userWithoutPassword, accessToken };
+        const clientBaseUrl = this.configService.get<string>("email.verifyBaseUrl");
+        const verificationUrl = `${clientBaseUrl}/verify-email?token=${verificationToken}`;
+
+        if (this.emailSenderService.hasKey) {
+            await this.emailSenderService.sendWithTemplate(
+                { to: registerDto.email, subject: "Verify your SolSight account" },
+                Templates.VERIFICATION([verificationUrl])
+            );
+        }
+
+        return { message: "Registration successful. Please check your email to verify your account." };
+    }
+
+    async verifyEmail(token: string) {
+        const user = await this.userRepository.findByEmailVerificationToken(token);
+        if (!user) throw new BadRequestException("Invalid verification token");
+
+        if (!user.emailVerificationTokenExpires || user.emailVerificationTokenExpires < new Date()) {
+            throw new BadRequestException("Verification token has expired");
+        }
+
+        await this.userRepository.update(user.id, {
+            isEmailVerified: true,
+            emailVerificationToken: null,
+            emailVerificationTokenExpires: null
+        });
+
+        return { message: "Email verified successfully. You can now log in." };
+    }
+
+    async resendVerificationEmail(email: string) {
+        const user = await this.userRepository.findByEmail(email);
+        if (!user) throw new NotFoundException("User not found");
+        if (user.isEmailVerified) throw new BadRequestException("Email is already verified");
+
+        const verificationToken = randomBytes(32).toString("hex");
+        const verificationExpires = new Date(Date.now() + 24 * 60 * 60 * 1000);
+
+        await this.userRepository.update(user.id, {
+            emailVerificationToken: verificationToken,
+            emailVerificationTokenExpires: verificationExpires
+        });
+
+        const clientBaseUrl = this.configService.get<string>("email.verifyBaseUrl");
+        const verificationUrl = `${clientBaseUrl}/verify-email?token=${verificationToken}`;
+
+        await this.emailSenderService.sendWithTemplate({ to: email, subject: "Verify your SolSight account" }, Templates.VERIFICATION([verificationUrl]));
+
+        return { message: "Verification email sent. Please check your inbox." };
     }
 
     // --- JWT ---
-    async generateAccessToken(user: any): Promise<string> {
+    async generateAccessToken(user: User): Promise<string> {
         const payload: JwtPayload = {
             sub: user.id,
             email: user.email,
@@ -186,7 +225,12 @@ export class AuthService {
         return { nonce };
     }
 
-    async verifySolanaWallet(walletAddress: string, signature: string, walletIcon?: string, userId?: string): Promise<{ success: boolean; message: string }> {
+    async verifySolanaWallet(
+        walletAddress: string,
+        signature: string,
+        walletIcon?: WalletIcon,
+        userId?: string
+    ): Promise<{ success: boolean; message: string }> {
         const wallet = await this.walletsService.findByAddress(walletAddress);
 
         if (!wallet || !wallet.nonce) {
@@ -203,14 +247,14 @@ export class AuthService {
             if (!verified) {
                 throw new UnauthorizedException("Invalid signature");
             }
-        } catch (error) {
+        } catch {
             throw new UnauthorizedException("Signature verification failed");
         }
 
         // Clear nonce
         await this.walletsService.updateNonce(wallet.id, null);
 
-        let user;
+        let user: User | null;
         if (userId) {
             // Scenario A: Linking
             user = await this.userRepository.findById(userId);
@@ -226,6 +270,10 @@ export class AuthService {
             }
         }
 
+        if (!user) {
+            throw new NotFoundException("User not found");
+        }
+
         // if (!wallet.userId || wallet.userId !== user.id) {
         await this.walletsService.updateUser(wallet.id, user.id, walletIcon);
         // }
@@ -234,5 +282,65 @@ export class AuthService {
             success: true,
             message: "Wallet verified and linked successfully"
         };
+    }
+
+    async loginWithSolana(walletAddress: string, signature: string, walletIcon?: WalletIcon): Promise<{ user: Omit<User, "password">; accessToken: string }> {
+        const wallet = await this.walletsService.findOneByAddress(walletAddress);
+
+        if (!wallet || !wallet.nonce) {
+            throw new BadRequestException("Wallet not found or nonce not generated");
+        }
+
+        try {
+            const signatureUint8 = bs58.decode(signature);
+            const nonceUint8 = new TextEncoder().encode(wallet.nonce);
+            const publicKeyUint8 = bs58.decode(walletAddress);
+
+            const verified = nacl.sign.detached.verify(nonceUint8, signatureUint8, publicKeyUint8);
+
+            if (!verified) {
+                throw new UnauthorizedException("Invalid signature");
+            }
+        } catch {
+            throw new UnauthorizedException("Signature verification failed");
+        }
+
+        // Clear nonce
+        await this.walletsService.updateNonce(wallet.id, null);
+
+        let user: User | null = null;
+
+        if (wallet.userId) {
+            user = await this.userRepository.findById(wallet.userId);
+        }
+
+        if (!user) {
+            // Check if user with this generated email already exists
+            const generatedEmail = `solana_${walletAddress.toLowerCase()}@solsight.com`;
+            user = await this.userRepository.findByEmail(generatedEmail);
+
+            if (!user) {
+                // Auto-create new user
+                const dummyPassword = await bcrypt.hash(randomBytes(32).toString("hex"), 10);
+                const username = `sol_${walletAddress.slice(0, 6)}_${walletAddress.slice(-4)}`;
+
+                user = await this.userRepository.create({
+                    email: generatedEmail,
+                    username,
+                    password: dummyPassword,
+                    isActive: true,
+                    isEmailVerified: true
+                });
+            }
+
+            // Link the wallet to the user
+            await this.walletsService.updateUser(wallet.id, user.id, walletIcon || WalletIcon.PHANTOM);
+        }
+
+        void this.userRepository.update(user.id, { lastLoginAt: new Date() });
+        const accessToken = await this.generateAccessToken(user);
+        const { password, ...userWithoutPassword } = user;
+
+        return { user: userWithoutPassword, accessToken };
     }
 }

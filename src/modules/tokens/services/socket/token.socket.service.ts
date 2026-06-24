@@ -6,7 +6,9 @@ import { StatsAggregationService } from "../aggregation/stats-aggregation.servic
 import { OhlcAggregationService } from "../aggregation/ohlc-aggregation.service";
 import { TraderAggregationService } from "../aggregation/trader-aggregation.service";
 import { HolderAggregationService } from "../aggregation/holder-aggregation.service";
-import { SwapEvent, TradeData, HolderData, transformSwapToTradeForToken, calculateSwapPrices } from "../../types/swap-event.type";
+import { SwapEvent, TradeData, transformSwapToTradeForToken, calculateSwapPrices } from "../../types/swap-event.types";
+import { EnrichedHolder } from "../../types/holder-aggregation.types";
+import { TokenSocketData } from "../../types/token-socket.types";
 
 const REDIS_TRADES_CHANNEL = "trades";
 
@@ -15,7 +17,7 @@ export class TokenSocketService implements OnModuleInit {
     private readonly logger = new Logger(TokenSocketService.name);
     private readonly tradesBuffer = new Map<string, (TradeData & { token: string })[]>();
     private readonly lastEmittedClose = new Map<string, number>();
-    private readonly previousHolders = new Map<string, Map<string, HolderData>>();
+    private readonly previousHolders = new Map<string, Map<string, EnrichedHolder>>();
 
     constructor(
         private readonly gateway: TokenSocketGateway,
@@ -43,35 +45,28 @@ export class TokenSocketService implements OnModuleInit {
     private async subscribeToTrades(): Promise<void> {
         this.logger.log(`Subscribing to Redis channel: ${REDIS_TRADES_CHANNEL}`);
 
-        await this.pubSubService.subscribe(REDIS_TRADES_CHANNEL, async (message) => {
-            try {
-                const swap = message as SwapEvent;
-                await this.processSwapEvent(swap);
-            } catch (error) {
+        await this.pubSubService.subscribe<SwapEvent>(REDIS_TRADES_CHANNEL, (swap) => {
+            void this.processSwapEvent(swap).catch((error) => {
                 this.logger.error("Error processing swap event:", error);
-            }
+            });
         });
 
         this.logger.log(`Subscribed to Redis channel: ${REDIS_TRADES_CHANNEL}`);
     }
 
     private async processSwapEvent(swap: SwapEvent): Promise<void> {
-        // Skip swap if price_usd is not available
-        if (swap.price_usd == null) {
-            this.logger.warn(`Skipping swap ${swap.signature}: price_usd is null`);
-            return;
-        }
+        const hasPriceUsd = swap.price_usd != null && swap.price_usd > 0;
 
-        // Compute prices ONCE for all downstream consumers
+        // trader/holder aggregation tracks token quantities and cost basis —
+        // they use resolvePrice() internally, so they don't need price_usd upfront
+        await Promise.all([this.traderAggregation.onSwapEvent(swap), this.holderAggregation.onSwapEvent(swap)]);
+
+        // stats and OHLC require a valid USD price to be meaningful
+        if (!hasPriceUsd) return;
+
         const prices = calculateSwapPrices(swap);
 
-        // Update all aggregations
-        await Promise.all([
-            this.statsAggregation.onSwapEvent(swap, prices),
-            this.ohlcAggregation.onSwapEvent(swap, prices),
-            this.traderAggregation.onSwapEvent(swap),
-            this.holderAggregation.onSwapEvent(swap)
-        ]);
+        await Promise.all([this.statsAggregation.onSwapEvent(swap, prices), this.ohlcAggregation.onSwapEvent(swap, prices)]);
 
         // Buffer trades for scheduler emission
         const [supplyOut, supplyIn] = await Promise.all([
@@ -93,23 +88,29 @@ export class TokenSocketService implements OnModuleInit {
 
         this.logger.log(`Start scheduler: domain=${domain}, interval=${interval}, emitEvery=${intervalMs}ms`);
 
-        setInterval(async () => {
-            const rooms = this.gateway.listTokenRooms(domain);
-            for (const room of rooms) {
-                if (!room.endsWith(`:${interval}`)) continue;
-
-                if (domain === "priceOHLC") {
-                    await this.emitOhlc(room, interval as OhlcInterval);
-                } else {
-                    const data = await this.buildData(domain, room, interval);
-                    if (!data) continue;
-                    this.gateway.emit(room, domain, data);
-                }
-            }
+        setInterval(() => {
+            void this.emitScheduledRooms(domain, interval).catch((error) => {
+                this.logger.error(`Error emitting scheduled token socket data for ${domain}:${interval}`, error);
+            });
         }, intervalMs);
     }
 
-    private async buildData(domain: RoomDomain, room: string, interval: RoomInterval): Promise<any> {
+    private async emitScheduledRooms(domain: RoomDomain, interval: RoomInterval): Promise<void> {
+        const rooms = this.gateway.listTokenRooms(domain);
+        for (const room of rooms) {
+            if (!room.endsWith(`:${interval}`)) continue;
+
+            if (domain === "priceOHLC") {
+                await this.emitOhlc(room, interval as OhlcInterval);
+            } else {
+                const data = await this.buildData(domain, room, interval);
+                if (!data) continue;
+                this.gateway.emit(room, domain, data);
+            }
+        }
+    }
+
+    private async buildData(domain: RoomDomain, room: string, _interval: RoomInterval): Promise<TokenSocketData | null> {
         const [, token] = room.split(":");
 
         switch (domain) {
@@ -149,19 +150,19 @@ export class TokenSocketService implements OnModuleInit {
             }
 
             case "top_traders": {
-                const traders = await this.traderAggregation.getTopTraders(token, 1);
+                const traders = await this.traderAggregation.getTopTraders(token, 10);
                 if (traders.length === 0) return null;
                 return {
                     token,
-                    data: traders[0]
+                    data: traders
                 };
             }
 
             case "holders": {
                 const holders = await this.holderAggregation.getTopHolders(token, 20);
 
-                const prev = this.previousHolders.get(token) ?? new Map();
-                const current = new Map(holders.map((h) => [h.address, h]));
+                const prev = this.previousHolders.get(token) ?? new Map<string, EnrichedHolder>();
+                const current = new Map<string, EnrichedHolder>(holders.map((h) => [h.address, h]));
 
                 const changed = holders.filter((h) => {
                     const prevHolder = prev.get(h.address);

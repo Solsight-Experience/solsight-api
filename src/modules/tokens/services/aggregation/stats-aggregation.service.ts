@@ -1,9 +1,10 @@
-import { Injectable, Logger } from "@nestjs/common";
+﻿import { Injectable, Logger } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
 import { RedisService } from "../../../../redis/services/redis.service";
 import { Token } from "../../entities/token.entity";
-import { SwapEvent, TokenStats, SwapPriceResult, TradeData, isValidPrice } from "../../types/swap-event.type";
+import { ClusterProvider } from "../../../../common/cluster/cluster.provider";
+import { SwapEvent, TokenStats, SwapPriceResult, TradeData, isValidPrice } from "../../types/swap-event.types";
 
 const TRADES_MAX_SIZE = 500;
 const TRADES_TTL = 25 * 60 * 60;
@@ -15,7 +16,8 @@ export class StatsAggregationService {
     constructor(
         private readonly redisService: RedisService,
         @InjectRepository(Token)
-        private readonly tokenRepository: Repository<Token>
+        private readonly tokenRepository: Repository<Token>,
+        private readonly clusterProvider: ClusterProvider
     ) {}
 
     async onSwapEvent(swap: SwapEvent, prices: SwapPriceResult): Promise<void> {
@@ -64,7 +66,8 @@ export class StatsAggregationService {
             // Set TTL on history key (25 hours to be safe)
             await redis.expire(historyKey, 25 * 60 * 60);
         } catch (error) {
-            this.logger.error(`Redis error in storePriceData for "${tokenMint}":`, error);
+            const err = error instanceof Error ? error : new Error(String(error));
+            this.logger.error(`Redis error in storePriceData for "${tokenMint}": ${err.message}`, err.stack);
         }
     }
 
@@ -90,7 +93,8 @@ export class StatsAggregationService {
             await redis.zremrangebyscore(txnsKey, "-inf", cutoff);
             await redis.expire(txnsKey, 25 * 60 * 60);
         } catch (error) {
-            this.logger.error(`Redis error in storeVolumeAndTxns for "${tokenMint}":`, error);
+            const err = error instanceof Error ? error : new Error(String(error));
+            this.logger.error(`Redis error in storeVolumeAndTxns for "${tokenMint}": ${err.message}`, err.stack);
         }
     }
 
@@ -99,7 +103,7 @@ export class StatsAggregationService {
         const latestPriceData = await this.redisService.hgetall(`price:${tokenMint}:latest`);
 
         // Get token from database for other stats
-        const token = await this.tokenRepository.findOneBy({ address: tokenMint });
+        const token = await this.tokenRepository.findOneBy({ address: tokenMint, network: this.clusterProvider.cluster });
 
         // Calculate 24h price change (use USD price)
         const priceUsd = latestPriceData?.price_usd != null ? parseFloat(latestPriceData.price_usd) : null;
@@ -147,7 +151,7 @@ export class StatsAggregationService {
         const cached = await this.redisService.get<number>(cacheKey);
         if (cached != null) return cached;
 
-        const token = await this.tokenRepository.findOneBy({ address: tokenMint });
+        const token = await this.tokenRepository.findOneBy({ address: tokenMint, network: this.clusterProvider.cluster });
         const totalSupply = Number(token?.totalSupply ?? 0);
         await this.redisService.set(cacheKey, totalSupply, 60);
         return totalSupply;
@@ -180,7 +184,8 @@ export class StatsAggregationService {
             }
             return totalVolume;
         } catch (error) {
-            this.logger.error(`Redis error in getVolume24h for "${tokenMint}":`, error);
+            const err = error instanceof Error ? error : new Error(String(error));
+            this.logger.error(`Redis error in getVolume24h for "${tokenMint}": ${err.message}`, err.stack);
             return 0;
         }
     }
@@ -207,7 +212,8 @@ export class StatsAggregationService {
             }
             return { total: buys + sells, buys, sells };
         } catch (error) {
-            this.logger.error(`Redis error in getTxns24h for "${tokenMint}":`, error);
+            const err = error instanceof Error ? error : new Error(String(error));
+            this.logger.error(`Redis error in getTxns24h for "${tokenMint}": ${err.message}`, err.stack);
             return { total: 0, buys: 0, sells: 0 };
         }
     }
@@ -222,7 +228,8 @@ export class StatsAggregationService {
             await redis.zremrangebyrank(tradesKey, 0, -(TRADES_MAX_SIZE + 1));
             await redis.expire(tradesKey, TRADES_TTL);
         } catch (error) {
-            this.logger.error(`Redis error in storeTradeData for "${tokenMint}":`, error);
+            const err = error instanceof Error ? error : new Error(String(error));
+            this.logger.error(`Redis error in storeTradeData for "${tokenMint}": ${err.message}`, err.stack);
         }
     }
 
@@ -248,7 +255,8 @@ export class StatsAggregationService {
 
             return { trades, total };
         } catch (error) {
-            this.logger.error(`Redis error in getTrades for "${tokenMint}":`, error);
+            const err = error instanceof Error ? error : new Error(String(error));
+            this.logger.error(`Redis error in getTrades for "${tokenMint}": ${err.message}`, err.stack);
             return { trades: [], total: 0 };
         }
     }
@@ -270,7 +278,8 @@ export class StatsAggregationService {
             if (oldPrice === 0) return null;
             return ((currentPrice - oldPrice) / oldPrice) * 100;
         } catch (error) {
-            this.logger.error(`Redis error in calculatePriceChange24h for "${tokenMint}":`, error);
+            const err = error instanceof Error ? error : new Error(String(error));
+            this.logger.error(`Redis error in calculatePriceChange24h for "${tokenMint}": ${err.message}`, err.stack);
             return null;
         }
     }

@@ -1,4 +1,4 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable, Logger, ServiceUnavailableException } from "@nestjs/common";
 import { JupiterService } from "../../../infra/jupiter/jupiter.service";
 import { CreateOrderDto, CancelOrderDto, CancelOrdersDto, GetOrdersDto, ExecuteOrderDto } from "../dtos";
 
@@ -33,6 +33,9 @@ export class LimitOrderService {
             this.logger.log(`Creating limit order: ${createOrderDto.inputMint} -> ${createOrderDto.outputMint}`);
 
             const result = await this.jupiterService.createOrder(params);
+            if (!result) {
+                throw new ServiceUnavailableException("Jupiter limit orders are only available on mainnet.");
+            }
 
             return {
                 success: true,
@@ -56,6 +59,9 @@ export class LimitOrderService {
                 order: cancelOrderDto.order,
                 computeUnitPrice: cancelOrderDto.computeUnitPrice || "auto"
             });
+            if (!result) {
+                throw new ServiceUnavailableException("Jupiter limit orders are only available on mainnet.");
+            }
 
             return {
                 success: true,
@@ -75,6 +81,9 @@ export class LimitOrderService {
             this.logger.log(`Canceling ${cancelOrdersDto.orders?.length || "all"} orders`);
 
             const result = await this.jupiterService.cancelOrders(cancelOrdersDto.maker, cancelOrdersDto.orders, cancelOrdersDto.computeUnitPrice || "auto");
+            if (!result) {
+                throw new ServiceUnavailableException("Jupiter limit orders are only available on mainnet.");
+            }
 
             return {
                 success: true,
@@ -101,6 +110,9 @@ export class LimitOrderService {
                 getOrdersDto.page || 1,
                 getOrdersDto.includeFailedTx
             );
+            if (!result) {
+                throw new ServiceUnavailableException("Jupiter limit orders are only available on mainnet.");
+            }
 
             return {
                 success: true,
@@ -123,6 +135,9 @@ export class LimitOrderService {
                 requestId: executeOrderDto.requestId,
                 signedTransaction: executeOrderDto.signedTransaction
             });
+            if (!result) {
+                throw new ServiceUnavailableException("Jupiter limit orders are only available on mainnet.");
+            }
 
             return {
                 success: true,

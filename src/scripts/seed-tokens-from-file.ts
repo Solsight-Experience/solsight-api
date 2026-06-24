@@ -100,7 +100,7 @@ class SeedTokensFromFileService {
                         tokenByAddress.set(token.id, token);
                     }
                 }
-            } catch (error) {
+            } catch {
                 this.logger.warn(`Search API fetch failed for batch starting at ${i}`);
             }
         }

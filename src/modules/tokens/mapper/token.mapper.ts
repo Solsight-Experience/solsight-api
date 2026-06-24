@@ -1,4 +1,4 @@
-import { JupiterTokenMintInformation } from "src/infra/jupiter/types";
+import { JupiterTokenMintInformation } from "../../../infra/jupiter/types";
 import { Token } from "../entities/token.entity";
 import { TokenResponseDto, TokenResponseMetadata, TokenResponseOnchainData, TokenOverviewResponseDto } from "../dtos/token.response.dto";
 
@@ -74,6 +74,7 @@ export function mapTokenEntityToResponseDto(token: Token, network: string): Toke
     const metadata: TokenResponseMetadata = {
         address: token.address,
         symbol: token.symbol,
+        decimals: token.decimals,
         name: token.name,
         logo_uri: token.logoUri ?? null,
         network,

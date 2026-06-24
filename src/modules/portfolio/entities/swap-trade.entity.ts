@@ -1,13 +1,18 @@
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, Index } from "typeorm";
+import { TokenTransfer } from "../../../infra/solana/constants/types";
 
 @Entity("swap_trades")
-@Index(["walletAddress", "timestamp"])
+@Index(["walletAddress", "network", "timestamp"])
+@Index(["signature", "network"], { unique: true })
 export class SwapTrade {
     @PrimaryGeneratedColumn("uuid")
     id: string;
 
     @Column()
     walletAddress: string;
+
+    @Column({ default: "mainnet" })
+    network: string;
 
     @Column({ unique: true })
     signature: string;
@@ -16,7 +21,7 @@ export class SwapTrade {
     timestamp: number;
 
     @Column({ type: "json" })
-    tokenTransfers: any[];
+    tokenTransfers: TokenTransfer[];
 
     @Column({ type: "text", nullable: true })
     description: string;

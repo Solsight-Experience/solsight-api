@@ -1,7 +1,7 @@
-import { IsBoolean, IsEnum, IsNotEmpty, IsOptional, IsString, ValidateNested } from "class-validator";
+import { IsBoolean, IsEnum, IsNotEmpty, IsNumber, IsOptional, IsString, ValidateNested } from "class-validator";
 import { Type } from "class-transformer";
 import type { QuoteResponse } from "../../../infra/executor/interfaces/executor-service.interface";
-import type { JupiterSwapMode } from "../../../infra/jupiter/types";
+import type { JupiterRoutePlanStep, JupiterSwapMode } from "../../../infra/jupiter/types";
 import { IsSolanaAddress } from "../../../common/validators/is-solana-address.validator";
 
 class QuoteResponseDto implements QuoteResponse {
@@ -36,7 +36,15 @@ class QuoteResponseDto implements QuoteResponse {
     priceImpactPct: string;
 
     @IsNotEmpty()
-    routePlan: any[];
+    routePlan: JupiterRoutePlanStep[];
+
+    @IsNumber()
+    @IsNotEmpty()
+    contextSlot: number;
+
+    @IsNumber()
+    @IsNotEmpty()
+    timeTaken: number;
 }
 
 export class GetSwapTransactionDto {
@@ -50,4 +58,8 @@ export class GetSwapTransactionDto {
     @IsBoolean()
     @IsOptional()
     wrapAndUnwrapSol?: boolean;
+
+    @IsOptional()
+    @IsSolanaAddress()
+    gaslessFeeToken?: string;
 }

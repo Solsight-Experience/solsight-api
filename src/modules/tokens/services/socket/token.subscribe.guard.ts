@@ -1,10 +1,11 @@
 // socket-subscribe.guard.ts
-import { CanActivate, ExecutionContext, Injectable } from "@nestjs/common";
+import { CanActivate, ExecutionContext } from "@nestjs/common";
+import { TokenSubscribeDto } from "./token.dtos";
 import { RoomFactory } from "./room/room.factory";
 
 export class TokenSubscribeGuard implements CanActivate {
     canActivate(context: ExecutionContext): boolean {
-        const data = context.switchToWs().getData();
+        const data = context.switchToWs().getData<TokenSubscribeDto>();
 
         if (!data?.domain || !data?.resource || !data?.interval) {
             return false;
