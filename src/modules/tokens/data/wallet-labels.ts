@@ -1,4 +1,6 @@
-export const WALLET_LABELS: Record<string, { name: string; type: "CEX" | "DEV" | "LP" | "BURN" }> = {
+import type { HolderAccountType } from "../types/holder-aggregation.types";
+
+export const WALLET_LABELS: Record<string, { name: string; type: HolderAccountType }> = {
     // Coinbase
     H8sMJSCQxfKiFTCfDR3DUMLPwcRbM61LGFJ8N4dK3WjS: { name: "Coinbase", type: "CEX" },
     "2AQdpHJ2JpcEgPiATUXjQxA8QmafFegfQwSLWSprPicm": { name: "Coinbase 2", type: "CEX" },
@@ -13,6 +15,6 @@ export const WALLET_LABELS: Record<string, { name: string; type: "CEX" | "DEV" |
     // Add more known wallets...
 };
 
-export function getWalletLabel(address: string): { name: string; type: string } | null {
+export function getWalletLabel(address: string): { name: string; type: HolderAccountType } | null {
     return WALLET_LABELS[address] || null;
 }
