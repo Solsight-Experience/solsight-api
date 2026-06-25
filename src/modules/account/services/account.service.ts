@@ -1,7 +1,18 @@
 import { Injectable } from "@nestjs/common";
+import { InjectRepository } from "@nestjs/typeorm";
+import { Repository } from "typeorm";
+import { FavoriteToken } from "../entities/favorite-token.entity";
+import { Token } from "../../tokens/entities/token.entity";
 
 @Injectable()
 export class AccountService {
+    constructor(
+        @InjectRepository(FavoriteToken)
+        private readonly favoriteTokenRepo: Repository<FavoriteToken>,
+        @InjectRepository(Token)
+        private readonly tokenRepo: Repository<Token>
+    ) {}
+
     private user = {
         id: "2",
         username: "user_example",
@@ -38,27 +49,6 @@ export class AccountService {
         wallets_connected: 3
     };
 
-    private favorites = [
-        {
-            token_address: "0x12345",
-            added_at: "2023-01-01T00:00:00Z",
-            token: {
-                name: "Token1",
-                symbol: "T1",
-                price_usd: 10
-            }
-        },
-        {
-            token_address: "0x67890",
-            added_at: "2023-02-01T00:00:00Z",
-            token: {
-                name: "Token2",
-                symbol: "T2",
-                price_usd: 20
-            }
-        }
-    ];
-
     private wallets = [
         {
             address: "sol_wallet_1",
@@ -82,52 +72,82 @@ export class AccountService {
         }
     ];
 
-    getUserProfile() {
-        return this.user;
+    getUserProfile(userId: string) {
+        // TODO: wire real user profile; currently mock
+        return { ...this.user, id: userId };
     }
 
-    getUserStats() {
-        return this.userStats;
+    async getUserStats(userId: string) {
+        const favoriteCount = await this.favoriteTokenRepo.count({ where: { userId } });
+        return { ...this.userStats, favorite_tokens_count: favoriteCount };
     }
 
-    getFavorites() {
-        return this.favorites;
+    async getFavorites(userId: string) {
+        const favorites = await this.favoriteTokenRepo.find({
+            where: { userId },
+            order: { createdAt: "DESC" }
+        });
+
+        const items = await Promise.all(
+            favorites.map(async (fav) => {
+                const token = await this.tokenRepo.findOne({
+                    where: { address: fav.tokenAddress, network: fav.network }
+                });
+
+                return {
+                    token_address: fav.tokenAddress,
+                    network: fav.network,
+                    added_at: fav.createdAt.toISOString(),
+                    token: token
+                        ? {
+                              address: token.address,
+                              network: token.network,
+                              name: token.name,
+                              symbol: token.symbol,
+                              price_usd: Number(token.price)
+                          }
+                        : null
+                };
+            })
+        );
+
+        return { favorites: items, total: items.length };
     }
 
-    addFavorite(tokenAddress: string) {
-        // Check if already exists
-        const exists = this.favorites.find((fav) => fav.token_address === tokenAddress);
-        if (exists) {
+    async addFavorite(userId: string, tokenAddress: string, network = "mainnet") {
+        const existing = await this.favoriteTokenRepo.findOne({
+            where: { userId, tokenAddress, network }
+        });
+        if (existing) {
             return { success: true, message: "Token already in favorites" };
         }
 
-        // Add to favorites
-        this.favorites.push({
-            token_address: tokenAddress,
-            added_at: new Date().toISOString(),
-            token: {
-                name: "Unknown Token",
-                symbol: "UNK",
-                price_usd: 0
-            }
+        const entity = this.favoriteTokenRepo.create({
+            userId,
+            tokenAddress,
+            network
         });
+        await this.favoriteTokenRepo.save(entity);
 
         return { success: true, message: "Token added to favorites" };
     }
 
-    removeFavorite(tokenAddress: string) {
-        const initialLength = this.favorites.length;
-        this.favorites = this.favorites.filter((fav) => fav.token_address !== tokenAddress);
+    async removeFavorite(userId: string, tokenAddress: string, network = "mainnet") {
+        const entity = await this.favoriteTokenRepo.findOne({
+            where: { userId, tokenAddress, network }
+        });
 
-        if (this.favorites.length < initialLength) {
-            return { success: true, message: "Token removed from favorites" };
+        if (!entity) {
+            return { success: false, message: "Token not found in favorites" };
         }
 
-        return { success: false, message: "Token not found in favorites" };
+        await this.favoriteTokenRepo.remove(entity);
+        return { success: true, message: "Token removed from favorites" };
     }
 
-    getWallets() {
+    getWallets(userId: string) {
         return {
+            userId,
             wallets: this.wallets,
             total_wallets: this.wallets.length,
             total_balance_sol: this.wallets.reduce((total, w) => total + w.balance_sol, 0),

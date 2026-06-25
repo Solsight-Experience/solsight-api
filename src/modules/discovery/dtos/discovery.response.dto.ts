@@ -53,6 +53,9 @@ export interface TokenOverview {
 
     // Mini Chart Data (last 24h)
     price_sparkline: number[];
+
+    // Only included when request has valid access token
+    isFavourite?: boolean;
 }
 
 export interface CategoryOverview {

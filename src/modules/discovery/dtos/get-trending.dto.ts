@@ -1,5 +1,5 @@
-import { IsEnum, IsInt, IsOptional, Max, Min } from "class-validator";
-import { Type } from "class-transformer";
+import { IsBoolean, IsEnum, IsInt, IsOptional, Max, Min } from "class-validator";
+import { Transform, Type } from "class-transformer";
 
 export enum SortByTrending {
     VOLUME_24H = "volume_24h",
@@ -36,4 +36,9 @@ export class GetTrendingDto {
     @IsInt()
     @Min(0)
     offset?: number = 0;
+
+    @IsOptional()
+    @Transform(({ value }) => value === true || value === "true")
+    @IsBoolean()
+    isFavourite?: boolean;
 }

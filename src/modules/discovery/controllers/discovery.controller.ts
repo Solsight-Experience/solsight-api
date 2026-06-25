@@ -1,17 +1,27 @@
-import { Controller, Get, Param, Query } from "@nestjs/common";
+import { Controller, Get, Param, Query, Req, UnauthorizedException, UseGuards } from "@nestjs/common";
 import { DiscoveryService } from "../services/discovery.service";
 import { GetTrendingDto } from "../dtos/get-trending.dto";
 import { GetNewListingsDto } from "../dtos/get-new-listings.dto";
 import { GetGainersLosersDto } from "../dtos/get-gainers-losers.dto";
 import { GetCategoryDto } from "../dtos/get-category.dto";
+import { OptionalJwtAuthGuard } from "../../../common/guards/optional-jwt-auth.guard";
+import { CurrentUserPayload } from "../../../common/decorators/current-user.decorator";
+
+interface RequestWithOptionalUser {
+    user?: Partial<CurrentUserPayload>;
+}
 
 @Controller("discovery")
 export class DiscoveryController {
     constructor(private readonly discoveryService: DiscoveryService) {}
 
     @Get("trending")
-    async getTrending(@Query() dto: GetTrendingDto) {
-        return this.discoveryService.getTrending(dto);
+    @UseGuards(OptionalJwtAuthGuard)
+    async getTrending(@Query() dto: GetTrendingDto, @Req() req: RequestWithOptionalUser) {
+        if (dto.isFavourite && !req.user?.id) {
+            throw new UnauthorizedException("Access token required");
+        }
+        return this.discoveryService.getTrending(dto, req.user?.id);
     }
 
     @Get("new-listings")

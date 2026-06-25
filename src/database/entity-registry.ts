@@ -12,6 +12,7 @@ import { Notification } from "../modules/notifications/entities/notification.ent
 import { ZaloSubscription } from "../modules/zalo/entities/zalo-subscription.entity";
 import { WalletAlert } from "../modules/watchlist/entities/wallet-alert.entity";
 import { WatchedWallet } from "../modules/watchlist/entities/watched-wallet.entity";
+import { FavoriteToken } from "../modules/account/entities/favorite-token.entity";
 
 export type AppEntity =
     | Token
@@ -27,7 +28,8 @@ export type AppEntity =
     | Notification
     | ZaloSubscription
     | WalletAlert
-    | WatchedWallet;
+    | WatchedWallet
+    | FavoriteToken;
 
 export const ENTITIES = [
     Token,
@@ -43,5 +45,6 @@ export const ENTITIES = [
     Notification,
     ZaloSubscription,
     WalletAlert,
-    WatchedWallet
+    WatchedWallet,
+    FavoriteToken
 ];

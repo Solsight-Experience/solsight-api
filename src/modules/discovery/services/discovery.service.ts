@@ -2,7 +2,7 @@ import { Injectable, Logger, OnModuleInit, NotFoundException } from "@nestjs/com
 import { Cron, CronExpression } from "@nestjs/schedule";
 import { InjectRepository } from "@nestjs/typeorm";
 import { ClsService } from "nestjs-cls";
-import { IsNull, Not, Repository } from "typeorm";
+import { In, IsNull, Not, Repository } from "typeorm";
 import { Token } from "../../tokens/entities/token.entity";
 import { Category } from "../../tokens/entities/category.entity";
 import { GetTrendingDto, SortByTrending, TimeFrame } from "../dtos/get-trending.dto";
@@ -16,6 +16,7 @@ import { TokenOverview, CategoryOverview, PaginatedCategoriesResponse } from "..
 import { RedisService } from "../../../redis";
 import { ClusterProvider, CLUSTER_CLS_KEY } from "../../../common/cluster/cluster.provider";
 import { JupiterTokenV2 } from "../../../infra/jupiter/types";
+import { FavoriteToken } from "../../account/entities/favorite-token.entity";
 
 const TRENDING_TTL = 60;
 const CATEGORIES_TTL = 300;
@@ -35,6 +36,8 @@ export class DiscoveryService implements OnModuleInit {
         private readonly tokenRepository: Repository<Token>,
         @InjectRepository(Category)
         private readonly categoryRepository: Repository<Category>,
+        @InjectRepository(FavoriteToken)
+        private readonly favoriteTokenRepository: Repository<FavoriteToken>,
         private readonly clusterProvider: ClusterProvider,
         private readonly cls: ClsService
     ) {}
@@ -128,7 +131,53 @@ export class DiscoveryService implements OnModuleInit {
         }
     }
 
-    async getTrending(dto: GetTrendingDto) {
+    private getTrendingOrderByColumn(sort_by: SortByTrending): keyof Token {
+        switch (sort_by) {
+            case SortByTrending.VOLUME_24H:
+                return "volume24h";
+            case SortByTrending.TXNS_24H:
+                return "txns24hTotal";
+            case SortByTrending.PRICE_CHANGE_24H:
+                return "priceChange24h";
+            case SortByTrending.MARKET_CAP:
+                return "marketCap";
+            case SortByTrending.HOLDERS_CHANGE:
+                return "holdersChange24h";
+            default:
+                return "volume24h";
+        }
+    }
+
+    private async getTrendingFavoritesOnly(dto: GetTrendingDto, userId: string) {
+        const { sort_by = SortByTrending.VOLUME_24H, limit = 20, offset = 0 } = dto;
+        const orderByColumn = this.getTrendingOrderByColumn(sort_by);
+
+        const qb = this.tokenRepository
+            .createQueryBuilder("token")
+            .innerJoin(FavoriteToken, "fav", `"fav"."tokenAddress" = "token"."address" AND "fav"."network" = "token"."network" AND "fav"."userId" = :userId`, {
+                userId
+            })
+            .leftJoinAndSelect("token.category", "category")
+            .where(`"token"."network" = :network`, { network: this.network })
+            .orderBy(`token.${orderByColumn}`, "DESC")
+            .addOrderBy("token.id", "ASC")
+            .take(limit)
+            .skip(offset);
+
+        const [tokens, total] = await qb.getManyAndCount();
+
+        return {
+            tokens: tokens.map((t) => ({ ...this.transformToTokenOverview(t), isFavourite: true })),
+            total,
+            updated_at: new Date().toISOString()
+        };
+    }
+
+    async getTrending(dto: GetTrendingDto, userId?: string) {
+        if (dto.isFavourite && userId) {
+            return this.getTrendingFavoritesOnly(dto, userId);
+        }
+
         const { sort_by = SortByTrending.VOLUME_24H, limit = 20, offset = 0 } = dto;
 
         const startWindow = Math.floor(offset / WINDOW_SIZE);
@@ -168,9 +217,32 @@ export class DiscoveryService implements OnModuleInit {
 
         const combined = windowData.flat();
         const startInCombined = offset - startWindow * WINDOW_SIZE;
+        const page = combined.slice(startInCombined, startInCombined + limit);
+
+        if (userId) {
+            const addresses = page.map((t) => t.address);
+            const favs = await this.favoriteTokenRepository.find({
+                where: {
+                    userId,
+                    network: this.network,
+                    tokenAddress: In(addresses)
+                }
+            });
+            const favSet = new Set(favs.map((f) => f.tokenAddress));
+            const enriched = page.map((t) => ({
+                ...t,
+                isFavourite: favSet.has(t.address)
+            }));
+
+            return {
+                tokens: enriched,
+                total,
+                updated_at: new Date().toISOString()
+            };
+        }
 
         return {
-            tokens: combined.slice(startInCombined, startInCombined + limit),
+            tokens: page,
             total,
             updated_at: new Date().toISOString()
         };
