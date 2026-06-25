@@ -86,7 +86,13 @@ export class AuthController {
     @UseGuards(JwtAuthGuard)
     @Post("solana/verify")
     async verifySolanaWallet(@Body() verifySolanaDto: VerifySolanaDto, @CurrentUser() user: CurrentUserPayload) {
-        return await this.authService.verifySolanaWallet(verifySolanaDto.walletAddress, verifySolanaDto.signature, verifySolanaDto.walletIcon, user.id);
+        return await this.authService.verifySolanaWallet(
+            verifySolanaDto.walletAddress,
+            verifySolanaDto.signature,
+            verifySolanaDto.walletIcon,
+            user.id,
+            verifySolanaDto.message
+        );
     }
 
     @Post("solana/login")
@@ -95,7 +101,8 @@ export class AuthController {
             const { user, accessToken } = await this.authService.loginWithSolana(
                 verifySolanaDto.walletAddress,
                 verifySolanaDto.signature,
-                verifySolanaDto.walletIcon
+                verifySolanaDto.walletIcon,
+                verifySolanaDto.message
             );
 
             res.cookie("auth_token", accessToken, {
