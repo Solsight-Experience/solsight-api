@@ -10,6 +10,14 @@ export class VerifySolanaDto {
 
     @IsOptional()
     @IsString()
+    nonce?: string;
+
+    @IsOptional()
+    @IsString()
+    message?: string;
+
+    @IsOptional()
+    @IsString()
     userId?: string;
 
     @IsOptional()
