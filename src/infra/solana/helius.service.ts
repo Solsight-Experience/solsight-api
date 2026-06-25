@@ -13,8 +13,10 @@ export class HeliusService extends BaseSolanaRpcService {
 
     constructor(rpcUrl: string, apiKey: string) {
         super(rpcUrl);
+        const restBaseUrl = new URL(rpcUrl);
+        restBaseUrl.search = "";
         this.apiClient = axios.create({
-            baseURL: rpcUrl,
+            baseURL: restBaseUrl.toString(),
             timeout: 10000,
             headers: {
                 "Content-Type": "application/json"
