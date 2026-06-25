@@ -1,17 +1,22 @@
 import { Injectable } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
-import { FavoriteToken } from "../entities/favorite-token.entity";
 import { Token } from "../../tokens/entities/token.entity";
+import { ClusterProvider } from "../../../common/cluster/cluster.provider";
+import { TokenOverview } from "../../discovery/dtos/discovery.response.dto";
+import { FavoriteTokenDto } from "../dtos/favorite.dto";
 
 @Injectable()
 export class AccountService {
     constructor(
-        @InjectRepository(FavoriteToken)
-        private readonly favoriteTokenRepo: Repository<FavoriteToken>,
         @InjectRepository(Token)
-        private readonly tokenRepo: Repository<Token>
+        private readonly tokenRepository: Repository<Token>,
+        private readonly clusterProvider: ClusterProvider
     ) {}
+
+    private get network(): string {
+        return this.clusterProvider.cluster;
+    }
 
     private user = {
         id: "2",
@@ -82,36 +87,29 @@ export class AccountService {
         return { ...this.userStats, favorite_tokens_count: favoriteCount };
     }
 
-    async getFavorites(userId: string) {
-        const favorites = await this.favoriteTokenRepo.find({
-            where: { userId },
-            order: { createdAt: "DESC" }
-        });
+    async getFavorites(): Promise<FavoriteTokenDto[]> {
+        const result: FavoriteTokenDto[] = [];
+        for (const fav of this.favorites) {
+            const token = await this.tokenRepository.findOne({
+                where: { address: fav.token_address, network: this.network },
+                relations: ["category"]
+            });
 
-        const items = await Promise.all(
-            favorites.map(async (fav) => {
-                const token = await this.tokenRepo.findOne({
-                    where: { address: fav.tokenAddress, network: fav.network }
+            if (token) {
+                result.push({
+                    token_address: fav.token_address,
+                    added_at: fav.added_at,
+                    token: this.transformToTokenOverview(token)
                 });
-
-                return {
-                    token_address: fav.tokenAddress,
-                    network: fav.network,
-                    added_at: fav.createdAt.toISOString(),
-                    token: token
-                        ? {
-                              address: token.address,
-                              network: token.network,
-                              name: token.name,
-                              symbol: token.symbol,
-                              price_usd: Number(token.price)
-                          }
-                        : null
-                };
-            })
-        );
-
-        return { favorites: items, total: items.length };
+            } else {
+                result.push({
+                    token_address: fav.token_address,
+                    added_at: fav.added_at,
+                    token: null
+                });
+            }
+        }
+        return result;
     }
 
     async addFavorite(userId: string, tokenAddress: string, network = "mainnet") {
@@ -152,6 +150,54 @@ export class AccountService {
             total_wallets: this.wallets.length,
             total_balance_sol: this.wallets.reduce((total, w) => total + w.balance_sol, 0),
             total_balance_usd: this.wallets.reduce((total, w) => total + w.balance_usd, 0)
+        };
+    }
+
+    private transformToTokenOverview(token: Token): TokenOverview {
+        return {
+            address: token.address,
+            symbol: token.symbol,
+            name: token.name,
+            logo_uri: token.logoUri || "",
+            network: this.network,
+            category: token.category?.name || "",
+            age_seconds: token.ageSeconds,
+            price: token.price,
+            price_change_1h: token.priceChange1h,
+            price_change_24h: token.priceChange24h,
+            price_change_7d: token.priceChange7d,
+            market_cap: token.marketCap,
+            market_cap_change_24h: token.marketCapChange24h,
+            fdv: token.fdv,
+            liquidity: token.liquidity,
+            liquidity_change_24h: token.liquidityChange24h,
+            volume_24h: token.volume24h,
+            volume_change_24h: token.volumeChange24h,
+            txns_24h: {
+                total: token.txns24hTotal,
+                buys: token.txns24hBuys,
+                sells: token.txns24hSells,
+                change_24h: token.txns24hChange
+            },
+            holders: {
+                count: token.holdersCount,
+                change_24h: token.holdersChange24h,
+                unique_wallets_24h: token.uniqueWallets24h,
+                top_10_percent: token.top10Percent,
+                insider_percent: token.insiderPercent
+            },
+            audit: {
+                mint_authority_disabled: token.mintAuthorityDisabled,
+                freeze_authority_disabled: token.freezeAuthorityDisabled,
+                lp_burnt: token.lpBurnt,
+                has_social_links: token.hasSocialLinks,
+                holders_count: token.holdersCount,
+                unique_wallets_24h: token.uniqueWallets24h,
+                top_10_holders_percent: token.top10Percent,
+                insider_percent: token.insiderPercent,
+                risk_score: token.riskScore
+            },
+            price_sparkline: token.priceSparkline || []
         };
     }
 }

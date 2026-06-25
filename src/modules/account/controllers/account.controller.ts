@@ -2,6 +2,7 @@ import { Controller, Get, Post, Delete, Param, Body, UseGuards, Query } from "@n
 import { JwtAuthGuard } from "../../auth/guards/jwt-auth.guard";
 import { AccountService } from "../services/account.service";
 import { CurrentUser, CurrentUserPayload } from "../../../common/decorators/current-user.decorator";
+import { AddFavoriteDto } from "../dtos/favorite.dto";
 
 @Controller("account/me")
 export class AccountController {
@@ -32,8 +33,8 @@ export class AccountController {
     // Thêm token vào danh sách yêu thích
     @UseGuards(JwtAuthGuard)
     @Post("favorites")
-    addFavorite(@CurrentUser() user: CurrentUserPayload, @Body() body: { token_address: string; network?: string }) {
-        return this.accountService.addFavorite(user.id, body.token_address, body.network);
+    addFavorite(@Body() body: AddFavoriteDto) {
+        return this.accountService.addFavorite(body.token_address);
     }
 
     // Xóa token khỏi danh sách yêu thích
