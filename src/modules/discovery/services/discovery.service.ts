@@ -2,7 +2,7 @@ import { BadRequestException, Injectable, Logger, OnModuleInit, NotFoundExceptio
 import { Cron, CronExpression } from "@nestjs/schedule";
 import { InjectRepository } from "@nestjs/typeorm";
 import { ClsService } from "nestjs-cls";
-import { IsNull, Not, Repository, SelectQueryBuilder } from "typeorm";
+import { ILike, IsNull, MoreThan, Not, Repository, SelectQueryBuilder } from "typeorm";
 import { Token } from "../../tokens/entities/token.entity";
 import { Category } from "../../tokens/entities/category.entity";
 import { GetTrendingDto, SortByTrending, TimeFrame } from "../dtos/get-trending.dto";
@@ -447,7 +447,27 @@ export class DiscoveryService implements OnModuleInit {
     }
 
     async getCategories(dto: GetCategoryDto): Promise<PaginatedCategoriesResponse> {
-        const { limit = 10, offset = 0 } = dto;
+        const { limit = 10, offset = 0, name } = dto;
+
+        if (name) {
+            const [categories, total] = await this.categoryRepository.findAndCount({
+                where: {
+                    name: ILike(`%${name}%`),
+                    marketCap: MoreThan(0),
+                    volume24h: MoreThan(0)
+                },
+                order: { marketCap: "DESC" },
+                skip: offset,
+                take: limit
+            });
+
+            return {
+                data: categories.filter((cat) => cat.top3Coins?.length > 0 && cat.top3CoinsId?.length > 0).map((cat) => this.transformToCategory(cat)),
+                total,
+                limit,
+                offset
+            };
+        }
 
         const startWindow = Math.floor(offset / WINDOW_SIZE);
         const endWindow = Math.floor((offset + limit - 1) / WINDOW_SIZE);
