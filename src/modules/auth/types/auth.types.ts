@@ -41,3 +41,12 @@ export interface CookieRequest {
         auth_token?: string;
     };
 }
+
+export interface PendingRegistration {
+    email: string;
+    password: string;
+    username: string;
+    firstName?: string;
+    lastName?: string;
+    token: string;
+}

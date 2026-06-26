@@ -16,13 +16,25 @@ import * as bcrypt from "bcrypt";
 import { UserRepository } from "../repositories/user.repository";
 import { randomBytes } from "crypto";
 import { User } from "../../users/entities/user.entity";
-import { WalletIcon } from "../../wallets/entities/wallet.entity";
+import { WalletIcon } from "../../wallets/enums/wallet-icon.enum";
 import { ForgotPasswordDto, ResetPasswordDto, VerifyResetOtpDto } from "../dtos/password-reset.dto";
 import { DatabaseError, GoogleTokenProfile, JwtPayload, LoginDto, OauthLoginDto, RegisterDto } from "../types/auth.types";
 import { EmailSenderService } from "../../email/services/sender-service";
 import { Templates } from "../../email/services/sender-service/template-store";
 import { ConfigService } from "@nestjs/config";
 import { verifySolanaSignature } from "../utils/solana-signature.util";
+import { RedisService } from "../../../redis/services/redis.service";
+
+interface PendingRegistration {
+    email: string;
+    password: string;
+    username: string;
+    firstName?: string;
+    lastName?: string;
+    token: string;
+}
+
+const PENDING_REGISTRATION_TTL = RedisService.TTL.PENDING_REGISTRATION_TOKEN;
 
 @Injectable()
 export class AuthService {
@@ -101,7 +113,7 @@ export class AuthService {
                         oauthId: profile.sub,
                         isActive: true,
                         isEmailVerified: true
-                        // KHÔNG set password - để undefined
+                        // KHÃ”NG set password - Ä‘á»ƒ undefined
                     });
 
                     this.logger.log(`OAuth user created: ${user.id}`);
@@ -217,7 +229,7 @@ export class AuthService {
                     this.logger.error(`Failed to send password reset email to ${dto.email}`, err);
                 }
             } else {
-                this.logger.warn("RESEND_API_KEY not set — skipping password reset email");
+                this.logger.warn("RESEND_API_KEY not set â€” skipping password reset email");
             }
         }
 
@@ -305,7 +317,7 @@ export class AuthService {
         await this.redisService.set(RedisService.KEYS.PENDING_REGISTRATION_EMAIL(data.email), data.token, PENDING_REGISTRATION_TTL);
     }
 
-    private async findPendingRegistrationByToken(token: string): Promise<PendingRegistration | null> {
+    private findPendingRegistrationByToken(token: string): Promise<PendingRegistration | null> {
         return this.redisService.get<PendingRegistration>(RedisService.KEYS.PENDING_REGISTRATION_TOKEN(token));
     }
 
@@ -337,7 +349,7 @@ export class AuthService {
                 this.logger.error(`Failed to send verification email to ${email}`, err);
             }
         } else {
-            this.logger.warn("RESEND_API_KEY not set — skipping verification email");
+            this.logger.warn("RESEND_API_KEY not set â€” skipping verification email");
         }
     }
 
