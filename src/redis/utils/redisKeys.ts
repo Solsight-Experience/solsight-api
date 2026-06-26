@@ -2,7 +2,7 @@ declare const redisKeyBrand: unique symbol;
 
 export type RedisKey = string & { readonly [redisKeyBrand]: true };
 
-type RedisKeyBuilder = (...args: never[]) => string;
+type RedisKeyBuilder = (...args: unknown[]) => string;
 type RedisKeyMap<T extends Record<string, RedisKeyBuilder>> = { [K in keyof T]: (...args: Parameters<T[K]>) => RedisKey };
 
 export const redisKeys = <T extends Record<string, RedisKeyBuilder>>(keys: T): RedisKeyMap<T> => {
