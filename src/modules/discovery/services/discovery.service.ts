@@ -1,8 +1,8 @@
-import { Injectable, Logger, OnModuleInit, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Injectable, Logger, OnModuleInit, NotFoundException } from "@nestjs/common";
 import { Cron, CronExpression } from "@nestjs/schedule";
 import { InjectRepository } from "@nestjs/typeorm";
 import { ClsService } from "nestjs-cls";
-import { ILike, IsNull, MoreThan, Not, Repository } from "typeorm";
+import { ILike, IsNull, MoreThan, Not, Repository, SelectQueryBuilder } from "typeorm";
 import { Token } from "../../tokens/entities/token.entity";
 import { Category } from "../../tokens/entities/category.entity";
 import { GetTrendingDto, SortByTrending, TimeFrame } from "../dtos/get-trending.dto";
@@ -49,6 +49,25 @@ export class DiscoveryService implements OnModuleInit {
         return this.clusterProvider.cluster;
     }
 
+    private validateRange(min: number | undefined, max: number | undefined, field: string): void {
+        if (min !== undefined && max !== undefined && min > max) {
+            throw new BadRequestException(`${field}_min must be less than or equal to ${field}_max`);
+        }
+    }
+
+    private applyRange(query: SelectQueryBuilder<Token>, column: string, paramPrefix: string, min: number | undefined, max: number | undefined): void {
+        if (min !== undefined && max !== undefined) {
+            query.andWhere(`${column} BETWEEN :${paramPrefix}Min AND :${paramPrefix}Max`, {
+                [`${paramPrefix}Min`]: min,
+                [`${paramPrefix}Max`]: max
+            });
+        } else if (min !== undefined) {
+            query.andWhere(`${column} >= :${paramPrefix}Min`, { [`${paramPrefix}Min`]: min });
+        } else if (max !== undefined) {
+            query.andWhere(`${column} <= :${paramPrefix}Max`, { [`${paramPrefix}Max`]: max });
+        }
+    }
+
     private transformToCategory(category: Category) {
         return {
             id: category.slug,
@@ -71,41 +90,41 @@ export class DiscoveryService implements OnModuleInit {
             logo_uri: token.logoUri || "",
             network: this.network,
             category: token.category?.name || "",
-            age_seconds: token.ageSeconds,
-            price: token.price,
-            price_change_1h: token.priceChange1h,
-            price_change_24h: token.priceChange24h,
-            price_change_7d: token.priceChange7d,
-            market_cap: token.marketCap,
-            market_cap_change_24h: token.marketCapChange24h,
-            fdv: token.fdv,
-            liquidity: token.liquidity,
-            liquidity_change_24h: token.liquidityChange24h,
-            volume_24h: token.volume24h,
-            volume_change_24h: token.volumeChange24h,
+            age_seconds: Number(token.ageSeconds) || 0,
+            price: Number(token.price) || 0,
+            price_change_1h: Number(token.priceChange1h) || 0,
+            price_change_24h: Number(token.priceChange24h) || 0,
+            price_change_7d: Number(token.priceChange7d) || 0,
+            market_cap: Number(token.marketCap) || 0,
+            market_cap_change_24h: Number(token.marketCapChange24h) || 0,
+            fdv: Number(token.fdv) || 0,
+            liquidity: Number(token.liquidity) || 0,
+            liquidity_change_24h: Number(token.liquidityChange24h) || 0,
+            volume_24h: Number(token.volume24h) || 0,
+            volume_change_24h: Number(token.volumeChange24h) || 0,
             txns_24h: {
-                total: token.txns24hTotal,
-                buys: token.txns24hBuys,
-                sells: token.txns24hSells,
-                change_24h: token.txns24hChange
+                total: Number(token.txns24hTotal) || 0,
+                buys: Number(token.txns24hBuys) || 0,
+                sells: Number(token.txns24hSells) || 0,
+                change_24h: Number(token.txns24hChange) || 0
             },
             holders: {
-                count: token.holdersCount,
-                change_24h: token.holdersChange24h,
-                unique_wallets_24h: token.uniqueWallets24h,
-                top_10_percent: token.top10Percent,
-                insider_percent: token.insiderPercent
+                count: Number(token.holdersCount) || 0,
+                change_24h: Number(token.holdersChange24h) || 0,
+                unique_wallets_24h: Number(token.uniqueWallets24h) || 0,
+                top_10_percent: Number(token.top10Percent) || 0,
+                insider_percent: Number(token.insiderPercent) || 0
             },
             audit: {
-                mint_authority_disabled: token.mintAuthorityDisabled,
-                freeze_authority_disabled: token.freezeAuthorityDisabled,
-                lp_burnt: token.lpBurnt,
-                has_social_links: token.hasSocialLinks,
-                holders_count: token.holdersCount,
-                unique_wallets_24h: token.uniqueWallets24h,
-                top_10_holders_percent: token.top10Percent,
-                insider_percent: token.insiderPercent,
-                risk_score: token.riskScore
+                mint_authority_disabled: token.mintAuthorityDisabled ?? false,
+                freeze_authority_disabled: token.freezeAuthorityDisabled ?? false,
+                lp_burnt: token.lpBurnt ?? false,
+                has_social_links: token.hasSocialLinks ?? false,
+                holders_count: Number(token.holdersCount) || 0,
+                unique_wallets_24h: Number(token.uniqueWallets24h) || 0,
+                top_10_holders_percent: Number(token.top10Percent) || 0,
+                insider_percent: Number(token.insiderPercent) || 0,
+                risk_score: token.riskScore != null ? Number(token.riskScore) : 50
             },
             price_sparkline: token.priceSparkline || []
         };
@@ -129,7 +148,65 @@ export class DiscoveryService implements OnModuleInit {
     }
 
     async getTrending(dto: GetTrendingDto) {
-        const { sort_by = SortByTrending.VOLUME_24H, limit = 20, offset = 0 } = dto;
+        const {
+            sort_by = SortByTrending.VOLUME_24H,
+            limit = 20,
+            offset = 0,
+            min_liquidity,
+            max_liquidity,
+            min_market_cap,
+            max_market_cap,
+            min_volume_24h,
+            max_volume_24h,
+            min_txns_24h,
+            max_txns_24h,
+            min_holders,
+            max_holders
+        } = dto;
+
+        this.validateRange(min_liquidity, max_liquidity, "liquidity");
+        this.validateRange(min_market_cap, max_market_cap, "market_cap");
+        this.validateRange(min_volume_24h, max_volume_24h, "volume_24h");
+        this.validateRange(min_txns_24h, max_txns_24h, "txns_24h");
+        this.validateRange(min_holders, max_holders, "holders");
+
+        const hasFilters = [
+            min_liquidity,
+            max_liquidity,
+            min_market_cap,
+            max_market_cap,
+            min_volume_24h,
+            max_volume_24h,
+            min_txns_24h,
+            max_txns_24h,
+            min_holders,
+            max_holders
+        ].some((v) => v !== undefined);
+
+        if (hasFilters) {
+            const orderBy = this.getTrendingOrderBy(sort_by);
+            const [orderColumn, orderDir] = Object.entries(orderBy)[0];
+
+            const query = this.tokenRepository
+                .createQueryBuilder("token")
+                .leftJoinAndSelect("token.category", "category")
+                .where("token.network = :network", { network: this.network });
+
+            this.applyRange(query, "token.liquidity", "liquidity", min_liquidity, max_liquidity);
+            this.applyRange(query, "token.marketCap", "marketCap", min_market_cap, max_market_cap);
+            this.applyRange(query, "token.volume24h", "volume24h", min_volume_24h, max_volume_24h);
+            this.applyRange(query, "token.txns24hTotal", "txns24h", min_txns_24h, max_txns_24h);
+            this.applyRange(query, "token.holdersCount", "holders", min_holders, max_holders);
+
+            query.orderBy(`token.${orderColumn}`, orderDir).take(limit).skip(offset);
+
+            const [tokens, total] = await query.getManyAndCount();
+            return {
+                tokens: tokens.map((t) => this.transformToTokenOverview(t)),
+                total,
+                updated_at: new Date().toISOString()
+            };
+        }
 
         const startWindow = Math.floor(offset / WINDOW_SIZE);
         const endWindow = Math.floor((offset + limit - 1) / WINDOW_SIZE);
@@ -252,7 +329,27 @@ export class DiscoveryService implements OnModuleInit {
     }
 
     async getNewListings(dto: GetNewListingsDto) {
-        const { time_frame, min_liquidity, limit, offset } = dto;
+        const {
+            time_frame,
+            min_liquidity,
+            max_liquidity,
+            min_market_cap,
+            max_market_cap,
+            min_volume_24h,
+            max_volume_24h,
+            min_txns_24h,
+            max_txns_24h,
+            min_holders,
+            max_holders,
+            limit,
+            offset
+        } = dto;
+
+        this.validateRange(min_liquidity, max_liquidity, "liquidity");
+        this.validateRange(min_market_cap, max_market_cap, "market_cap");
+        this.validateRange(min_volume_24h, max_volume_24h, "volume_24h");
+        this.validateRange(min_txns_24h, max_txns_24h, "txns_24h");
+        this.validateRange(min_holders, max_holders, "holders");
 
         let ageThresholdSeconds = 86400;
         if (time_frame === TimeFrame.SEVEN_DAYS) {
@@ -263,16 +360,14 @@ export class DiscoveryService implements OnModuleInit {
             .createQueryBuilder("token")
             .leftJoinAndSelect("token.category", "category")
             .where("token.network = :network", { network: this.network })
-            .andWhere("token.ageSeconds <= :ageThreshold", {
-                ageThreshold: ageThresholdSeconds
-            })
+            .andWhere("token.ageSeconds <= :ageThreshold", { ageThreshold: ageThresholdSeconds })
             .orderBy("token.createdAt", "DESC");
 
-        if (min_liquidity !== undefined) {
-            query.andWhere("token.liquidity >= :minLiquidity", {
-                minLiquidity: min_liquidity
-            });
-        }
+        this.applyRange(query, "token.liquidity", "liquidity", min_liquidity, max_liquidity);
+        this.applyRange(query, "token.marketCap", "marketCap", min_market_cap, max_market_cap);
+        this.applyRange(query, "token.volume24h", "volume24h", min_volume_24h, max_volume_24h);
+        this.applyRange(query, "token.txns24hTotal", "txns24h", min_txns_24h, max_txns_24h);
+        this.applyRange(query, "token.holdersCount", "holders", min_holders, max_holders);
 
         query.take(limit).skip(offset);
 

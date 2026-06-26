@@ -15,6 +15,60 @@ export class GetNewListingsDto {
 
     @IsOptional()
     @Type(() => Number)
+    @IsNumber()
+    @Min(0)
+    max_liquidity?: number;
+
+    @IsOptional()
+    @Type(() => Number)
+    @IsNumber()
+    @Min(0)
+    min_market_cap?: number;
+
+    @IsOptional()
+    @Type(() => Number)
+    @IsNumber()
+    @Min(0)
+    max_market_cap?: number;
+
+    @IsOptional()
+    @Type(() => Number)
+    @IsNumber()
+    @Min(0)
+    min_volume_24h?: number;
+
+    @IsOptional()
+    @Type(() => Number)
+    @IsNumber()
+    @Min(0)
+    max_volume_24h?: number;
+
+    @IsOptional()
+    @Type(() => Number)
+    @IsNumber()
+    @Min(0)
+    min_txns_24h?: number;
+
+    @IsOptional()
+    @Type(() => Number)
+    @IsNumber()
+    @Min(0)
+    max_txns_24h?: number;
+
+    @IsOptional()
+    @Type(() => Number)
+    @IsNumber()
+    @Min(0)
+    min_holders?: number;
+
+    @IsOptional()
+    @Type(() => Number)
+    @IsNumber()
+    @Min(0)
+    max_holders?: number;
+
+    @IsOptional()
+    @Type(() => Number)
     @IsInt()
     @Min(1)
     @Max(100)
