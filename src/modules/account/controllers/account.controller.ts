@@ -1,5 +1,6 @@
 import { Controller, Get, Post, Delete, Param, Body } from "@nestjs/common";
 import { AccountService } from "../services/account.service";
+import { AddFavoriteDto } from "../dtos/favorite.dto";
 
 @Controller("account/me")
 export class AccountController {
@@ -27,7 +28,7 @@ export class AccountController {
 
     // Thêm token vào danh sách yêu thích
     @Post("favorites")
-    addFavorite(@Body() body: { token_address: string }) {
+    addFavorite(@Body() body: AddFavoriteDto) {
         return this.accountService.addFavorite(body.token_address);
     }
 
