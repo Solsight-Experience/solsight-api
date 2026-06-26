@@ -18,7 +18,7 @@ import { RedisService } from "../../../redis/services/redis.service";
 import { TradeData } from "../types/swap-event.types";
 import { ClusterProvider } from "../../../common/cluster/cluster.provider";
 import { HolderAggregationService } from "./aggregation/holder-aggregation.service";
-import { EnrichedHolder } from "../types/holder-aggregation.types";
+import type { HoldersResponseDto } from "../dtos/holder.response.dto";
 
 @Injectable()
 export class TokensService {
@@ -445,14 +445,16 @@ export class TokensService {
         return this.statsAggregationService.getTrades(address, limit);
     }
 
-    async getHolders(address: string, limit = 50): Promise<EnrichedHolder[]> {
-        const holders = await this.holderRepository.find({
+    async getHolders(address: string, limit = 50): Promise<HoldersResponseDto> {
+        const responseLimit = this.normalizeHoldersLimit(limit);
+        const summaryLimit = Math.max(responseLimit, 20);
+        const [holders, total] = await this.holderRepository.findAndCount({
             where: { tokenMint: address, network: this.network },
             order: { balance: "DESC" },
-            take: Math.min(limit, 500)
+            take: summaryLimit
         });
 
-        return this.holderAggregationService.enrichHolders(
+        const enrichedHolders = await this.holderAggregationService.enrichHolders(
             address,
             this.network,
             holders.map((holder) => ({
@@ -465,11 +467,32 @@ export class TokensService {
                 sellTxCount: holder.sellTxCount
             }))
         );
+
+        return {
+            holders: enrichedHolders.slice(0, responseLimit),
+            total,
+            summary: {
+                total_holders: total,
+                top_10_holding_percent: this.sumHoldingPercent(enrichedHolders, 10),
+                top_20_holding_percent: this.sumHoldingPercent(enrichedHolders, 20)
+            }
+        };
     }
 
     async updateToken(address: string, data: Partial<Token>) {
         const token = await this.tokenRepository.upsert({ address, network: this.network, ...data }, ["address", "network"]);
         await this.redisService.del(RedisService.KEYS.TOKEN_METADATA(this.network, address));
         return token;
+    }
+
+    private normalizeHoldersLimit(limit: number): number {
+        const parsedLimit = Number(limit);
+        if (!Number.isFinite(parsedLimit) || parsedLimit <= 0) return 50;
+
+        return Math.min(Math.trunc(parsedLimit), 500);
+    }
+
+    private sumHoldingPercent(holders: HoldersResponseDto["holders"], count: number): number {
+        return holders.slice(0, count).reduce((sum, holder) => sum + holder.balance_percent, 0);
     }
 }

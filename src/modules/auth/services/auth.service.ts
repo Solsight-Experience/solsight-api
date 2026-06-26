@@ -1,6 +1,4 @@
 import { WalletsService } from "../../wallets/services/wallets.service";
-import * as nacl from "tweetnacl";
-import bs58 from "bs58";
 import * as crypto from "crypto";
 
 // src/auth/services/auth.service.ts
@@ -24,18 +22,7 @@ import { DatabaseError, GoogleTokenProfile, JwtPayload, LoginDto, OauthLoginDto,
 import { EmailSenderService } from "../../email/services/sender-service";
 import { Templates } from "../../email/services/sender-service/template-store";
 import { ConfigService } from "@nestjs/config";
-import { RedisService } from "../../../redis/services/redis.service";
-
-interface PendingRegistration {
-    email: string;
-    password: string;
-    username: string;
-    firstName?: string;
-    lastName?: string;
-    token: string;
-}
-
-const PENDING_REGISTRATION_TTL = RedisService.TTL.PENDING_REGISTRATION_TOKEN;
+import { verifySolanaSignature } from "../utils/solana-signature.util";
 
 @Injectable()
 export class AuthService {
@@ -388,7 +375,8 @@ export class AuthService {
         walletAddress: string,
         signature: string,
         walletIcon?: WalletIcon,
-        userId?: string
+        userId?: string,
+        message?: string
     ): Promise<{ success: boolean; message: string }> {
         const wallet = await this.walletsService.findByAddress(walletAddress);
 
@@ -396,19 +384,7 @@ export class AuthService {
             throw new BadRequestException("Wallet not found or nonce not generated");
         }
 
-        try {
-            const signatureUint8 = bs58.decode(signature);
-            const nonceUint8 = new TextEncoder().encode(wallet.nonce);
-            const publicKeyUint8 = bs58.decode(walletAddress);
-
-            const verified = nacl.sign.detached.verify(nonceUint8, signatureUint8, publicKeyUint8);
-
-            if (!verified) {
-                throw new UnauthorizedException("Invalid signature");
-            }
-        } catch {
-            throw new UnauthorizedException("Signature verification failed");
-        }
+        verifySolanaSignature(walletAddress, signature, wallet.nonce, message);
 
         // Clear nonce
         await this.walletsService.updateNonce(wallet.id, null);
@@ -443,26 +419,19 @@ export class AuthService {
         };
     }
 
-    async loginWithSolana(walletAddress: string, signature: string, walletIcon?: WalletIcon): Promise<{ user: Omit<User, "password">; accessToken: string }> {
+    async loginWithSolana(
+        walletAddress: string,
+        signature: string,
+        walletIcon?: WalletIcon,
+        message?: string
+    ): Promise<{ user: Omit<User, "password">; accessToken: string }> {
         const wallet = await this.walletsService.findOneByAddress(walletAddress);
 
         if (!wallet || !wallet.nonce) {
             throw new BadRequestException("Wallet not found or nonce not generated");
         }
 
-        try {
-            const signatureUint8 = bs58.decode(signature);
-            const nonceUint8 = new TextEncoder().encode(wallet.nonce);
-            const publicKeyUint8 = bs58.decode(walletAddress);
-
-            const verified = nacl.sign.detached.verify(nonceUint8, signatureUint8, publicKeyUint8);
-
-            if (!verified) {
-                throw new UnauthorizedException("Invalid signature");
-            }
-        } catch {
-            throw new UnauthorizedException("Signature verification failed");
-        }
+        verifySolanaSignature(walletAddress, signature, wallet.nonce, message);
 
         // Clear nonce
         await this.walletsService.updateNonce(wallet.id, null);
