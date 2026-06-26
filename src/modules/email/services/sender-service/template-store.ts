@@ -55,6 +55,40 @@ export const Templates = {
         `{0}\n\n{1}\n\n—\nYou're receiving this because you enabled email alerts on SolSight.`
     ),
 
+    PASSWORD_RESET_OTP: defineTemplate<[otp: string]>(
+        `
+                    <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:40px 32px;background:#0c1018;color:#e2e8f0;border-radius:16px;border:1px solid #312e81">
+                        <p style="margin:0 0 28px;text-align:center;line-height:1">
+                            <span style="font-size:26px;font-weight:800;color:#a78bfa;letter-spacing:-0.6px">Sol</span><span style="font-size:26px;font-weight:800;color:#ffffff;letter-spacing:-0.6px">Sight</span>
+                        </p>
+                        <p style="margin:0 0 6px;font-size:11px;font-weight:600;color:#8b5cf6;letter-spacing:1.4px;text-transform:uppercase">Password reset</p>
+                        <h2 style="margin:0 0 10px;font-size:20px;font-weight:700;color:#ffffff;letter-spacing:-0.3px">Reset your password</h2>
+                        <p style="margin:0 0 28px;font-size:14px;color:#94a3b8;line-height:1.7">
+                            Enter the verification code below to continue resetting your SolSight password.
+                        </p>
+                        <table cellpadding="0" cellspacing="0" border="0" style="margin:0 auto 28px;width:100%;max-width:300px">
+                            <tr>
+                                <td style="border-radius:14px;padding:2px;background:linear-gradient(135deg,#6366f1,#8b5cf6,#a855f7)">
+                                    <div style="background:#110f1f;border-radius:12px;padding:22px 18px;text-align:center">
+                                        <p style="margin:0 0 10px;font-size:11px;font-weight:600;color:#a78bfa;letter-spacing:1.2px;text-transform:uppercase">Your code</p>
+                                        <span style="display:inline-block;font-size:34px;font-weight:700;letter-spacing:10px;color:#ffffff;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace">{0}</span>
+                                    </div>
+                                </td>
+                            </tr>
+                        </table>
+                        <p style="margin:0 0 24px;font-size:12px;color:#475569;line-height:1.6;text-align:center">
+                            This code expires in <strong style="color:#8b5cf6">10 minutes</strong>.<br />
+                            If you didn't request a password reset, you can safely ignore this email.
+                        </p>
+                        <hr style="border:none;border-top:1px solid #1e293b;margin:0 0 16px" />
+                        <p style="margin:0;font-size:11px;color:#475569;line-height:1.6;text-align:center">
+                            You're receiving this from <strong style="color:#64748b">SolSight</strong> — Solana analytics &amp; trading.
+                        </p>
+                    </div>
+`,
+        `SolSight — Password Reset\n\nYour verification code is: {0}\n\nEnter this code to reset your SolSight password.\n\nThis code expires in 10 minutes. If you didn't request a password reset, ignore this email.\n\n— SolSight`
+    ),
+
     WALLET_ALERT: defineTemplate<[title: string, bodyHtml: string, bodyText: string]>(
         `
                     <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px 24px;background:#0c1018;color:#e2e8f0;border-radius:12px">

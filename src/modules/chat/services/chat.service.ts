@@ -877,10 +877,23 @@ export class ChatService {
                 }
 
                 case "fetch_portfolio_activities": {
-                    const resolvedUserId = userId || (typeof args.userId === "string" ? args.userId : "");
+                    const resolvedUserId = userId || this.getStringArg(args, "userId");
                     if (!resolvedUserId) {
+                        this.logger.warn("fetch_portfolio_activities called without userId", ChatService.name);
                         return JSON.stringify({ error: "User ID required — please log in" });
                     }
+
+                    const walletFilter = this.getStringArg(args, "walletAddress") || walletAddress;
+                    const activityType = this.getStringArg(args, "type") || "all";
+
+                    const rawLimit = args.limit;
+                    const limit = typeof rawLimit === "number" && Number.isInteger(rawLimit) ? Math.max(1, Math.min(rawLimit, 20)) : 10;
+
+                    const data = await this.portfolioService.getActivities(resolvedUserId, walletFilter, activityType, limit);
+                    return JSON.stringify(data);
+                }
+
+                case "prepare_swap": {
                     let inputMint = this.getStringArg(args, "inputMint");
                     let outputMint = this.getStringArg(args, "outputMint");
                     const amount = Number(args.amount || 0);

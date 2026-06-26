@@ -1,4 +1,5 @@
 import { Controller, Post, Body, UseGuards, Get, Query, Res, HttpException, HttpStatus } from "@nestjs/common";
+import { ForgotPasswordDto, ResetPasswordDto, VerifyResetOtpDto } from "../dtos/password-reset.dto";
 import { VerifySolanaDto } from "../dtos/verify-solana.dto";
 import { AuthService } from "../services/auth.service";
 import { LoginDto, OauthLoginDto, RegisterDto } from "../types/auth.types";
@@ -76,6 +77,21 @@ export class AuthController {
     @Post("resend-verification")
     async resendVerification(@Body("email") email: string) {
         return this.authService.resendVerificationEmail(email);
+    }
+
+    @Post("forgot-password")
+    async forgotPassword(@Body() dto: ForgotPasswordDto) {
+        return this.authService.forgotPassword(dto);
+    }
+
+    @Post("verify-reset-otp")
+    async verifyResetOtp(@Body() dto: VerifyResetOtpDto) {
+        return this.authService.verifyResetOtp(dto);
+    }
+
+    @Post("reset-password")
+    async resetPassword(@Body() dto: ResetPasswordDto) {
+        return this.authService.resetPassword(dto);
     }
 
     @Get("solana/nonce")

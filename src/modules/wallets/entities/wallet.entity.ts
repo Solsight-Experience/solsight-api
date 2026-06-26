@@ -1,20 +1,15 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, ManyToOne, OneToMany } from "typeorm";
+﻿import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, ManyToOne, OneToMany } from "typeorm";
 import { User } from "../../users/entities/user.entity";
 import { Transaction } from "../../transactions/entities/transaction.entity";
+import { WalletIcon } from "../enums/wallet-icon.enum";
+
+export { WalletIcon } from "../enums/wallet-icon.enum";
 
 export enum WalletType {
     SOLANA = "solana",
     PHANTOM = "phantom",
     SOLFLARE = "solflare",
     BACKPACK = "backpack"
-}
-
-export enum WalletIcon {
-    SOLSIGHT = "solsight",
-    PHANTOM = "phantom",
-    METAMASK = "metamask",
-    WALLETCONNECT = "walletconnect",
-    CUSTOM = "custom"
 }
 
 @Entity("wallets")

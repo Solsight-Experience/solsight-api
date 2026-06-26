@@ -2,18 +2,32 @@ import { WalletsService } from "../../wallets/services/wallets.service";
 import * as crypto from "crypto";
 
 // src/auth/services/auth.service.ts
-import { BadRequestException, Injectable, Logger, UnauthorizedException, NotFoundException, ConflictException } from "@nestjs/common";
+import {
+    BadRequestException,
+    Injectable,
+    Logger,
+    UnauthorizedException,
+    NotFoundException,
+    ConflictException,
+    ServiceUnavailableException
+} from "@nestjs/common";
 import { JwtService } from "@nestjs/jwt";
 import * as bcrypt from "bcrypt";
 import { UserRepository } from "../repositories/user.repository";
 import { randomBytes } from "crypto";
 import { User } from "../../users/entities/user.entity";
-import { WalletIcon } from "../../wallets/entities/wallet.entity";
+import { WalletIcon } from "../../wallets/enums/wallet-icon.enum";
+import { ForgotPasswordDto, ResetPasswordDto, VerifyResetOtpDto } from "../dtos/password-reset.dto";
 import { DatabaseError, GoogleTokenProfile, JwtPayload, LoginDto, OauthLoginDto, RegisterDto } from "../types/auth.types";
 import { EmailSenderService } from "../../email/services/sender-service";
 import { Templates } from "../../email/services/sender-service/template-store";
 import { ConfigService } from "@nestjs/config";
 import { verifySolanaSignature } from "../utils/solana-signature.util";
+import { RedisService } from "../../../redis/services/redis.service";
+
+import { PendingRegistration } from "../types/pending-registration.types";
+
+const PENDING_REGISTRATION_TTL = RedisService.TTL.PENDING_REGISTRATION_TOKEN;
 
 @Injectable()
 export class AuthService {
@@ -24,7 +38,8 @@ export class AuthService {
         private readonly jwtService: JwtService,
         private readonly walletsService: WalletsService,
         private readonly emailSenderService: EmailSenderService,
-        private readonly configService: ConfigService
+        private readonly configService: ConfigService,
+        private readonly redisService: RedisService
     ) {}
 
     // --- Email/Password login ---
@@ -91,7 +106,7 @@ export class AuthService {
                         oauthId: profile.sub,
                         isActive: true,
                         isEmailVerified: true
-                        // KHÔNG set password - để undefined
+                        // KHÃƒâ€NG set password - Ã„â€˜Ã¡Â»Æ’ undefined
                     });
 
                     this.logger.log(`OAuth user created: ${user.id}`);
@@ -129,34 +144,45 @@ export class AuthService {
 
         const hashedPassword = await bcrypt.hash(registerDto.password, 10);
         const verificationToken = randomBytes(32).toString("hex");
-        const verificationExpires = new Date(Date.now() + 24 * 60 * 60 * 1000);
 
-        await this.userRepository.create({
+        await this.savePendingRegistration({
             email: registerDto.email,
             username: registerDto.username || registerDto.email.split("@")[0],
             password: hashedPassword,
             firstName: registerDto.firstName,
             lastName: registerDto.lastName,
-            isActive: true,
-            isEmailVerified: false,
-            emailVerificationToken: verificationToken,
-            emailVerificationTokenExpires: verificationExpires
+            token: verificationToken
         });
 
         const clientBaseUrl = this.configService.get<string>("email.verifyBaseUrl");
         const verificationUrl = `${clientBaseUrl}/verify-email?token=${verificationToken}`;
-
-        if (this.emailSenderService.hasKey) {
-            await this.emailSenderService.sendWithTemplate(
-                { to: registerDto.email, subject: "Verify your SolSight account" },
-                Templates.VERIFICATION([verificationUrl])
-            );
-        }
+        await this.sendVerificationEmail(registerDto.email, verificationUrl);
 
         return { message: "Registration successful. Please check your email to verify your account." };
     }
 
     async verifyEmail(token: string) {
+        const pending = await this.findPendingRegistrationByToken(token);
+        if (pending) {
+            if (await this.userRepository.existsByEmail(pending.email)) {
+                await this.deletePendingRegistration(pending);
+                throw new ConflictException("Email already exists");
+            }
+
+            await this.userRepository.create({
+                email: pending.email,
+                username: pending.username,
+                password: pending.password,
+                firstName: pending.firstName,
+                lastName: pending.lastName,
+                isActive: true,
+                isEmailVerified: true
+            });
+
+            await this.deletePendingRegistration(pending);
+            return { message: "Email verified successfully. You can now log in." };
+        }
+
         const user = await this.userRepository.findByEmailVerificationToken(token);
         if (!user) throw new BadRequestException("Invalid verification token");
 
@@ -173,7 +199,86 @@ export class AuthService {
         return { message: "Email verified successfully. You can now log in." };
     }
 
+    async forgotPassword(dto: ForgotPasswordDto) {
+        const user = await this.userRepository.findByEmail(dto.email);
+
+        if (user?.isActive) {
+            const otp = String(crypto.randomInt(100000, 1000000));
+            const hashedOtp = await bcrypt.hash(otp, 10);
+            const otpExpires = new Date(Date.now() + 10 * 60 * 1000);
+
+            await this.userRepository.update(user.id, {
+                passwordResetToken: hashedOtp,
+                passwordResetExpires: otpExpires
+            });
+
+            if (this.emailSenderService.hasKey) {
+                try {
+                    await this.emailSenderService.sendWithTemplate(
+                        { to: dto.email, subject: "Your SolSight password reset code" },
+                        Templates.PASSWORD_RESET_OTP([otp])
+                    );
+                } catch (err) {
+                    this.logger.error(`Failed to send password reset email to ${dto.email}`, err);
+                }
+            } else {
+                this.logger.warn("RESEND_API_KEY not set Ã¢â‚¬â€ skipping password reset email");
+            }
+        }
+
+        return { message: "If an account exists, a reset code has been sent to your email." };
+    }
+
+    async verifyResetOtp(dto: VerifyResetOtpDto) {
+        await this.validatePasswordResetOtp(dto.email, dto.otp);
+        return { message: "OTP verified successfully." };
+    }
+
+    async resetPassword(dto: ResetPasswordDto) {
+        const user = await this.validatePasswordResetOtp(dto.email, dto.otp);
+        const hashedPassword = await bcrypt.hash(dto.password, 10);
+
+        await this.userRepository.update(user.id, {
+            password: hashedPassword,
+            passwordResetToken: null,
+            passwordResetExpires: null
+        });
+
+        return { message: "Password reset successfully. You can now log in." };
+    }
+
+    private async validatePasswordResetOtp(email: string, otp: string): Promise<User> {
+        const user = await this.userRepository.findByEmail(email);
+
+        if (!user?.passwordResetToken || !user.passwordResetExpires) {
+            throw new BadRequestException("Invalid OTP");
+        }
+
+        if (user.passwordResetExpires < new Date()) {
+            throw new BadRequestException("OTP has expired");
+        }
+
+        const isValid = await bcrypt.compare(otp, user.passwordResetToken);
+        if (!isValid) {
+            throw new BadRequestException("Invalid OTP");
+        }
+
+        return user;
+    }
+
     async resendVerificationEmail(email: string) {
+        const pending = await this.findPendingRegistrationByEmail(email);
+        if (pending) {
+            const verificationToken = randomBytes(32).toString("hex");
+            await this.savePendingRegistration({ ...pending, token: verificationToken });
+
+            const clientBaseUrl = this.configService.get<string>("email.verifyBaseUrl");
+            const verificationUrl = `${clientBaseUrl}/verify-email?token=${verificationToken}`;
+            await this.sendVerificationEmail(email, verificationUrl);
+
+            return { message: "Verification email sent. Please check your inbox." };
+        }
+
         const user = await this.userRepository.findByEmail(email);
         if (!user) throw new NotFoundException("User not found");
         if (user.isEmailVerified) throw new BadRequestException("Email is already verified");
@@ -188,10 +293,57 @@ export class AuthService {
 
         const clientBaseUrl = this.configService.get<string>("email.verifyBaseUrl");
         const verificationUrl = `${clientBaseUrl}/verify-email?token=${verificationToken}`;
-
-        await this.emailSenderService.sendWithTemplate({ to: email, subject: "Verify your SolSight account" }, Templates.VERIFICATION([verificationUrl]));
+        await this.sendVerificationEmail(email, verificationUrl);
 
         return { message: "Verification email sent. Please check your inbox." };
+    }
+
+    private async savePendingRegistration(data: PendingRegistration): Promise<void> {
+        this.ensureRedisAvailable();
+
+        const existingToken = await this.redisService.get<string>(RedisService.KEYS.PENDING_REGISTRATION_EMAIL(data.email));
+        if (existingToken && existingToken !== data.token) {
+            await this.redisService.del(RedisService.KEYS.PENDING_REGISTRATION_TOKEN(existingToken));
+        }
+
+        await this.redisService.set(RedisService.KEYS.PENDING_REGISTRATION_TOKEN(data.token), data, PENDING_REGISTRATION_TTL);
+        await this.redisService.set(RedisService.KEYS.PENDING_REGISTRATION_EMAIL(data.email), data.token, PENDING_REGISTRATION_TTL);
+    }
+
+    private findPendingRegistrationByToken(token: string): Promise<PendingRegistration | null> {
+        return this.redisService.get<PendingRegistration>(RedisService.KEYS.PENDING_REGISTRATION_TOKEN(token));
+    }
+
+    private async findPendingRegistrationByEmail(email: string): Promise<PendingRegistration | null> {
+        const token = await this.redisService.get<string>(RedisService.KEYS.PENDING_REGISTRATION_EMAIL(email));
+        if (!token) return null;
+        return this.findPendingRegistrationByToken(token);
+    }
+
+    private async deletePendingRegistration(data: PendingRegistration): Promise<void> {
+        await this.redisService.del(RedisService.KEYS.PENDING_REGISTRATION_TOKEN(data.token));
+        await this.redisService.del(RedisService.KEYS.PENDING_REGISTRATION_EMAIL(data.email));
+    }
+
+    private ensureRedisAvailable(): void {
+        if (!this.redisService.getClient()) {
+            throw new ServiceUnavailableException("Registration is temporarily unavailable. Please try again later.");
+        }
+    }
+
+    private async sendVerificationEmail(email: string, verificationUrl: string): Promise<void> {
+        if (this.emailSenderService.hasKey) {
+            try {
+                await this.emailSenderService.sendWithTemplate(
+                    { to: email, subject: "Verify your SolSight account" },
+                    Templates.VERIFICATION([verificationUrl])
+                );
+            } catch (err) {
+                this.logger.error(`Failed to send verification email to ${email}`, err);
+            }
+        } else {
+            this.logger.warn("RESEND_API_KEY not set Ã¢â‚¬â€ skipping verification email");
+        }
     }
 
     // --- JWT ---
