@@ -9,6 +9,7 @@ import { JwtAuthGuard } from "./guards/jwt-auth.guard";
 import { UsersModule } from "../users/users.module";
 import { WalletsModule } from "../wallets/wallets.module";
 import { EmailModule } from "../email/email.module";
+import { RedisModule } from "../../redis/redis.module";
 
 import { User } from "../users/entities/user.entity";
 import { UserRepository } from "./repositories/user.repository";
@@ -19,6 +20,7 @@ import { UserRepository } from "./repositories/user.repository";
         WalletsModule,
         UsersModule,
         EmailModule,
+        RedisModule,
         TypeOrmModule.forFeature([User]),
 
         JwtModule.registerAsync({
