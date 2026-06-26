@@ -25,14 +25,7 @@ import { ConfigService } from "@nestjs/config";
 import { verifySolanaSignature } from "../utils/solana-signature.util";
 import { RedisService } from "../../../redis/services/redis.service";
 
-interface PendingRegistration {
-    email: string;
-    password: string;
-    username: string;
-    firstName?: string;
-    lastName?: string;
-    token: string;
-}
+import { PendingRegistration } from "../types/pending-registration.types";
 
 const PENDING_REGISTRATION_TTL = RedisService.TTL.PENDING_REGISTRATION_TOKEN;
 
@@ -113,7 +106,7 @@ export class AuthService {
                         oauthId: profile.sub,
                         isActive: true,
                         isEmailVerified: true
-                        // KHÃ”NG set password - Ä‘á»ƒ undefined
+                        // KHÃƒâ€NG set password - Ã„â€˜Ã¡Â»Æ’ undefined
                     });
 
                     this.logger.log(`OAuth user created: ${user.id}`);
@@ -229,7 +222,7 @@ export class AuthService {
                     this.logger.error(`Failed to send password reset email to ${dto.email}`, err);
                 }
             } else {
-                this.logger.warn("RESEND_API_KEY not set â€” skipping password reset email");
+                this.logger.warn("RESEND_API_KEY not set Ã¢â‚¬â€ skipping password reset email");
             }
         }
 
@@ -349,7 +342,7 @@ export class AuthService {
                 this.logger.error(`Failed to send verification email to ${email}`, err);
             }
         } else {
-            this.logger.warn("RESEND_API_KEY not set â€” skipping verification email");
+            this.logger.warn("RESEND_API_KEY not set Ã¢â‚¬â€ skipping verification email");
         }
     }
 
