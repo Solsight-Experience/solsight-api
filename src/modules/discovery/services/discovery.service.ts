@@ -198,10 +198,7 @@ export class DiscoveryService implements OnModuleInit {
             this.applyRange(query, "token.txns24hTotal", "txns24h", min_txns_24h, max_txns_24h);
             this.applyRange(query, "token.holdersCount", "holders", min_holders, max_holders);
 
-            query
-                .orderBy(`token.${orderColumn}`, orderDir as "ASC" | "DESC")
-                .take(limit)
-                .skip(offset);
+            query.orderBy(`token.${orderColumn}`, orderDir).take(limit).skip(offset);
 
             const [tokens, total] = await query.getManyAndCount();
             return {
