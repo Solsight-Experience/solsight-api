@@ -4,6 +4,7 @@ import { Token } from "./entities/token.entity";
 import { OhlcCandle } from "./entities/ohlc-candle.entity";
 import { Holder } from "./entities/holder.entity";
 import { TraderPosition } from "./entities/trader-position.entity";
+import { Transaction } from "../transactions/entities/transaction.entity";
 import { TokensService } from "./services/tokens.service";
 import { TokensController } from "./controllers/tokens.controller";
 import { TokenSeederService } from "./services/token-seeder.service";
@@ -27,7 +28,7 @@ import { TokenPriceService } from "./services/token-price.service";
 
 @Module({
     imports: [
-        TypeOrmModule.forFeature([Token, OhlcCandle, Holder, TraderPosition]),
+        TypeOrmModule.forFeature([Token, OhlcCandle, Holder, TraderPosition, Transaction]),
         SolanaModule,
         JupiterModule,
         CoinGeckoModule,

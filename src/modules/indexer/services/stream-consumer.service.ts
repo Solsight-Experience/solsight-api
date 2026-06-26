@@ -47,6 +47,7 @@ export class StreamConsumerService implements OnModuleInit {
 
     private async handleSwap(swap: SwapEvent): Promise<void> {
         // Store valid USD prices before persisting so resolvePrice can use them as fallback
+        swap.timestamp = Math.floor(Date.now() / 1000);
         const tokenMint = getTokenMintFromSwap(swap);
         if (swap.price_usd != null && swap.price_usd > 0) {
             const network = this.eventNetwork(swap);

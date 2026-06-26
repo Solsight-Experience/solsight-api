@@ -437,7 +437,6 @@ export class PortfolioService {
 
             const solPriceAtTime = this.getSolPriceNear(timeSec, solPriceChart);
             const pnlUsd = cumulativePnlSol * solPriceAtTime;
-            console.log("f", solPriceAtTime, cumulativePnlSol, pnlUsd);
             chartData.push({ timestamp: time, pnl: pnlUsd, balance_usd: pnlUsd });
         }
 
