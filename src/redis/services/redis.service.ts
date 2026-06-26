@@ -32,7 +32,9 @@ export class RedisService implements OnModuleDestroy {
         SUPPLY: (network: string, mint: string) => `supply:${network}:${mint}`,
         VOLUME_24H: (network: string, mint: string) => `volume:${network}:${mint}:24h`,
         TXNS_24H: (network: string, mint: string) => `txns:${network}:${mint}:24h`,
-        TRADES_24H: (network: string, mint: string) => `trades:${network}:${mint}`
+        TRADES_24H: (network: string, mint: string) => `trades:${network}:${mint}`,
+        PENDING_REGISTRATION_TOKEN: (token: string) => `auth:pending_registration:${token}`,
+        PENDING_REGISTRATION_EMAIL: (email: string) => `auth:pending_registration:email:${email.toLowerCase()}`
     });
 
     public static readonly TTL = redisTtls({
@@ -47,6 +49,8 @@ export class RedisService implements OnModuleDestroy {
         VOLUME_24H: 25 * 60 * 60,
         TXNS_24H: 25 * 60 * 60,
         TRADES_24H: 25 * 60 * 60,
+        PENDING_REGISTRATION_TOKEN: 24 * 60 * 60,
+        PENDING_REGISTRATION_EMAIL: 24 * 60 * 60,
         OHLC_BUCKET: (interval: string) => OHLC_INTERVAL_TTLS[interval as keyof typeof OHLC_INTERVAL_TTLS] ?? 60 * 60,
         OHLC_LAST_CLOSE: (interval: string) => (OHLC_INTERVAL_TTLS[interval as keyof typeof OHLC_INTERVAL_TTLS] ?? 60 * 60) * 3
     } satisfies Partial<Record<keyof typeof RedisService.KEYS, RedisTtlValue>>);
