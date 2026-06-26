@@ -58,6 +58,7 @@ export class TokenSocketService implements OnModuleInit {
     }
 
     private async processSwapEvent(swap: SwapEvent): Promise<void> {
+        swap.timestamp = Math.floor(Date.now() / 1000);
         const hasPriceUsd = swap.price_usd != null && swap.price_usd > 0;
 
         // trader/holder aggregation tracks token quantities and cost basis —

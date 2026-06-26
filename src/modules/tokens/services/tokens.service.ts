@@ -12,13 +12,13 @@ import { TokenFilterConditionDto, TokenFilterResponseDto } from "../dtos/token.f
 import { mapJupiterTokenToEntity, mapTokenEntityToResponseDto, mapTokenEntityToOverviewDto } from "../mapper/token.mapper";
 import { ChartQueryDto, ChartResponseDto } from "../dtos/token.chart.dto";
 import { OhlcAggregationService } from "./aggregation/ohlc-aggregation.service";
-import { StatsAggregationService } from "./aggregation/stats-aggregation.service";
 import { OhlcInterval } from "./socket/room/room.constants";
 import { RedisService } from "../../../redis/services/redis.service";
 import { TradeData } from "../types/swap-event.types";
 import { ClusterProvider } from "../../../common/cluster/cluster.provider";
 import { HolderAggregationService } from "./aggregation/holder-aggregation.service";
 import type { HoldersResponseDto } from "../dtos/holder.response.dto";
+import { Transaction, TransactionType } from "../../transactions/entities/transaction.entity";
 
 @Injectable()
 export class TokensService {
@@ -31,12 +31,13 @@ export class TokensService {
         private readonly ohlcCandleRepository: Repository<OhlcCandle>,
         @InjectRepository(Holder)
         private readonly holderRepository: Repository<Holder>,
+        @InjectRepository(Transaction)
+        private readonly transactionRepository: Repository<Transaction>,
         private readonly clusterProvider: ClusterProvider,
         private readonly solanaService: SolanaService,
         private readonly jupiterService: JupiterService,
         private readonly coinGeckoService: CoinGeckoService,
         private readonly ohlcAggregationService: OhlcAggregationService,
-        private readonly statsAggregationService: StatsAggregationService,
         private readonly holderAggregationService: HolderAggregationService,
         private readonly redisService: RedisService
     ) {}
@@ -442,7 +443,33 @@ export class TokensService {
     }
 
     async getTrades(address: string, limit = 50): Promise<{ trades: TradeData[]; total: number }> {
-        return this.statsAggregationService.getTrades(address, limit);
+        const network = this.clusterProvider.cluster;
+        const [rows, total] = await this.transactionRepository.findAndCount({
+            where: [
+                { tokenMint: address, network, type: TransactionType.SWAP },
+                { tokenMintOut: address, network, type: TransactionType.SWAP }
+            ],
+            order: { blockTime: "DESC" },
+            take: limit
+        });
+
+        const trades: TradeData[] = rows.map((tx) => {
+            const isBuy = tx.tokenMintOut === address;
+            return {
+                tx_hash: tx.signature,
+                timestamp: tx.blockTime ? Math.floor(tx.blockTime.getTime() / 1000) : 0,
+                type: isBuy ? "BUY" : "SELL",
+                amount_token: isBuy ? Number(tx.amountOut ?? 0) : Number(tx.amount),
+                amount_sol: isBuy ? Number(tx.amount) : Number(tx.amountOut ?? 0),
+                price: Number(tx.metadata?.price_native ?? 0),
+                price_usd: Number(tx.metadata?.price_usd ?? 0),
+                market_cap: 0,
+                trader_address: tx.signerAddress ?? "",
+                tx_url: `https://solscan.io/tx/${tx.signature}`
+            };
+        });
+
+        return { trades, total };
     }
 
     async getHolders(address: string, limit = 50): Promise<HoldersResponseDto> {

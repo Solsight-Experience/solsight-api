@@ -4,6 +4,10 @@ import { Type } from "class-transformer";
 export class GetCategoryDto {
     @IsOptional()
     @IsString()
+    name?: string;
+
+    @IsOptional()
+    @IsString()
     sort_by?: string = "market_cap";
 
     @IsOptional()
