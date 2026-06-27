@@ -267,6 +267,10 @@ export class SwapService {
     }
 
     private toHttpException(error: unknown): HttpException {
+        if (error instanceof HttpException) {
+            return error;
+        }
+
         const axiosError = error as {
             response?: {
                 status?: number;

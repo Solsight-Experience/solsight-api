@@ -53,21 +53,38 @@ export class WalletsService {
         });
 
         if (existingWallet) {
-            throw new ConflictException("Wallet already exists");
+            if (existingWallet.userId && existingWallet.userId !== userId) {
+                throw new ConflictException("Wallet already exists");
+            }
+
+            this.walletRepository.merge(existingWallet, {
+                name: createWalletDto.name ?? existingWallet.name,
+                icon: createWalletDto.icon ?? existingWallet.icon,
+                publicKey: createWalletDto.publicKey ?? existingWallet.publicKey,
+                derivationPath: createWalletDto.derivationPath ?? existingWallet.derivationPath,
+                type: createWalletDto.type ?? existingWallet.type,
+                isActive: createWalletDto.isActive ?? existingWallet.isActive,
+                userId,
+                isConnected: true
+            });
+
+            const savedWallet = await this.walletRepository.save(existingWallet);
+            await this.updateBalance(cluster, savedWallet.id);
+            return await this.findById(savedWallet.id);
         }
 
         const wallet = this.walletRepository.create({
             ...createWalletDto,
             icon: createWalletDto.icon,
-            userId
+            userId,
+            isConnected: true
         });
 
         const savedWallet = await this.walletRepository.save(wallet);
 
         // Update balance from blockchain
         await this.updateBalance(cluster, savedWallet.id);
-
-        return savedWallet;
+        return await this.findById(savedWallet.id);
     }
 
     async findByUserId(userId: string): Promise<Wallet[]> {
