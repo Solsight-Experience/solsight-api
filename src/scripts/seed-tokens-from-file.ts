@@ -117,7 +117,7 @@ class SeedTokensFromFileService {
 
         this.logger.log(`Found ${addresses.length} unique addresses in ${filePath}`);
 
-        const tokenList = await this.jupiterService.getTokenList();
+        const tokenList = await this.jupiterService.getTokenList("mainnet");
         const tokenByAddress = new Map(tokenList.map((token) => [token.id, token]));
         let searchTokenByAddress: Map<string, JupiterSearchToken> | null = null;
 
@@ -145,7 +145,7 @@ class SeedTokensFromFileService {
                 decimals: token?.decimals ?? searchToken?.decimals ?? 0,
                 logoUri: token?.icon ?? searchToken?.logoURI,
                 coingeckoId: token?.extensions?.coingeckoId ?? searchToken?.extensions?.coingeckoId,
-                network: "solana",
+                network: "mainnet",
                 updatedAt: now
             });
         }
@@ -159,7 +159,7 @@ class SeedTokensFromFileService {
 
         for (let i = 0; i < rows.length; i += BATCH_SIZE) {
             const batch = rows.slice(i, i + BATCH_SIZE);
-            await this.tokenRepository.upsert(batch, ["address"]);
+            await this.tokenRepository.upsert(batch, ["address", "network"]);
             this.logger.log(`Upserted ${Math.min(i + BATCH_SIZE, rows.length)}/${rows.length}`);
         }
 

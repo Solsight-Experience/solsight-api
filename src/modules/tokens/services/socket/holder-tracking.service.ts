@@ -2,8 +2,9 @@ import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from "@nestjs/commo
 import { PubSubService } from "../../../../redis/services/pubsub.service";
 import { RedisService } from "../../../../redis/services/redis.service";
 import { HolderCommand, TrackedMintState } from "../../types/holder-tracking.types";
-import { ClusterProvider } from "../../../../common/cluster/cluster.provider";
 import { logError } from "src/common/errors/error-helper";
+import { CLUSTERS, type Cluster } from "../../../../common/cluster/cluster.types";
+import { RoomFactory } from "./room/room.factory";
 
 const HOLDER_COMMAND_CHANNEL = (network: string) => `solsight:holder_commands:${network}`;
 const HOLDER_RESPONSE_CHANNEL = (network: string) => `solsight:holder_responses:${network}`;
@@ -23,13 +24,12 @@ export class HolderTrackingService implements OnModuleInit, OnModuleDestroy {
 
     constructor(
         private readonly redisService: RedisService,
-        private readonly pubSubService: PubSubService,
-        private readonly clusterProvider: ClusterProvider
+        private readonly pubSubService: PubSubService
     ) {}
 
     async onModuleInit(): Promise<void> {
         // Subscribe to responses from indexer (optional, for logging)
-        for (const network of ["mainnet", "devnet"]) {
+        for (const network of CLUSTERS) {
             await this.pubSubService.subscribe(HOLDER_RESPONSE_CHANNEL(network), (message) => {
                 this.logger.debug(`Indexer ${network} response: ${JSON.stringify(message)}`);
             });
@@ -52,17 +52,17 @@ export class HolderTrackingService implements OnModuleInit, OnModuleDestroy {
      * Extracts the token mint from the room name and tracks it.
      */
     async onHolderRoomJoin(room: string): Promise<void> {
-        const mint = this.extractMintFromRoom(room);
-        if (!mint) return;
+        const { cluster, resource: mint } = RoomFactory.parse(room);
+        const trackingKey = this.trackingKey(cluster, mint);
 
-        let state = this.trackedMints.get(mint);
+        let state = this.trackedMints.get(trackingKey);
 
         if (!state) {
             state = {
                 subscriberCount: 0,
                 isTracked: false
             };
-            this.trackedMints.set(mint, state);
+            this.trackedMints.set(trackingKey, state);
         }
 
         // Cancel any pending untrack
@@ -77,7 +77,7 @@ export class HolderTrackingService implements OnModuleInit, OnModuleDestroy {
 
         // If this is the first subscriber and not already tracked, send track command
         if (state.subscriberCount === 1 && !state.isTracked) {
-            await this.sendTrackCommand(mint);
+            await this.sendTrackCommand(cluster, mint);
             state.isTracked = true;
         }
     }
@@ -87,10 +87,10 @@ export class HolderTrackingService implements OnModuleInit, OnModuleDestroy {
      * If no subscribers remain, starts a grace period timer before untracking.
      */
     onHolderRoomLeave(room: string): void {
-        const mint = this.extractMintFromRoom(room);
-        if (!mint) return;
+        const { cluster, resource: mint } = RoomFactory.parse(room);
+        const trackingKey = this.trackingKey(cluster, mint);
 
-        const state = this.trackedMints.get(mint);
+        const state = this.trackedMints.get(trackingKey);
         if (!state) return;
 
         state.subscriberCount = Math.max(0, state.subscriberCount - 1);
@@ -101,50 +101,56 @@ export class HolderTrackingService implements OnModuleInit, OnModuleDestroy {
             this.logger.debug(`Starting ${UNTRACK_GRACE_PERIOD_MS / 1000}s grace period for ${mint}`);
 
             state.untrackTimer = setTimeout(() => {
-                void this.untrackAfterGracePeriod(mint).catch((error) => {
+                void this.untrackAfterGracePeriod(cluster, mint).catch((error) => {
                     logError(this.logger, `Failed to untrack holder mint ${mint}`, error);
                 });
             }, UNTRACK_GRACE_PERIOD_MS);
         }
     }
 
-    private async untrackAfterGracePeriod(mint: string): Promise<void> {
+    private async untrackAfterGracePeriod(cluster: Cluster, mint: string): Promise<void> {
+        const trackingKey = this.trackingKey(cluster, mint);
         // Double-check no new subscribers joined during grace period
-        const currentState = this.trackedMints.get(mint);
+        const currentState = this.trackedMints.get(trackingKey);
         if (currentState && currentState.subscriberCount === 0 && currentState.isTracked) {
-            await this.sendUntrackCommand(mint);
+            await this.sendUntrackCommand(cluster, mint);
             currentState.isTracked = false;
-            this.trackedMints.delete(mint);
+            this.trackedMints.delete(trackingKey);
         }
     }
 
     /**
      * Get the current tracking status for debugging.
      */
-    getTrackingStatus(): { mint: string; subscribers: number; tracked: boolean }[] {
-        return Array.from(this.trackedMints.entries()).map(([mint, state]) => ({
-            mint,
-            subscribers: state.subscriberCount,
-            tracked: state.isTracked
-        }));
+    getTrackingStatus(): { cluster: Cluster; mint: string; subscribers: number; tracked: boolean }[] {
+        return Array.from(this.trackedMints.entries()).map(([key, state]) => {
+            const [cluster, mint] = key.split(":") as [Cluster, string];
+            return {
+                cluster,
+                mint,
+                subscribers: state.subscriberCount,
+                tracked: state.isTracked
+            };
+        });
     }
 
     /**
      * Manually trigger tracking for a mint (e.g., from an admin endpoint).
      */
-    async trackMint(mint: string, bootstrap = true): Promise<void> {
-        let state = this.trackedMints.get(mint);
+    async trackMint(cluster: Cluster, mint: string, bootstrap = true): Promise<void> {
+        const trackingKey = this.trackingKey(cluster, mint);
+        let state = this.trackedMints.get(trackingKey);
 
         if (!state) {
             state = {
                 subscriberCount: 0,
                 isTracked: false
             };
-            this.trackedMints.set(mint, state);
+            this.trackedMints.set(trackingKey, state);
         }
 
         if (!state.isTracked) {
-            await this.sendTrackCommand(mint, bootstrap);
+            await this.sendTrackCommand(cluster, mint, bootstrap);
             state.isTracked = true;
         }
     }
@@ -152,28 +158,24 @@ export class HolderTrackingService implements OnModuleInit, OnModuleDestroy {
     /**
      * Manually stop tracking for a mint (e.g., from an admin endpoint).
      */
-    async untrackMint(mint: string): Promise<void> {
-        const state = this.trackedMints.get(mint);
+    async untrackMint(cluster: Cluster, mint: string): Promise<void> {
+        const trackingKey = this.trackingKey(cluster, mint);
+        const state = this.trackedMints.get(trackingKey);
         if (state?.isTracked) {
             if (state.untrackTimer) {
                 clearTimeout(state.untrackTimer);
             }
-            await this.sendUntrackCommand(mint);
+            await this.sendUntrackCommand(cluster, mint);
             state.isTracked = false;
-            this.trackedMints.delete(mint);
+            this.trackedMints.delete(trackingKey);
         }
     }
 
-    private extractMintFromRoom(room: string): string | null {
-        // Room format: "holders:{mint}:{interval}" e.g., "holders:So111...112:5s"
-        const parts = room.split(":");
-        if (parts.length >= 2 && parts[0] === "holders") {
-            return parts[1];
-        }
-        return null;
+    private trackingKey(cluster: Cluster, mint: string): string {
+        return `${cluster}:${mint}`;
     }
 
-    private async sendTrackCommand(mint: string, bootstrap = true): Promise<void> {
+    private async sendTrackCommand(cluster: Cluster, mint: string, bootstrap = true): Promise<void> {
         const command: HolderCommand = {
             action: "track",
             mint,
@@ -187,14 +189,14 @@ export class HolderTrackingService implements OnModuleInit, OnModuleDestroy {
         }
 
         try {
-            await redis.publish(HOLDER_COMMAND_CHANNEL(this.clusterProvider.cluster), JSON.stringify(command));
+            await redis.publish(HOLDER_COMMAND_CHANNEL(cluster), JSON.stringify(command));
             this.logger.log(`Sent track command for ${mint} (bootstrap: ${bootstrap})`);
         } catch (error) {
             logError(this.logger, `Failed to send track command for ${mint}`, error);
         }
     }
 
-    private async sendUntrackCommand(mint: string): Promise<void> {
+    private async sendUntrackCommand(cluster: Cluster, mint: string): Promise<void> {
         const command: HolderCommand = {
             action: "untrack",
             mint
@@ -207,7 +209,7 @@ export class HolderTrackingService implements OnModuleInit, OnModuleDestroy {
         }
 
         try {
-            await redis.publish(HOLDER_COMMAND_CHANNEL(this.clusterProvider.cluster), JSON.stringify(command));
+            await redis.publish(HOLDER_COMMAND_CHANNEL(cluster), JSON.stringify(command));
             this.logger.log(`Sent untrack command for ${mint}`);
         } catch (error) {
             logError(this.logger, `Failed to send untrack command for ${mint}`, error);

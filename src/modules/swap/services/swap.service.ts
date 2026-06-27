@@ -15,6 +15,7 @@ import type { GetQuoteDto } from "../dtos/get-quote.dto";
 import type { GetSwapInfoDto, SwapInfoResponse } from "../dtos/get-swap-info.dto";
 import type { GetSwapTransactionDto } from "../dtos/get-swap-transaction.dto";
 import { CachedFeeFields, CachedGaslessFields } from "../types/swap-cache.types";
+import type { Cluster } from "../../../common/cluster/cluster.types";
 
 const FEE_FALLBACK_PRIORITY_LAMPORTS = 100_000;
 const TIP_FALLBACK_LAMPORTS = 50_000;
@@ -39,18 +40,24 @@ export class SwapService {
         private readonly swapExecutionRepo: Repository<SwapExecution>
     ) {}
 
-    async getQuote(dto: GetQuoteDto): Promise<QuoteResponse> {
+    async getQuote(cluster: Cluster, dto: GetQuoteDto): Promise<QuoteResponse> {
         try {
-            return await this.executorService.getQuote(dto);
+            return await this.executorService.getQuote(cluster, {
+                inputMint: dto.inputMint,
+                outputMint: dto.outputMint,
+                amount: dto.amount,
+                swapMode: dto.swapMode,
+                slippageBps: dto.slippageBps
+            });
         } catch (error) {
             throw this.toHttpException(error);
         }
     }
 
-    async getSwapTransaction(dto: GetSwapTransactionDto): Promise<SwapResponse> {
+    async getSwapTransaction(cluster: Cluster, dto: GetSwapTransactionDto): Promise<SwapResponse> {
         if (!dto.gaslessFeeToken) {
             try {
-                return await this.executorService.getSwapTransaction({
+                return await this.executorService.getSwapTransaction(cluster, {
                     quoteResponse: dto.quoteResponse,
                     userPublicKey: dto.userPublicKey,
                     wrapAndUnwrapSol: dto.wrapAndUnwrapSol ?? true
@@ -72,7 +79,7 @@ export class SwapService {
         this.logger.log(`Gasless swap requested: feeToken=${this.shortAddr(dto.gaslessFeeToken)}`);
 
         try {
-            return await this.executorService.getSwapTransaction({
+            return await this.executorService.getSwapTransaction(cluster, {
                 quoteResponse: dto.quoteResponse,
                 userPublicKey: dto.userPublicKey,
                 wrapAndUnwrapSol: dto.wrapAndUnwrapSol ?? true,
@@ -83,7 +90,7 @@ export class SwapService {
         }
     }
 
-    async executeSwap(dto: ExecuteSwapDto, userId: string | null = null): Promise<{ signature: string }> {
+    async executeSwap(cluster: Cluster, dto: ExecuteSwapDto, userId: string | null = null): Promise<{ signature: string }> {
         let result: { signature: string };
 
         if (dto.gaslessFeeToken) {
@@ -92,7 +99,7 @@ export class SwapService {
             }
             try {
                 const koraSent = await this.koraService.signAndSendTransaction({ transaction: dto.signedTransaction });
-                await this.solanaService.confirmSignature(koraSent.signature);
+                await this.solanaService.confirmSignature(cluster, koraSent.signature);
                 result = { signature: koraSent.signature };
             } catch (error) {
                 if (error instanceof HttpException) {
@@ -102,15 +109,15 @@ export class SwapService {
                 throw new InternalServerErrorException(`Kora paymaster signing failed: ${message}`);
             }
         } else {
-            result = await this.submitSignedTransaction(dto.signedTransaction);
+            result = await this.submitSignedTransaction(cluster, dto.signedTransaction);
         }
 
         this.persistSwapExecution(result.signature, dto, userId);
         return result;
     }
 
-    async getSwapInfo(_dto: GetSwapInfoDto): Promise<SwapInfoResponse> {
-        const [feeFields, gaslessFields] = await Promise.all([this.aggregateFeeFields(), this.aggregateGaslessFields()]);
+    async getSwapInfo(cluster: Cluster, _dto: GetSwapInfoDto): Promise<SwapInfoResponse> {
+        const [feeFields, gaslessFields] = await Promise.all([this.aggregateFeeFields(cluster), this.aggregateGaslessFields(cluster)]);
 
         return {
             autoPriorityFeeLamports: feeFields.autoPriorityFeeLamports,
@@ -124,24 +131,20 @@ export class SwapService {
         };
     }
 
-    async getSolPrice(): Promise<{ usd: number }> {
-        try {
-            const prices = await this.coinGeckoService.getSimplePrice(["solana"]);
-            return { usd: (prices as Record<string, { usd?: number }>)["solana"]?.usd ?? 0 };
-        } catch {
-            return { usd: 0 };
-        }
+    async getSolPrice(cluster: Cluster): Promise<{ usd: number }> {
+        const prices = await this.coinGeckoService.getSimplePrice(cluster, ["solana"]);
+        return { usd: (prices as Record<string, { usd?: number }>)["solana"]?.usd ?? 0 };
     }
 
-    async getTokenInfo(mint: string): Promise<{ decimals: number } | null> {
-        const token = await this.jupiterService.searchToken(mint);
+    async getTokenInfo(cluster: Cluster, mint: string): Promise<{ decimals: number } | null> {
+        const token = await this.jupiterService.searchToken(cluster, mint);
         if (!token) return null;
         return { decimals: token.decimals };
     }
 
-    private async submitSignedTransaction(signedTransactionBase64: string): Promise<{ signature: string }> {
+    private async submitSignedTransaction(cluster: Cluster, signedTransactionBase64: string): Promise<{ signature: string }> {
         try {
-            return await this.solanaService.submitAndConfirm(signedTransactionBase64);
+            return await this.solanaService.submitAndConfirm(cluster, signedTransactionBase64);
         } catch (error) {
             this.logger.error("Failed to execute swap", error);
             const message = error instanceof Error ? error.message : "Swap execution failed.";
@@ -175,13 +178,13 @@ export class SwapService {
         return `${address.slice(0, 4)}...${address.slice(-4)}`;
     }
 
-    private async aggregateFeeFields(): Promise<CachedFeeFields> {
-        const cached = await this.redisService.get<CachedFeeFields>(RedisService.KEYS.SWAP_FEE_CACHE());
+    private async aggregateFeeFields(cluster: Cluster): Promise<CachedFeeFields> {
+        const cached = await this.redisService.get<CachedFeeFields>(RedisService.KEYS.SWAP_FEE_CACHE(cluster));
         if (cached) {
             return cached;
         }
 
-        const [autoPriorityFeeLamports, autoTipLamports] = await Promise.all([this.fetchAutoPriorityFee(), this.fetchAutoTip()]);
+        const [autoPriorityFeeLamports, autoTipLamports] = await Promise.all([this.fetchAutoPriorityFee(cluster), this.fetchAutoTip(cluster)]);
 
         const maxAutoFeeLamports = (autoPriorityFeeLamports + autoTipLamports) * MAX_FEE_BUFFER_MULTIPLIER;
 
@@ -191,12 +194,12 @@ export class SwapService {
             maxAutoFeeLamports
         };
 
-        await this.redisService.set(RedisService.KEYS.SWAP_FEE_CACHE(), fields, FEE_CACHE_TTL_SECONDS);
+        await this.redisService.set(RedisService.KEYS.SWAP_FEE_CACHE(cluster), fields, FEE_CACHE_TTL_SECONDS);
         return fields;
     }
 
-    private async aggregateGaslessFields(): Promise<CachedGaslessFields> {
-        const cached = await this.redisService.get<CachedGaslessFields>(RedisService.KEYS.SWAP_KORA_CACHE());
+    private async aggregateGaslessFields(cluster: Cluster): Promise<CachedGaslessFields> {
+        const cached = await this.redisService.get<CachedGaslessFields>(RedisService.KEYS.SWAP_KORA_CACHE(cluster));
         if (cached) {
             return cached;
         }
@@ -219,13 +222,13 @@ export class SwapService {
             payerPubkey
         };
 
-        await this.redisService.set(RedisService.KEYS.SWAP_KORA_CACHE(), fields, KORA_CACHE_TTL_SECONDS);
+        await this.redisService.set(RedisService.KEYS.SWAP_KORA_CACHE(cluster), fields, KORA_CACHE_TTL_SECONDS);
         return fields;
     }
 
-    private async fetchAutoPriorityFee(): Promise<number> {
+    private async fetchAutoPriorityFee(cluster: Cluster): Promise<number> {
         try {
-            const samples = await this.solanaService.getRecentPrioritizationFees();
+            const samples = await this.solanaService.getRecentPrioritizationFees(cluster);
 
             if (!Array.isArray(samples) || samples.length === 0) {
                 return FEE_FALLBACK_PRIORITY_LAMPORTS;
@@ -252,9 +255,11 @@ export class SwapService {
         }
     }
 
-    private async fetchAutoTip(): Promise<number> {
+    private async fetchAutoTip(cluster: Cluster): Promise<number> {
+        if (cluster === "devnet") return 0;
+
         try {
-            return await this.jitoService.getLandedTip75thPercentileLamports();
+            return await this.jitoService.getLandedTip75thPercentileLamports(cluster);
         } catch (error) {
             this.logger.warn(`Jito tip-floor fetch failed; using fallback ${TIP_FALLBACK_LAMPORTS}: ${error instanceof Error ? error.message : String(error)}`);
             return TIP_FALLBACK_LAMPORTS;

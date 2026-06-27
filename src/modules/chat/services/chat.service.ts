@@ -10,6 +10,7 @@ import { ChatResponsePayload, SendMessagePayload, PageContext } from "../types/c
 import { COMMON_SYMBOLS, COMMON_DECIMALS } from "../../../common/constants/token.constants";
 import { RagService } from "./rag.service";
 import { SYSTEM_PROMPT } from "../../../config/ai-prompt.config";
+import type { Cluster } from "../../../common/cluster/cluster.types";
 
 const STATIC_ROUTES = ["/", "/token/[tokenAddress]", "/portfolio", "/multi-chart", "/wallet-tracker", "/notifications"];
 
@@ -325,12 +326,13 @@ export class ChatService {
      * Never throws — errors are swallowed so prepare_swap continues regardless.
      */
     // TODO(Nam): use native executor service instead of Jupiter call
-    private async fetchPriceImpact(inputMint: string, outputMint: string, amount: number): Promise<number | null> {
+    private async fetchPriceImpact(cluster: Cluster, inputMint: string, outputMint: string, amount: number): Promise<number | null> {
         try {
+            if (cluster === "devnet") return null;
             if (!inputMint || !outputMint || amount <= 0) return null;
             let inputDecimals = COMMON_DECIMALS[inputMint]; // TODO(Nam): token meta fetch always go through tokensService
             if (inputDecimals === undefined) {
-                const meta = await this.tokensService.getTokenMetadata(inputMint);
+                const meta = await this.tokensService.getTokenMetadata(cluster, inputMint);
                 inputDecimals = meta?.decimals ?? 6;
             }
 
@@ -435,7 +437,14 @@ export class ChatService {
         );
 
         try {
-            const response = await this.runLlmLoop(payload.sessionId, payload.walletAddress, payload.userId, onToolProgress, payload.pageContext);
+            const response = await this.runLlmLoop(
+                payload.cluster,
+                payload.sessionId,
+                payload.walletAddress,
+                payload.userId,
+                onToolProgress,
+                payload.pageContext
+            );
             this.logger.log(`Session ${payload.sessionId} completed: responseType=${response.type}`, ChatService.name);
             return {
                 ...response,
@@ -479,7 +488,7 @@ export class ChatService {
         );
 
         try {
-            yield* this.runLlmLoopStream(payload.sessionId, payload.walletAddress, payload.userId);
+            yield* this.runLlmLoopStream(payload.cluster, payload.sessionId, payload.walletAddress, payload.userId);
             this.logger.log(`Session ${payload.sessionId} stream completed`, ChatService.name);
         } catch (error) {
             const message = error instanceof Error ? error.message : "Unknown LLM error";
@@ -491,6 +500,7 @@ export class ChatService {
     }
 
     async runLlmLoop(
+        cluster: Cluster,
         sessionId: string,
         walletAddress?: string,
         userId?: string,
@@ -628,7 +638,7 @@ export class ChatService {
 
                     onToolProgress(toolLabel(toolName, args));
 
-                    const result = await this.executeTool(toolName, args, walletAddress, userId);
+                    const result = await this.executeTool(cluster, toolName, args, walletAddress, userId);
 
                     this.logger.debug(`Tool ${toolName} result length=${result.length}`, ChatService.name);
 
@@ -643,7 +653,7 @@ export class ChatService {
                     );
                 }
 
-                return this.runLlmLoop(sessionId, walletAddress, userId, onToolProgress, pageContext);
+                return this.runLlmLoop(cluster, sessionId, walletAddress, userId, onToolProgress, pageContext);
             }
 
             const assistantContent = choice.message.content || "";
@@ -672,7 +682,7 @@ export class ChatService {
         }
     }
 
-    async *runLlmLoopStream(sessionId: string, walletAddress?: string, userId?: string): AsyncGenerator<string, void, unknown> {
+    async *runLlmLoopStream(cluster: Cluster, sessionId: string, walletAddress?: string, userId?: string): AsyncGenerator<string, void, unknown> {
         const recentMessages = await this.messageRepo.find({
             where: { sessionId },
             order: { createdAt: "DESC" },
@@ -772,7 +782,7 @@ export class ChatService {
 
                         this.logger.log(`Executing tool (stream): ${toolName} args=${JSON.stringify(args)}`, ChatService.name);
 
-                        const result = await this.executeTool(toolName, args, walletAddress, userId);
+                        const result = await this.executeTool(cluster, toolName, args, walletAddress, userId);
                         await this.messageRepo.save(
                             this.messageRepo.create({
                                 sessionId,
@@ -783,7 +793,7 @@ export class ChatService {
                             })
                         );
                     }
-                    yield* this.runLlmLoopStream(sessionId, walletAddress, userId);
+                    yield* this.runLlmLoopStream(cluster, sessionId, walletAddress, userId);
                     return;
                 }
                 if (choice.finish_reason === "stop") {
@@ -806,12 +816,12 @@ export class ChatService {
         }
     }
 
-    async executeTool(toolName: string, args: Record<string, unknown>, walletAddress?: string, userId?: string): Promise<string> {
+    async executeTool(cluster: Cluster, toolName: string, args: Record<string, unknown>, walletAddress?: string, userId?: string): Promise<string> {
         try {
             switch (toolName) {
                 case "fetch_token_data": {
                     const address = this.getStringArg(args, "address");
-                    const data = await this.tokensService.findOne(address);
+                    const data = await this.tokensService.findOne(cluster, address);
                     return JSON.stringify(data);
                 }
 
@@ -820,11 +830,11 @@ export class ChatService {
                     const limit = typeof args.limit === "number" && Number.isFinite(args.limit) ? args.limit : 5;
 
                     try {
-                        const filterResult = await this.tokensService.search(query, limit);
+                        const filterResult = await this.tokensService.search(cluster, query, limit);
 
                         return JSON.stringify(filterResult);
                     } catch {
-                        const searchResult = await this.tokensService.search(query, limit);
+                        const searchResult = await this.tokensService.search(cluster, query, limit);
                         return JSON.stringify(searchResult);
                     }
                 }
@@ -844,7 +854,8 @@ export class ChatService {
                         return JSON.stringify(result);
                     }
 
-                    const fallback = await this.discoveryService.getTrending({
+                    const fallback = await this.discoveryService.getTrending(cluster, {
+                        cluster,
                         sort_by: (sortBy as SortByTrending | undefined) || SortByTrending.VOLUME_24H,
                         time_frame: TimeFrame.TWENTY_FOUR_HOURS,
                         limit: 5,
@@ -872,7 +883,7 @@ export class ChatService {
                         ? args.walletAddresses.filter((value): value is string => typeof value === "string")
                         : undefined;
 
-                    const data = await this.portfolioService.getOverview(resolvedUserId, walletAddresses);
+                    const data = await this.portfolioService.getOverview(cluster, resolvedUserId, walletAddresses);
                     return JSON.stringify(data);
                 }
 
@@ -889,7 +900,7 @@ export class ChatService {
                     const rawLimit = args.limit;
                     const limit = typeof rawLimit === "number" && Number.isInteger(rawLimit) ? Math.max(1, Math.min(rawLimit, 20)) : 10;
 
-                    const data = await this.portfolioService.getActivities(resolvedUserId, walletFilter, activityType, limit);
+                    const data = await this.portfolioService.getActivities(cluster, resolvedUserId, walletFilter, activityType, limit);
                     return JSON.stringify(data);
                 }
 
@@ -905,7 +916,7 @@ export class ChatService {
                         if (COMMON_SYMBOLS[upper]) {
                             inputMint = COMMON_SYMBOLS[upper];
                         } else {
-                            const searchResult = await this.tokensService.search(inputMint, 1);
+                            const searchResult = await this.tokensService.search(cluster, inputMint, 1);
                             if (searchResult && searchResult.length > 0) inputMint = searchResult[0].address;
                         }
                     }
@@ -915,7 +926,7 @@ export class ChatService {
                         if (COMMON_SYMBOLS[upper]) {
                             outputMint = COMMON_SYMBOLS[upper];
                         } else {
-                            const searchResult = await this.tokensService.search(outputMint, 1);
+                            const searchResult = await this.tokensService.search(cluster, outputMint, 1);
                             if (searchResult && searchResult.length > 0) outputMint = searchResult[0].address;
                         }
                     }
@@ -932,7 +943,7 @@ export class ChatService {
                     }
 
                     // Fetch price impact from Jupiter (best-effort, won't block if it fails)
-                    const priceImpactPct = await this.fetchPriceImpact(inputMint, outputMint, amount);
+                    const priceImpactPct = await this.fetchPriceImpact(cluster, inputMint, outputMint, amount);
                     const priceImpactSeverity = getPriceImpactSeverity(priceImpactPct);
 
                     if (priceImpactPct !== null) {

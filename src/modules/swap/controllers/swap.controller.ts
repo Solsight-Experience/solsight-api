@@ -6,40 +6,42 @@ import { ExecuteSwapDto } from "../dtos/execute-swap.dto";
 import { GetSwapInfoDto } from "../dtos/get-swap-info.dto";
 import { OptionalJwtAuthGuard } from "../../../common/guards/optional-jwt-auth.guard";
 import { JwtAuthGuard } from "../../auth/guards/jwt-auth.guard";
+import { RequestCluster } from "../../../common/cluster/request-cluster.decorator";
+import type { Cluster } from "../../../common/cluster/cluster.types";
 
 @Controller("swap")
 export class SwapController {
     constructor(private readonly swapService: SwapService) {}
 
     @Get("quote")
-    async getQuote(@Query() dto: GetQuoteDto) {
-        return this.swapService.getQuote(dto);
+    async getQuote(@RequestCluster() cluster: Cluster, @Query() dto: GetQuoteDto) {
+        return this.swapService.getQuote(cluster, dto);
     }
 
     @Post("transaction")
-    async getSwapTransaction(@Body() dto: GetSwapTransactionDto) {
-        return this.swapService.getSwapTransaction(dto);
+    async getSwapTransaction(@RequestCluster() cluster: Cluster, @Body() dto: GetSwapTransactionDto) {
+        return this.swapService.getSwapTransaction(cluster, dto);
     }
 
     @Post("execute")
     @UseGuards(OptionalJwtAuthGuard)
-    async executeSwap(@Body() dto: ExecuteSwapDto, @Request() req: { user?: { id?: string } }) {
-        return this.swapService.executeSwap(dto, req.user?.id ?? null);
+    async executeSwap(@RequestCluster() cluster: Cluster, @Body() dto: ExecuteSwapDto, @Request() req: { user?: { id?: string } }) {
+        return this.swapService.executeSwap(cluster, dto, req.user?.id ?? null);
     }
 
     @Get("sol-price")
-    async getSolPrice() {
-        return this.swapService.getSolPrice();
+    async getSolPrice(@RequestCluster() cluster: Cluster) {
+        return this.swapService.getSolPrice(cluster);
     }
 
     @Get("token-info/:mint")
-    async getTokenInfo(@Param("mint") mint: string) {
-        return this.swapService.getTokenInfo(mint);
+    async getTokenInfo(@RequestCluster() cluster: Cluster, @Param("mint") mint: string) {
+        return this.swapService.getTokenInfo(cluster, mint);
     }
 
     @UseGuards(JwtAuthGuard)
     @Get("info")
-    async getSwapInfo(@Query() dto: GetSwapInfoDto) {
-        return this.swapService.getSwapInfo(dto);
+    async getSwapInfo(@RequestCluster() cluster: Cluster, @Query() dto: GetSwapInfoDto) {
+        return this.swapService.getSwapInfo(cluster, dto);
     }
 }

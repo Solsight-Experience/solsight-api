@@ -1,5 +1,6 @@
 import { Holder } from "../entities/holder.entity";
 import { HolderData } from "./swap-event.types";
+import type { Cluster } from "../../../common/cluster/cluster.types";
 
 export type HolderUpsertRow = Pick<
     Holder,
@@ -31,7 +32,7 @@ export type HolderEnrichmentInput = {
 
 export type HolderAccountType = "WALLET" | "LP" | "DEV" | "BURN" | "CEX";
 export interface HolderUpdateEvent {
-    network?: string;
+    network: Cluster;
     mint: string;
     wallet: string;
     balance: number;
@@ -52,7 +53,7 @@ export interface HolderUpdateEvent {
 }
 
 export interface PriceUpdateEvent {
-    network?: string;
+    network: Cluster;
     mint: string;
     price_usd: number;
     price_native: number;

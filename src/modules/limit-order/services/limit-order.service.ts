@@ -1,6 +1,7 @@
-import { Injectable, Logger, ServiceUnavailableException } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import { JupiterService } from "../../../infra/jupiter/jupiter.service";
 import { CreateOrderDto, CancelOrderDto, CancelOrdersDto, GetOrdersDto, ExecuteOrderDto } from "../dtos";
+import type { Cluster } from "../../../common/cluster/cluster.types";
 
 @Injectable()
 export class LimitOrderService {
@@ -11,7 +12,7 @@ export class LimitOrderService {
     /**
      * Create a limit order
      */
-    async createOrder(createOrderDto: CreateOrderDto) {
+    async createOrder(cluster: Cluster, createOrderDto: CreateOrderDto) {
         try {
             const params = {
                 inputMint: createOrderDto.inputMint,
@@ -32,10 +33,7 @@ export class LimitOrderService {
 
             this.logger.log(`Creating limit order: ${createOrderDto.inputMint} -> ${createOrderDto.outputMint}`);
 
-            const result = await this.jupiterService.createOrder(params);
-            if (!result) {
-                throw new ServiceUnavailableException("Jupiter limit orders are only available on mainnet.");
-            }
+            const result = await this.jupiterService.createOrder(cluster, params);
 
             return {
                 success: true,
@@ -50,19 +48,15 @@ export class LimitOrderService {
     /**
      * Cancel a single limit order
      */
-    async cancelOrder(cancelOrderDto: CancelOrderDto) {
+    async cancelOrder(cluster: Cluster, cancelOrderDto: CancelOrderDto) {
         try {
             this.logger.log(`Canceling order: ${cancelOrderDto.order}`);
 
-            const result = await this.jupiterService.cancelOrder({
+            const result = await this.jupiterService.cancelOrder(cluster, {
                 maker: cancelOrderDto.maker,
                 order: cancelOrderDto.order,
                 computeUnitPrice: cancelOrderDto.computeUnitPrice || "auto"
             });
-            if (!result) {
-                throw new ServiceUnavailableException("Jupiter limit orders are only available on mainnet.");
-            }
-
             return {
                 success: true,
                 data: result
@@ -76,14 +70,16 @@ export class LimitOrderService {
     /**
      * Cancel multiple limit orders
      */
-    async cancelOrders(cancelOrdersDto: CancelOrdersDto) {
+    async cancelOrders(cluster: Cluster, cancelOrdersDto: CancelOrdersDto) {
         try {
             this.logger.log(`Canceling ${cancelOrdersDto.orders?.length || "all"} orders`);
 
-            const result = await this.jupiterService.cancelOrders(cancelOrdersDto.maker, cancelOrdersDto.orders, cancelOrdersDto.computeUnitPrice || "auto");
-            if (!result) {
-                throw new ServiceUnavailableException("Jupiter limit orders are only available on mainnet.");
-            }
+            const result = await this.jupiterService.cancelOrders(
+                cluster,
+                cancelOrdersDto.maker,
+                cancelOrdersDto.orders,
+                cancelOrdersDto.computeUnitPrice || "auto"
+            );
 
             return {
                 success: true,
@@ -98,11 +94,12 @@ export class LimitOrderService {
     /**
      * Get limit orders (active or history)
      */
-    async getOrders(getOrdersDto: GetOrdersDto) {
+    async getOrders(cluster: Cluster, getOrdersDto: GetOrdersDto) {
         try {
             this.logger.log(`Getting ${getOrdersDto.orderStatus} orders for user: ${getOrdersDto.user}`);
 
             const result = await this.jupiterService.getTriggerOrders(
+                cluster,
                 getOrdersDto.user,
                 getOrdersDto.orderStatus,
                 getOrdersDto.inputMint,
@@ -110,10 +107,6 @@ export class LimitOrderService {
                 getOrdersDto.page || 1,
                 getOrdersDto.includeFailedTx
             );
-            if (!result) {
-                throw new ServiceUnavailableException("Jupiter limit orders are only available on mainnet.");
-            }
-
             return {
                 success: true,
                 data: result
@@ -127,18 +120,14 @@ export class LimitOrderService {
     /**
      * Execute a limit order
      */
-    async executeOrder(executeOrderDto: ExecuteOrderDto) {
+    async executeOrder(cluster: Cluster, executeOrderDto: ExecuteOrderDto) {
         try {
             this.logger.log(`Executing order with requestId: ${executeOrderDto.requestId}`);
 
-            const result = await this.jupiterService.executeOrder({
+            const result = await this.jupiterService.executeOrder(cluster, {
                 requestId: executeOrderDto.requestId,
                 signedTransaction: executeOrderDto.signedTransaction
             });
-            if (!result) {
-                throw new ServiceUnavailableException("Jupiter limit orders are only available on mainnet.");
-            }
-
             return {
                 success: true,
                 data: result

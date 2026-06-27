@@ -2,7 +2,7 @@ import { Injectable } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
 import { Token } from "../../tokens/entities/token.entity";
-import { ClusterProvider } from "../../../common/cluster/cluster.provider";
+import type { Cluster } from "../../../common/cluster/cluster.types";
 import { TokenOverview } from "../../discovery/dtos/discovery.response.dto";
 import { FavoriteTokenDto } from "../dtos/favorite.dto";
 
@@ -10,13 +10,8 @@ import { FavoriteTokenDto } from "../dtos/favorite.dto";
 export class AccountService {
     constructor(
         @InjectRepository(Token)
-        private readonly tokenRepository: Repository<Token>,
-        private readonly clusterProvider: ClusterProvider
+        private readonly tokenRepository: Repository<Token>
     ) {}
-
-    private get network(): string {
-        return this.clusterProvider.cluster;
-    }
 
     private user = {
         id: "2",
@@ -106,11 +101,11 @@ export class AccountService {
         return this.userStats;
     }
 
-    async getFavorites(): Promise<FavoriteTokenDto[]> {
+    async getFavorites(cluster: Cluster): Promise<FavoriteTokenDto[]> {
         const result: FavoriteTokenDto[] = [];
         for (const fav of this.favorites) {
             const token = await this.tokenRepository.findOne({
-                where: { address: fav.token_address, network: this.network },
+                where: { address: fav.token_address, network: cluster },
                 relations: ["category"]
             });
 
@@ -118,7 +113,7 @@ export class AccountService {
                 result.push({
                     token_address: fav.token_address,
                     added_at: fav.added_at,
-                    token: this.transformToTokenOverview(token)
+                    token: this.transformToTokenOverview(token, cluster)
                 });
             } else {
                 result.push({
@@ -172,13 +167,13 @@ export class AccountService {
         };
     }
 
-    private transformToTokenOverview(token: Token): TokenOverview {
+    private transformToTokenOverview(token: Token, cluster: Cluster): TokenOverview {
         return {
             address: token.address,
             symbol: token.symbol,
             name: token.name,
             logo_uri: token.logoUri || "",
-            network: this.network,
+            network: cluster,
             category: token.category?.name || "",
             age_seconds: token.ageSeconds,
             price: token.price,

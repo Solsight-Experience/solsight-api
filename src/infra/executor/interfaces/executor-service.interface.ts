@@ -1,4 +1,5 @@
 import type { JupiterGetSwapQuoteParams, JupiterQuoteResponse, JupiterSwapRequest, JupiterSwapResponse } from "../../jupiter/types";
+import type { Cluster } from "../../../common/cluster/cluster.types";
 
 /**
  * Provider-agnostic types consumed by the swap module.
@@ -23,10 +24,10 @@ export interface ExecutorService {
     /**
      * Fetch a swap quote for the given input/output mint pair.
      */
-    getQuote(params: QuoteParams): Promise<QuoteResponse>;
+    getQuote(cluster: Cluster, params: QuoteParams): Promise<QuoteResponse>;
 
     /**
      * Build an unsigned swap transaction from a previously fetched quote.
      */
-    getSwapTransaction(params: SwapRequest): Promise<SwapResponse>;
+    getSwapTransaction(cluster: Cluster, params: SwapRequest): Promise<SwapResponse>;
 }

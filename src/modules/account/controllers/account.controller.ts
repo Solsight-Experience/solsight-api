@@ -1,6 +1,8 @@
 import { Controller, Get, Post, Delete, Param, Body } from "@nestjs/common";
 import { AccountService } from "../services/account.service";
 import { AddFavoriteDto } from "../dtos/favorite.dto";
+import { RequestCluster } from "../../../common/cluster/request-cluster.decorator";
+import type { Cluster } from "../../../common/cluster/cluster.types";
 
 @Controller("account/me")
 export class AccountController {
@@ -22,8 +24,8 @@ export class AccountController {
 
     // Lấy danh sách token yêu thích
     @Get("favorites")
-    getFavorites() {
-        return this.accountService.getFavorites();
+    getFavorites(@RequestCluster() cluster: Cluster) {
+        return this.accountService.getFavorites(cluster);
     }
 
     // Thêm token vào danh sách yêu thích
