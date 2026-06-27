@@ -1,5 +1,6 @@
 import { IsString, IsEnum, IsOptional, IsNumber, Min, IsBoolean } from "class-validator";
 import { Type } from "class-transformer";
+import { ClusterQueryDto } from "../../../common/cluster/cluster-query.dto";
 
 export enum OrderStatus {
     ACTIVE = "active",
@@ -9,7 +10,7 @@ export enum OrderStatus {
 /**
  * DTO for querying Jupiter limit orders
  */
-export class GetOrdersDto {
+export class GetOrdersDto extends ClusterQueryDto {
     @IsString()
     user: string;
 

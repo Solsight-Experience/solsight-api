@@ -11,14 +11,14 @@ import { Token } from "../../tokens/entities/token.entity";
 import { SwapEvent, getTokenMintFromSwap } from "../../tokens/types/swap-event.types";
 import { TransactionInsertParam, TransactionInsertRow } from "../types/stream-consumer.types";
 import { logError } from "src/common/errors/error-helper";
+import { requireCluster, type Cluster } from "../../../common/cluster/cluster.types";
 
 @Injectable()
 export class StreamConsumerService implements OnModuleInit {
     private readonly logger = new Logger(StreamConsumerService.name);
-    private latestPrices = new Map<string, { network: string; address: string; price: number }>();
+    private latestPrices = new Map<string, { network: Cluster; address: string; price: number }>();
 
     constructor(
-        private readonly configService: ConfigService,
         private readonly pubSubService: PubSubService,
         @InjectRepository(MarketPriceEvent)
         private readonly priceEventRepository: Repository<MarketPriceEvent>,
@@ -30,9 +30,9 @@ export class StreamConsumerService implements OnModuleInit {
 
     async onModuleInit(): Promise<void> {
         for (const channel of INDEXER_TRADE_CHANNELS) {
-            const network = channel.endsWith(":devnet") ? "devnet" : "mainnet";
+            const network = requireCluster(channel.split(":").pop(), `Redis trade channel ${channel}`);
             await this.pubSubService.subscribe<SwapEvent>(channel, (swap) => {
-                this.handleSwap({ ...swap, network: swap.network || network }).catch((error) => logError(this.logger, "Error handling swap event", error));
+                this.handleSwap({ ...swap, network }).catch((error) => logError(this.logger, "Error handling swap event", error));
             });
             this.logger.log(`Subscribed to Redis channel "${channel}" for DB persistence`);
         }
@@ -157,7 +157,7 @@ export class StreamConsumerService implements OnModuleInit {
         this.logger.debug(`Flushed prices for ${snapshot.size} tokens`);
     }
 
-    private eventNetwork(swap: SwapEvent): string {
-        return swap.network || "mainnet";
+    private eventNetwork(swap: SwapEvent): Cluster {
+        return swap.network;
     }
 }

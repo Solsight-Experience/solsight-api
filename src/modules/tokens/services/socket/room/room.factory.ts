@@ -1,10 +1,15 @@
 // room.factory.ts
 import { ROOM_RULES, RoomDomain, RoomInterval } from "./room.constants";
 import { TokenSubscribeDto } from "../token.dtos";
+import { isValidCluster } from "../../../../../common/cluster/cluster.types";
 
 export class RoomFactory {
     static create(params: TokenSubscribeDto): string {
-        const { domain, resource, interval } = params;
+        const { cluster, domain, resource, interval } = params;
+
+        if (!isValidCluster(cluster)) {
+            throw new Error("Invalid cluster");
+        }
 
         if (!resource || resource.includes(":")) {
             throw new Error("Invalid resource");
@@ -14,12 +19,15 @@ export class RoomFactory {
             throw new Error(`Invalid interval for ${domain}`);
         }
 
-        return `${domain}:${resource}:${interval}`;
+        return `${domain}:${cluster}:${resource}:${interval}`;
     }
 
     static parse(room: string) {
-        const [domain, resource, interval] = room.split(":");
-        return { domain, resource, interval };
+        const [domain, cluster, resource, interval] = room.split(":");
+        if (!isValidCluster(cluster)) {
+            throw new Error("Invalid cluster in room");
+        }
+        return { domain, cluster, resource, interval };
     }
 
     static isValid(domain: string, interval: string): interval is RoomInterval {

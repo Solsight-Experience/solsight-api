@@ -1,6 +1,6 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { Cron } from "@nestjs/schedule";
-import { ClusterProvider } from "../../../../common/cluster/cluster.provider";
+import type { Cluster } from "../../../../common/cluster/cluster.types";
 import { RedisService } from "../../../../redis/services/redis.service";
 import { SwapEvent, OhlcData, SwapPriceResult } from "../../types/swap-event.types";
 import { OhlcInterval } from "../socket/room/room.constants";
@@ -22,7 +22,6 @@ export class OhlcAggregationService {
 
     constructor(
         private readonly redisService: RedisService,
-        private readonly clusterProvider: ClusterProvider,
         private readonly ohlcPersistor: OhlcPersistorService
     ) {}
 
@@ -36,14 +35,13 @@ export class OhlcAggregationService {
         }
     }
 
-    async getOhlc(tokenMint: string, interval: OhlcInterval): Promise<OhlcData | null> {
-        const network = this.clusterProvider.cluster;
+    async getOhlc(cluster: Cluster, tokenMint: string, interval: OhlcInterval): Promise<OhlcData | null> {
         const redis = this.redisService.getClient();
         if (!redis) return null;
 
         try {
             const bucket = this.getBucketTimestamp(interval);
-            const key = this.bucketKey(network, tokenMint, interval, bucket);
+            const key = this.bucketKey(cluster, tokenMint, interval, bucket);
             const data = await redis.hgetall(key);
 
             if (!data || Object.keys(data).length === 0) {
@@ -63,7 +61,7 @@ export class OhlcAggregationService {
         }
     }
 
-    private async updateOhlc(tokenMint: string, network: string, interval: OhlcInterval, price: number, volume: number): Promise<void> {
+    private async updateOhlc(tokenMint: string, network: Cluster, interval: OhlcInterval, price: number, volume: number): Promise<void> {
         const redis = this.redisService.getClient();
         if (!redis) return;
 
@@ -141,6 +139,7 @@ export class OhlcAggregationService {
     }
 
     async getHistoricalOhlc(
+        cluster: Cluster,
         tokenMint: string,
         interval: OhlcInterval,
         limit: number = 500,
@@ -149,7 +148,6 @@ export class OhlcAggregationService {
     ): Promise<Array<OhlcData & { timestamp: number }>> {
         const redis = this.redisService.getClient();
         if (!redis) return [];
-        const network = this.clusterProvider.cluster;
 
         try {
             const intervalMs = INTERVAL_MS[interval];
@@ -164,7 +162,7 @@ export class OhlcAggregationService {
 
             const pipeline = redis.pipeline();
             for (const bucket of limitedBuckets) {
-                pipeline.hgetall(this.bucketKey(network, tokenMint, interval, bucket));
+                pipeline.hgetall(this.bucketKey(cluster, tokenMint, interval, bucket));
             }
 
             const results = await pipeline.exec();
@@ -198,7 +196,7 @@ export class OhlcAggregationService {
         return Math.floor(now / intervalMs) * intervalMs;
     }
 
-    async getOhlcData(tokenMint: string, interval: string, limit: number = 500): Promise<OhlcHistoryPoint[]> {
+    async getOhlcData(cluster: Cluster, tokenMint: string, interval: string, limit: number = 500): Promise<OhlcHistoryPoint[]> {
         const redis = this.redisService.getClient();
         if (!redis) return [];
 
@@ -221,10 +219,9 @@ export class OhlcAggregationService {
             const data: OhlcHistoryPoint[] = [];
 
             // Fetch historical buckets
-            const network = this.clusterProvider.cluster;
             for (let i = limit - 1; i >= 0; i--) {
                 const bucketTime = Math.floor((now - i * intervalMs) / intervalMs) * intervalMs;
-                const key = this.bucketKey(network, tokenMint, ohlcInterval, bucketTime);
+                const key = this.bucketKey(cluster, tokenMint, ohlcInterval, bucketTime);
                 const ohlcData = await redis.hgetall(key);
 
                 if (ohlcData && Object.keys(ohlcData).length > 0) {
@@ -282,8 +279,8 @@ export class OhlcAggregationService {
         }
     }
 
-    private eventNetwork(swap: SwapEvent): string {
-        return swap.network || "mainnet";
+    private eventNetwork(swap: SwapEvent): Cluster {
+        return swap.network;
     }
 
     private bucketKey(network: string, tokenMint: string, interval: OhlcInterval, bucket: number): string {

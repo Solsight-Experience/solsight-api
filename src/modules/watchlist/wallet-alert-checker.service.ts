@@ -1,6 +1,5 @@
 import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
 import { Cron } from "@nestjs/schedule";
-import { ClsService } from "nestjs-cls";
 import { WalletAlertService } from "./wallet-alert.service";
 import { WalletAlert, WalletAlertType, WalletAlertCondition } from "./entities/wallet-alert.entity";
 import { NotificationsService } from "../notifications/services/notifications.service";
@@ -10,7 +9,6 @@ import { ZaloSubscriptionService } from "../zalo/services/zalo-subscription.serv
 import { EmailSubscriptionService } from "../email/services/email-subscription.service";
 import { TokensService } from "../tokens/services/tokens.service";
 import { COMMON_TOKEN_MINT } from "../tokens/constants/token.constant";
-import { CLUSTER_CLS_KEY } from "../../common/cluster/cluster.provider";
 import { EnhancedTransaction } from "../../infra/solana/constants/types";
 import { NotificationMetadata, SwapMints, WalletAlertWithWallet } from "./types/wallet-alert-checker.types";
 
@@ -26,32 +24,28 @@ export class WalletAlertCheckerService implements OnModuleInit {
         private readonly tokenService: TokensService,
         private readonly heliusResolver: HeliusResolver,
         private readonly zaloSubscriptionService: ZaloSubscriptionService,
-        private readonly emailSubscriptionService: EmailSubscriptionService,
-        private readonly cls: ClsService
+        private readonly emailSubscriptionService: EmailSubscriptionService
     ) {}
 
     @Cron("*/10 * * * * *")
     async checkAllAlerts(): Promise<void> {
-        return this.cls.run(async () => {
-            this.cls.set(CLUSTER_CLS_KEY, "mainnet");
-            const alerts = await this.walletAlertService.getAllActiveAlerts();
-            if (!alerts.length) return;
+        const alerts = await this.walletAlertService.getAllActiveAlerts();
+        if (!alerts.length) return;
 
-            const alertsByWallet = new Map<string, WalletAlert[]>();
-            for (const alert of alerts) {
-                const list = alertsByWallet.get(alert.walletAddress) ?? [];
-                list.push(alert);
-                alertsByWallet.set(alert.walletAddress, list);
-            }
+        const alertsByWallet = new Map<string, WalletAlert[]>();
+        for (const alert of alerts) {
+            const list = alertsByWallet.get(alert.walletAddress) ?? [];
+            list.push(alert);
+            alertsByWallet.set(alert.walletAddress, list);
+        }
 
-            for (const [walletAddress, walletAlerts] of alertsByWallet) {
-                try {
-                    await this.processWallet(walletAddress, walletAlerts);
-                } catch (err) {
-                    this.logger.error(`Failed to process alerts for ${walletAddress}`, err);
-                }
+        for (const [walletAddress, walletAlerts] of alertsByWallet) {
+            try {
+                await this.processWallet(walletAddress, walletAlerts);
+            } catch (err) {
+                this.logger.error(`Failed to process alerts for ${walletAddress}`, err);
             }
-        });
+        }
     }
 
     private async processWallet(walletAddress: string, alerts: WalletAlert[]): Promise<void> {
@@ -252,8 +246,8 @@ export class WalletAlertCheckerService implements OnModuleInit {
                 const { mintIn, mintOut, amountIn, amountOut, dex } = this.extractSwapMints(tx, alert.walletAddress);
 
                 const [metaIn, metaOut] = await Promise.all([
-                    mintIn ? this.tokenService.findOne(mintIn) : Promise.resolve(undefined),
-                    mintOut ? this.tokenService.findOne(mintOut) : Promise.resolve(undefined)
+                    mintIn ? this.tokenService.findOne("mainnet", mintIn) : Promise.resolve(undefined),
+                    mintOut ? this.tokenService.findOne("mainnet", mintOut) : Promise.resolve(undefined)
                 ]);
 
                 const symbolIn = metaIn?.symbol;
@@ -307,7 +301,7 @@ export class WalletAlertCheckerService implements OnModuleInit {
             }
             case WalletAlertType.TOKEN_BALANCE_CHANGE: {
                 const mint = alert.condition?.tokenMint;
-                const meta = mint ? await this.tokenService.findOne(mint) : undefined;
+                const meta = mint ? await this.tokenService.findOne("mainnet", mint) : undefined;
                 const sym = meta?.symbol ?? alert.condition?.tokenSymbol ?? "Token";
                 const cond = alert.condition;
                 type = NotificationEventType.PRICE_ALERT_TRIGGERED;
@@ -339,7 +333,7 @@ export class WalletAlertCheckerService implements OnModuleInit {
                 const from: string | undefined = nativeTransfers[0]?.fromUserAccount;
                 const to: string | undefined = nativeTransfers[0]?.toUserAccount;
                 const direction = to === alert.walletAddress ? "Received" : "Sent";
-                const solMeta = await this.tokenService.findOne(COMMON_TOKEN_MINT.SOL);
+                const solMeta = await this.tokenService.findOne("mainnet", COMMON_TOKEN_MINT.SOL);
                 type = NotificationEventType.TRANSACTION_CONFIRMED;
                 title = `${direction} ${this.fmt(totalSol)} SOL`;
                 message = `${direction} ${this.fmt(totalSol)} SOL · ${walletLabel}`;

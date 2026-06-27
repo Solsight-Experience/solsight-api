@@ -1,8 +1,9 @@
 import { IsIn, IsNumber, IsString, Min } from "class-validator";
 import { Type } from "class-transformer";
 import { IsSolanaAddress } from "../../../common/validators/is-solana-address.validator";
+import { ClusterQueryDto } from "../../../common/cluster/cluster-query.dto";
 
-export class GetQuoteDto {
+export class GetQuoteDto extends ClusterQueryDto {
     @IsSolanaAddress()
     inputMint: string;
 

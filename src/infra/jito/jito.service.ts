@@ -1,7 +1,8 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable, Logger, ServiceUnavailableException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import axios, { AxiosInstance } from "axios";
 import { JitoTipFloorSample } from "./jito.types";
+import type { Cluster } from "../../common/cluster/cluster.types";
 
 /**
  * Thin client over the public Jito tip-floor feed.
@@ -36,7 +37,11 @@ export class JitoService {
      * converts to integer lamports. Throws on network or shape errors;
      * callers are expected to wrap the call with their own fallback.
      */
-    async getLandedTip75thPercentileLamports(): Promise<number> {
+    async getLandedTip75thPercentileLamports(cluster: Cluster): Promise<number> {
+        if (cluster !== "mainnet") {
+            throw new ServiceUnavailableException("Jito tip data is unavailable on devnet.");
+        }
+
         const { data } = await this.apiClient.get<JitoTipFloorSample[]>("");
 
         if (!Array.isArray(data) || data.length === 0) {
