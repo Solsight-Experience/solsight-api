@@ -1,4 +1,5 @@
 import { WalletAlert } from "../entities/wallet-alert.entity";
+import type { Cluster } from "../../../common/cluster/cluster.types";
 
 export interface SwapMints {
     mintIn?: string;
@@ -11,6 +12,7 @@ export interface SwapMints {
 export type WalletAlertWithWallet = WalletAlert & {
     watchedWallet?: {
         label?: string | null;
+        network?: Cluster;
     };
 };
 

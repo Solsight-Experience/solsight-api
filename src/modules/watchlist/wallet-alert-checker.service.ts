@@ -5,7 +5,7 @@ import { WalletAlert, WalletAlertType, WalletAlertCondition } from "./entities/w
 import { NotificationsService } from "../notifications/services/notifications.service";
 import { NotificationEventType } from "../notifications/entities/notification.entity";
 import { HeliusResolver } from "../../infra/solana/helius.resolver";
-import { ZaloSubscriptionService } from "../zalo/services/zalo-subscription.service";
+import { TelegramSubscriptionService } from "../telegram/services/telegram-subscription.service";
 import { EmailSubscriptionService } from "../email/services/email-subscription.service";
 import { TokensService } from "../tokens/services/tokens.service";
 import { COMMON_TOKEN_MINT } from "../tokens/constants/token.constant";
@@ -23,7 +23,7 @@ export class WalletAlertCheckerService implements OnModuleInit {
         private readonly notificationsService: NotificationsService,
         private readonly tokenService: TokensService,
         private readonly heliusResolver: HeliusResolver,
-        private readonly zaloSubscriptionService: ZaloSubscriptionService,
+        private readonly telegramSubscriptionService: TelegramSubscriptionService,
         private readonly emailSubscriptionService: EmailSubscriptionService
     ) {}
 
@@ -49,7 +49,8 @@ export class WalletAlertCheckerService implements OnModuleInit {
     }
 
     private async processWallet(walletAddress: string, alerts: WalletAlert[]): Promise<void> {
-        const txs = await this.fetchRecentTxs(walletAddress);
+        const cluster = (alerts[0] as WalletAlertWithWallet).watchedWallet?.network ?? "mainnet";
+        const txs = await this.fetchRecentTxs(walletAddress, cluster);
         if (!txs.length) return;
 
         const latestSig: string = txs[0].signature;
@@ -69,7 +70,7 @@ export class WalletAlertCheckerService implements OnModuleInit {
                 this.logger.debug(`Alert ${alert.id} evaluating tx ${tx.signature} type=${tx.type} hasSwapEvent=${!!tx.events?.swap} source=${tx.source}`);
                 if (this.evaluateAlert(alert, tx, walletAddress)) {
                     this.logger.log(`Alert ${alert.id} triggered by tx ${tx.signature} (type: ${tx.type})`);
-                    await this.sendNotification(alert, tx).catch((err) => this.logger.error(`Failed to send notification for alert ${alert.id}`, err));
+                    await this.sendNotification(alert, tx, cluster).catch((err) => this.logger.error(`Failed to send notification for alert ${alert.id}`, err));
                 }
             }
 
@@ -83,9 +84,9 @@ export class WalletAlertCheckerService implements OnModuleInit {
         return idx === -1 ? txs : txs.slice(0, idx);
     }
 
-    private async fetchRecentTxs(walletAddress: string): Promise<EnhancedTransaction[]> {
+    private async fetchRecentTxs(walletAddress: string, cluster: "mainnet" | "devnet"): Promise<EnhancedTransaction[]> {
         try {
-            return await this.heliusResolver.forCluster("mainnet").getEnhancedTransactionsByAddress(walletAddress, { limit: 50 });
+            return await this.heliusResolver.forCluster(cluster).getEnhancedTransactionsByAddress(walletAddress, { limit: 50 });
         } catch {
             return [];
         }
@@ -228,26 +229,26 @@ export class WalletAlertCheckerService implements OnModuleInit {
         return n.toFixed(decimals);
     }
 
-    private async sendNotification(alert: WalletAlert, tx: EnhancedTransaction): Promise<void> {
+    private async sendNotification(alert: WalletAlert, tx: EnhancedTransaction, cluster: "mainnet" | "devnet"): Promise<void> {
         const short = `${alert.walletAddress.slice(0, 6)}...${alert.walletAddress.slice(-4)}`;
         const walletLabel = (alert as WalletAlertWithWallet).watchedWallet?.label ?? short;
-        const txUrl = `https://solscan.io/tx/${tx.signature}`;
+        const txUrl = cluster === "devnet" ? `https://solscan.io/tx/${tx.signature}?cluster=devnet` : `https://solscan.io/tx/${tx.signature}`;
         const walletTrackerUrl = `/wallet-tracker`;
         let type: NotificationEventType;
         let title: string;
         let message: string;
-        let zaloText: string;
+        let alertText: string;
         let extraMeta: NotificationMetadata = {};
 
-        const zaloHeader = `WalletTracker:\nFrom: ${walletLabel} (${alert.walletAddress})`;
+        const alertHeader = `WalletTracker:\nFrom: ${walletLabel} (${alert.walletAddress})`;
 
         switch (alert.alertType) {
             case WalletAlertType.ANY_SWAP: {
                 const { mintIn, mintOut, amountIn, amountOut, dex } = this.extractSwapMints(tx, alert.walletAddress);
 
                 const [metaIn, metaOut] = await Promise.all([
-                    mintIn ? this.tokenService.findOne("mainnet", mintIn) : Promise.resolve(undefined),
-                    mintOut ? this.tokenService.findOne("mainnet", mintOut) : Promise.resolve(undefined)
+                    mintIn ? this.tokenService.findOne(cluster, mintIn) : Promise.resolve(undefined),
+                    mintOut ? this.tokenService.findOne(cluster, mintOut) : Promise.resolve(undefined)
                 ]);
 
                 const symbolIn = metaIn?.symbol;
@@ -271,8 +272,8 @@ export class WalletAlertCheckerService implements OnModuleInit {
                     .filter(Boolean)
                     .join(" ");
 
-                zaloText = [
-                    zaloHeader,
+                alertText = [
+                    alertHeader,
                     `- Swap: ${symbolIn ?? "?"} → ${symbolOut ?? "?"}`,
                     amountIn != null && symbolIn ? `- Amount in: ${this.fmt(amountIn)} ${symbolIn}` : null,
                     amountOut != null && symbolOut ? `- Amount out: ${this.fmt(amountOut)} ${symbolOut}` : null,
@@ -301,15 +302,15 @@ export class WalletAlertCheckerService implements OnModuleInit {
             }
             case WalletAlertType.TOKEN_BALANCE_CHANGE: {
                 const mint = alert.condition?.tokenMint;
-                const meta = mint ? await this.tokenService.findOne("mainnet", mint) : undefined;
+                const meta = mint ? await this.tokenService.findOne(cluster, mint) : undefined;
                 const sym = meta?.symbol ?? alert.condition?.tokenSymbol ?? "Token";
                 const cond = alert.condition;
                 type = NotificationEventType.PRICE_ALERT_TRIGGERED;
                 title = `${sym} balance changed`;
                 message = `${sym} balance changed · ${walletLabel}`;
 
-                zaloText = [
-                    zaloHeader,
+                alertText = [
+                    alertHeader,
                     `- Token: ${sym}`,
                     cond?.direction && cond.direction !== "any" ? `- Direction: ${cond.direction}` : null,
                     cond?.threshold != null ? `- Threshold: ≥ ${cond.threshold}${cond.thresholdType === "percentage" ? "%" : ""}` : null,
@@ -333,15 +334,15 @@ export class WalletAlertCheckerService implements OnModuleInit {
                 const from: string | undefined = nativeTransfers[0]?.fromUserAccount;
                 const to: string | undefined = nativeTransfers[0]?.toUserAccount;
                 const direction = to === alert.walletAddress ? "Received" : "Sent";
-                const solMeta = await this.tokenService.findOne("mainnet", COMMON_TOKEN_MINT.SOL);
+                const solMeta = await this.tokenService.findOne(cluster, COMMON_TOKEN_MINT.SOL);
                 type = NotificationEventType.TRANSACTION_CONFIRMED;
                 title = `${direction} ${this.fmt(totalSol)} SOL`;
                 message = `${direction} ${this.fmt(totalSol)} SOL · ${walletLabel}`;
 
                 const counterpart = direction === "Received" ? from : to;
                 const counterShort = counterpart ? `${counterpart.slice(0, 6)}...${counterpart.slice(-4)}` : undefined;
-                zaloText = [
-                    zaloHeader,
+                alertText = [
+                    alertHeader,
                     `- ${direction}: ${this.fmt(totalSol)} SOL`,
                     counterShort ? `- ${direction === "Received" ? "From" : "To"}: ${counterShort}` : null,
                     `- Tx: ${txUrl}`
@@ -364,7 +365,7 @@ export class WalletAlertCheckerService implements OnModuleInit {
                 return;
         }
 
-        const emailHtml = zaloText
+        const emailHtml = alertText
             .split("\n")
             .map((line) =>
                 line.startsWith("- ")
@@ -388,7 +389,7 @@ export class WalletAlertCheckerService implements OnModuleInit {
             }
         });
 
-        await this.zaloSubscriptionService.sendAlertMessage(alert.userId, zaloText);
-        await this.emailSubscriptionService.sendWalletAlertEmail(alert.userId, title, title, emailHtml, zaloText);
+        await this.telegramSubscriptionService.sendAlertMessage(alert.userId, alertText);
+        await this.emailSubscriptionService.sendWalletAlertEmail(alert.userId, title, title, emailHtml, alertText);
     }
 }

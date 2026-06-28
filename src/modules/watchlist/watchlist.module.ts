@@ -8,12 +8,12 @@ import { WalletAlertService } from "./wallet-alert.service";
 import { WalletAlertCheckerService } from "./wallet-alert-checker.service";
 import { NotificationsModule } from "../notifications/notifications.module";
 import { SolanaModule } from "../../infra/solana/solana.module";
-import { ZaloModule } from "../zalo/zalo.module";
+import { TelegramModule } from "../telegram/telegram.module";
 import { EmailModule } from "../email/email.module";
 import { TokensModule } from "../tokens/tokens.module";
 
 @Module({
-    imports: [TypeOrmModule.forFeature([WatchedWallet, WalletAlert]), NotificationsModule, SolanaModule, ZaloModule, EmailModule, TokensModule],
+    imports: [TypeOrmModule.forFeature([WatchedWallet, WalletAlert]), NotificationsModule, SolanaModule, TelegramModule, EmailModule, TokensModule],
     controllers: [WatchlistController],
     providers: [WatchlistService, WalletAlertService, WalletAlertCheckerService]
 })

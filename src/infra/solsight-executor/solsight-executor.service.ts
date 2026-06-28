@@ -30,7 +30,8 @@ export class SolsightExecutorService implements ExecutorService {
             const response = await this.apiClient.get<QuoteResponse>("/quote", { params: { ...params, cluster } });
             return response.data;
         } catch (error) {
-            this.logger.error("Failed to get swap quote from solsight-executor", error);
+            const axiosErr = error as { response?: { status?: number; data?: unknown } };
+            this.logger.error(`Failed to get swap quote from solsight-executor [${axiosErr?.response?.status}]: ${JSON.stringify(axiosErr?.response?.data)}`);
             throw error;
         }
     }

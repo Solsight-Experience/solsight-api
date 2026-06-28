@@ -137,9 +137,13 @@ export class SwapService {
     }
 
     async getTokenInfo(cluster: Cluster, mint: string): Promise<{ decimals: number } | null> {
-        const token = await this.jupiterService.searchToken(cluster, mint);
-        if (!token) return null;
-        return { decimals: token.decimals };
+        const token = await this.jupiterService.searchToken(cluster, mint).catch(() => null);
+        if (token) return { decimals: token.decimals };
+
+        // Jupiter doesn't index every token — fall back to on-chain mint account
+        const decimals = await this.solanaService.getMintDecimals(cluster, mint);
+        if (decimals == null) return null;
+        return { decimals };
     }
 
     private async submitSignedTransaction(cluster: Cluster, signedTransactionBase64: string): Promise<{ signature: string }> {
@@ -278,20 +282,25 @@ export class SwapService {
             };
         };
 
-        const data = axiosError?.response?.data;
+        const rawData = axiosError?.response?.data as Record<string, unknown> | string | undefined;
+        const data = typeof rawData === "object" && rawData !== null ? rawData : undefined;
         const upstreamStatus = axiosError?.response?.status;
 
         let message: string;
-        if (data?.errorCode === "TOKEN_NOT_TRADABLE") {
+        if (data?.["errorCode"] === "TOKEN_NOT_TRADABLE") {
             message = "This token is not tradable on Jupiter.";
-        } else if (data?.message) {
-            message = String(data.message);
-        } else if (data?.error) {
-            message = String(data.error);
+        } else if (data?.["message"]) {
+            message = String(data["message"]);
+        } else if (data?.["error"]) {
+            message = String(data["error"]);
+        } else if (data?.["detail"]) {
+            message = String(data["detail"]);
+        } else if (typeof rawData === "string" && rawData.length > 0) {
+            message = rawData;
         } else if (error instanceof Error) {
             message = error.message;
         } else {
-            message = "Jupiter API request failed.";
+            message = "Swap quote request failed.";
         }
 
         const status = upstreamStatus && upstreamStatus >= 400 && upstreamStatus < 600 ? upstreamStatus : HttpStatus.BAD_GATEWAY;
