@@ -5,12 +5,15 @@ import { In, Repository } from "typeorm";
 import { CoinGeckoService } from "src/infra/coingecko/coingecko.service";
 import type { Cluster } from "src/common/cluster/cluster.types";
 import { RedisService } from "src/redis";
-import { FRESH_MIN_TTL_S, TokenPriceResult } from "../types/token-price.types";
+import type { TokenPriceResult, TokenPriceSetInput } from "../types/token-price.types";
 import { getErrorMessage, logError } from "src/common/errors/error-helper";
 
 @Injectable()
 export class TokenPriceService {
     private readonly logger = new Logger(TokenPriceService.name);
+    private static readonly STALE_THRESHOLD_S = 5 * 60;
+    static readonly PRICE_TTL_S = 60 * 60;
+    static readonly FRESH_MIN_TTL_S = TokenPriceService.PRICE_TTL_S - TokenPriceService.STALE_THRESHOLD_S;
 
     constructor(
         @InjectRepository(Token)
@@ -18,6 +21,39 @@ export class TokenPriceService {
         private readonly redisService: RedisService,
         private readonly coinGeckoService: CoinGeckoService
     ) {}
+
+    async setPrice({ cluster, mint, ...price }: TokenPriceSetInput): Promise<boolean> {
+        if (!this.isValidWritePrice(price.priceUsd) || !this.isValidWritePrice(price.priceNative)) {
+            this.logger.debug(`Rejected invalid latest price for ${cluster}:${mint}`);
+            return false;
+        }
+
+        const redis = this.redisService.getClient();
+        if (!redis) return false;
+
+        const key = RedisService.KEYS.TOKEN_PRICE_LATEST(cluster, mint);
+
+        try {
+            await redis.hset(key, {
+                price_usd: price.priceUsd,
+                price_native: price.priceNative,
+                slot: price.slot,
+                source: price.source
+            });
+            await redis.expire(key, TokenPriceService.PRICE_TTL_S);
+            return true;
+        } catch (error) {
+            logError(this.logger, `Failed to write Redis price for ${cluster}:${mint}`, error);
+            return false;
+        }
+    }
+
+    async setPrices(prices: TokenPriceSetInput[]): Promise<number> {
+        if (prices.length === 0) return 0;
+
+        const writes = await Promise.all(prices.map((price) => this.setPrice(price)));
+        return writes.filter(Boolean).length;
+    }
 
     async getPrice(cluster: Cluster, mint: string): Promise<TokenPriceResult> {
         const key = RedisService.KEYS.TOKEN_PRICE_LATEST(cluster, mint);
@@ -27,7 +63,7 @@ export class TokenPriceService {
                 const priceUsd = parseFloat(cached.price_usd);
                 if (Number.isFinite(priceUsd) && priceUsd > 0) {
                     const ttl = await this.redisService.ttl(key);
-                    if (!(ttl > 0 && ttl < FRESH_MIN_TTL_S)) {
+                    if (!(ttl > 0 && ttl < TokenPriceService.FRESH_MIN_TTL_S)) {
                         return { priceUsd, priceChange24h: 0, source: "redis" };
                     }
                     this.logger.debug(`Redis price stale for ${mint} (ttl=${ttl}s), fetching fresh price`);
@@ -129,6 +165,10 @@ export class TokenPriceService {
         }
 
         return result;
+    }
+
+    private isValidWritePrice(price: number): boolean {
+        return Number.isFinite(price) && price > 0;
     }
 
     async getPriceHistory(cluster: Cluster, mint: string, fromSec: number, toSec: number): Promise<Map<number, number>> {
