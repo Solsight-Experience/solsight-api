@@ -91,21 +91,9 @@ export class TokenPriceService {
     }
 
     async getPrice(cluster: Cluster, mint: string): Promise<TokenPriceResult> {
-        const key = RedisService.KEYS.TOKEN_PRICE_LATEST(cluster, mint);
-        try {
-            const cached = await this.redisService.hgetall(key);
-            if (cached?.price_usd) {
-                const priceUsd = parseFloat(cached.price_usd);
-                if (Number.isFinite(priceUsd) && priceUsd > 0) {
-                    const ttl = await this.redisService.ttl(key);
-                    if (!(ttl > 0 && ttl < TokenPriceService.FRESH_MIN_TTL_S)) {
-                        return { priceUsd, priceChange24h: 0, source: "redis" };
-                    }
-                    this.logger.debug(`Redis price stale for ${mint} (ttl=${ttl}s), fetching fresh price`);
-                }
-            }
-        } catch (error) {
-            this.logger.debug(`Redis price lookup failed for ${mint}: ${getErrorMessage(error)}`);
+        const redisPrice = await this.getFreshRedisPrice(cluster, mint);
+        if (redisPrice != null) {
+            return { priceUsd: redisPrice, priceChange24h: 0, source: "redis" };
         }
 
         const token = await this.tokenRepository.findOne({
@@ -141,18 +129,10 @@ export class TokenPriceService {
 
         await Promise.all(
             mints.map(async (mint) => {
-                try {
-                    const key = RedisService.KEYS.TOKEN_PRICE_LATEST(cluster, mint);
-                    const cached = await this.redisService.hgetall(key);
-                    if (cached?.price_usd) {
-                        const priceUsd = parseFloat(cached.price_usd);
-                        if (Number.isFinite(priceUsd) && priceUsd > 0) {
-                            result.set(mint, { priceUsd, priceChange24h: 0, source: "redis" });
-                            return;
-                        }
-                    }
-                } catch (error) {
-                    this.logger.debug(`Redis price lookup failed for ${mint}: ${getErrorMessage(error)}`);
+                const redisPrice = await this.getFreshRedisPrice(cluster, mint);
+                if (redisPrice != null) {
+                    result.set(mint, { priceUsd: redisPrice, priceChange24h: 0, source: "redis" });
+                    return;
                 }
                 needFallback.push(mint);
             })
@@ -204,6 +184,27 @@ export class TokenPriceService {
 
     private isValidWritePrice(price: number): boolean {
         return Number.isFinite(price) && price > 0;
+    }
+
+    private async getFreshRedisPrice(cluster: Cluster, mint: string): Promise<number | null> {
+        const key = RedisService.KEYS.TOKEN_PRICE_LATEST(cluster, mint);
+
+        try {
+            const [cached, ttl] = await Promise.all([this.redisService.hgetall(key), this.redisService.ttl(key)]);
+            if (!cached?.price_usd) return null;
+
+            const priceUsd = parseFloat(cached.price_usd);
+            if (!Number.isFinite(priceUsd) || priceUsd <= 0) return null;
+            if (ttl < TokenPriceService.FRESH_MIN_TTL_S) {
+                this.logger.debug(`Redis price stale for ${mint} (ttl=${ttl}s), fetching fallback price`);
+                return null;
+            }
+
+            return priceUsd;
+        } catch (error) {
+            this.logger.debug(`Redis price lookup failed for ${mint}: ${getErrorMessage(error)}`);
+            return null;
+        }
     }
 
     async getPriceHistory(cluster: Cluster, mint: string, fromSec: number, toSec: number): Promise<Map<number, number>> {

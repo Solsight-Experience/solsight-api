@@ -6,10 +6,21 @@ import type { RedisService } from "src/redis";
 
 describe("TokenPriceService", () => {
     let service: TokenPriceService;
+    let tokenRepository: Pick<Repository<Token>, "findOne" | "find">;
+    let coinGeckoService: Pick<CoinGeckoService, "getSimplePrice">;
     let redisClient: { eval: jest.Mock };
     let redisService: Pick<RedisService, "getClient" | "hgetall" | "ttl">;
 
     beforeEach(() => {
+        tokenRepository = {
+            findOne: jest.fn(),
+            find: jest.fn()
+        };
+
+        coinGeckoService = {
+            getSimplePrice: jest.fn()
+        };
+
         redisClient = {
             eval: jest.fn().mockResolvedValue(1)
         };
@@ -20,7 +31,7 @@ describe("TokenPriceService", () => {
             ttl: jest.fn()
         };
 
-        service = new TokenPriceService({} as Repository<Token>, redisService as RedisService, {} as CoinGeckoService);
+        service = new TokenPriceService(tokenRepository as Repository<Token>, redisService as RedisService, coinGeckoService as CoinGeckoService);
     });
 
     it("writes valid prices to Redis and renews the TTL", async () => {
@@ -130,5 +141,87 @@ describe("TokenPriceService", () => {
                 }
             ])
         ).resolves.toBe(1);
+    });
+
+    it("returns Redis prices only when the TTL is still fresh", async () => {
+        const redisHash = {
+            price_usd: "12.34"
+        };
+
+        (redisService.hgetall as jest.Mock).mockResolvedValue(redisHash);
+        (redisService.ttl as jest.Mock).mockResolvedValue(TokenPriceService.FRESH_MIN_TTL_S);
+
+        await expect(service.getPrice("mainnet", "mint-1")).resolves.toEqual({
+            priceUsd: 12.34,
+            priceChange24h: 0,
+            source: "redis"
+        });
+    });
+
+    it("falls back when the Redis TTL is below the freshness floor", async () => {
+        (redisService.hgetall as jest.Mock).mockResolvedValue({
+            price_usd: "12.34"
+        });
+        (redisService.ttl as jest.Mock).mockResolvedValue(TokenPriceService.FRESH_MIN_TTL_S - 1);
+        (tokenRepository.findOne as jest.Mock).mockResolvedValue({
+            price: 99,
+            priceChange24h: 3.5
+        });
+
+        await expect(service.getPrice("mainnet", "mint-1")).resolves.toEqual({
+            priceUsd: 99,
+            priceChange24h: 3.5,
+            source: "db"
+        });
+    });
+
+    it("applies the same freshness check in bulk reads", async () => {
+        (redisService.hgetall as jest.Mock).mockImplementation(async (key: string) => {
+            if (key === "price:mainnet:fresh:latest") {
+                return { price_usd: "10" };
+            }
+            if (key === "price:mainnet:stale:latest") {
+                return { price_usd: "20" };
+            }
+            return null;
+        });
+        (redisService.ttl as jest.Mock).mockImplementation(async (key: string) => {
+            if (key === "price:mainnet:fresh:latest") {
+                return TokenPriceService.FRESH_MIN_TTL_S;
+            }
+            if (key === "price:mainnet:stale:latest") {
+                return TokenPriceService.FRESH_MIN_TTL_S - 1;
+            }
+            return -2;
+        });
+        (tokenRepository.find as jest.Mock).mockResolvedValue([
+            {
+                address: "stale",
+                price: 55,
+                priceChange24h: 1.5,
+                coingeckoId: null
+            }
+        ]);
+
+        await expect(service.getPrices("mainnet", ["fresh", "stale"])).resolves.toEqual(
+            new Map([
+                [
+                    "fresh",
+                    {
+                        priceUsd: 10,
+                        priceChange24h: 0,
+                        source: "redis"
+                    }
+                ],
+                [
+                    "stale",
+                    {
+                        priceUsd: 55,
+                        priceChange24h: 1.5,
+                        source: "db"
+                    }
+                ]
+            ])
+        );
     });
 });
