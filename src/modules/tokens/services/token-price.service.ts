@@ -14,6 +14,32 @@ export class TokenPriceService {
     private static readonly STALE_THRESHOLD_S = 5 * 60;
     static readonly PRICE_TTL_S = 60 * 60;
     static readonly FRESH_MIN_TTL_S = TokenPriceService.PRICE_TTL_S - TokenPriceService.STALE_THRESHOLD_S;
+    private static readonly UPSERT_LATEST_PRICE_SCRIPT = `
+        local key = KEYS[1]
+        local incomingSlot = tonumber(ARGV[1])
+        local ttl = tonumber(ARGV[2])
+        local priceUsd = ARGV[3]
+        local priceNative = ARGV[4]
+        local source = ARGV[5]
+
+        local keyType = redis.call('TYPE', key)['ok']
+        if keyType ~= 'none' and keyType ~= 'hash' then
+            redis.call('DEL', key)
+        end
+
+        local currentSlotRaw = redis.call('HGET', key, 'slot')
+        if currentSlotRaw then
+            local currentSlot = tonumber(currentSlotRaw)
+            if currentSlot and incomingSlot < currentSlot then
+                return 0
+            end
+        end
+
+        redis.call('HSET', key, 'price_usd', priceUsd, 'price_native', priceNative, 'slot', tostring(incomingSlot), 'source', source)
+        redis.call('EXPIRE', key, ttl)
+
+        return 1
+    `;
 
     constructor(
         @InjectRepository(Token)
@@ -34,14 +60,23 @@ export class TokenPriceService {
         const key = RedisService.KEYS.TOKEN_PRICE_LATEST(cluster, mint);
 
         try {
-            await redis.hset(key, {
-                price_usd: price.priceUsd,
-                price_native: price.priceNative,
-                slot: price.slot,
-                source: price.source
-            });
-            await redis.expire(key, TokenPriceService.PRICE_TTL_S);
-            return true;
+            const stored = await redis.eval(
+                TokenPriceService.UPSERT_LATEST_PRICE_SCRIPT,
+                1,
+                key,
+                String(price.slot),
+                String(TokenPriceService.PRICE_TTL_S),
+                String(price.priceUsd),
+                String(price.priceNative),
+                price.source
+            );
+
+            if (stored === 1 || stored === "1") {
+                return true;
+            }
+
+            this.logger.debug(`Dropped stale latest price for ${cluster}:${mint} at slot ${price.slot}`);
+            return false;
         } catch (error) {
             logError(this.logger, `Failed to write Redis price for ${cluster}:${mint}`, error);
             return false;

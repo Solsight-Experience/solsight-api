@@ -6,13 +6,12 @@ import type { RedisService } from "src/redis";
 
 describe("TokenPriceService", () => {
     let service: TokenPriceService;
-    let redisClient: { hset: jest.Mock; expire: jest.Mock };
+    let redisClient: { eval: jest.Mock };
     let redisService: Pick<RedisService, "getClient" | "hgetall" | "ttl">;
 
     beforeEach(() => {
         redisClient = {
-            hset: jest.fn().mockResolvedValue(4),
-            expire: jest.fn().mockResolvedValue(1)
+            eval: jest.fn().mockResolvedValue(1)
         };
 
         redisService = {
@@ -36,13 +35,16 @@ describe("TokenPriceService", () => {
             })
         ).resolves.toBe(true);
 
-        expect(redisClient.hset).toHaveBeenCalledWith("price:mainnet:mint-1:latest", {
-            price_usd: 12.34,
-            price_native: 0.056,
-            slot: 123,
-            source: "test"
-        });
-        expect(redisClient.expire).toHaveBeenCalledWith("price:mainnet:mint-1:latest", TokenPriceService.PRICE_TTL_S);
+        expect(redisClient.eval).toHaveBeenCalledWith(
+            expect.any(String),
+            1,
+            "price:mainnet:mint-1:latest",
+            "123",
+            String(TokenPriceService.PRICE_TTL_S),
+            "12.34",
+            "0.056",
+            "test"
+        );
     });
 
     it("rejects non-positive or non-finite prices at the boundary", async () => {
@@ -79,12 +81,26 @@ describe("TokenPriceService", () => {
             })
         ).resolves.toBe(false);
 
-        expect(redisClient.hset).not.toHaveBeenCalled();
-        expect(redisClient.expire).not.toHaveBeenCalled();
+        expect(redisClient.eval).not.toHaveBeenCalled();
+    });
+
+    it("drops writes when the incoming slot regresses", async () => {
+        redisClient.eval.mockResolvedValueOnce(0);
+
+        await expect(
+            service.setPrice({
+                cluster: "mainnet",
+                mint: "mint-1",
+                priceUsd: 12.34,
+                priceNative: 0.056,
+                slot: 122,
+                source: "test"
+            })
+        ).resolves.toBe(false);
     });
 
     it("returns the number of successful writes for bulk updates", async () => {
-        redisClient.hset.mockRejectedValueOnce(new Error("boom"));
+        redisClient.eval.mockRejectedValueOnce(new Error("boom"));
 
         await expect(
             service.setPrices([
