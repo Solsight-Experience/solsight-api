@@ -20,11 +20,16 @@ import { OhlcAggregationService } from "./services/aggregation/ohlc-aggregation.
 import { OhlcPersistorService } from "./services/aggregation/ohlc-persistor.service";
 import { TraderAggregationService } from "./services/aggregation/trader-aggregation.service";
 import { HolderAggregationService } from "./services/aggregation/holder-aggregation.service";
+import { HolderUpdateHandler } from "./services/aggregation/holder-update.handler";
 import { HolderTrackingService } from "./services/socket/holder-tracking.service";
+import { PriceUpdateHandler } from "./services/aggregation/price-update.handler";
 import { TokenSummaryService } from "./services/token-summary.service";
 import { PromptBuilderService } from "./services/prompt-builder.service";
 import { GeminiModule } from "../../infra/gemini/gemini.module";
 import { TokenPriceService } from "./services/token-price.service";
+import { TradeFanoutHandler } from "./services/socket/trade-fanout.handler";
+import { HolderResponseHandler } from "./services/socket/holder-response.handler";
+import { TOKENS_EVENT_HANDLERS_TOKEN } from "../../redis/event-handler";
 
 @Module({
     imports: [
@@ -45,13 +50,27 @@ import { TokenPriceService } from "./services/token-price.service";
         OhlcPersistorService,
         TraderAggregationService,
         HolderAggregationService,
+        HolderUpdateHandler,
         HolderTrackingService,
+        PriceUpdateHandler,
         TokenSummaryService,
         PromptBuilderService,
         TokenSeederService,
-        TokenPriceService
+        TokenPriceService,
+        TradeFanoutHandler,
+        HolderResponseHandler,
+        {
+            provide: TOKENS_EVENT_HANDLERS_TOKEN,
+            useFactory: (
+                tradeFanoutHandler: TradeFanoutHandler,
+                holderUpdateHandler: HolderUpdateHandler,
+                priceUpdateHandler: PriceUpdateHandler,
+                holderResponseHandler: HolderResponseHandler
+            ) => [tradeFanoutHandler, holderUpdateHandler, priceUpdateHandler, holderResponseHandler],
+            inject: [TradeFanoutHandler, HolderUpdateHandler, PriceUpdateHandler, HolderResponseHandler]
+        }
     ],
     controllers: [TokensController],
-    exports: [TokensService, HolderTrackingService, TokenPriceService]
+    exports: [TokensService, HolderTrackingService, TokenPriceService, TOKENS_EVENT_HANDLERS_TOKEN]
 })
 export class TokensModule {}

@@ -1,24 +1,25 @@
-import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import { Cron } from "@nestjs/schedule";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
-import { INDEXER_TRADE_CHANNELS } from "../../../config/configuration";
-import { PubSubService } from "../../../redis/services/pubsub.service";
 import { MarketPriceEvent } from "../entities/market-price-event.entity";
 import { Transaction, TransactionStatus, TransactionType } from "../../transactions/entities/transaction.entity";
 import { Token } from "../../tokens/entities/token.entity";
 import { SwapEvent, getTokenMintFromSwap } from "../../tokens/types/swap-event.types";
 import { TransactionInsertParam, TransactionInsertRow } from "../types/stream-consumer.types";
+import type { Cluster } from "../../../common/cluster/cluster.types";
+import { CLUSTERS } from "../../../common/cluster/cluster.types";
+import { REDIS_CHANNELS, clusterFromChannel } from "../../../redis/channels";
+import type { EventHandler } from "../../../redis/event-handler";
+import type { RedisChannel } from "../../../redis/utils/redisChannels";
 import { logError } from "src/common/errors/error-helper";
-import { requireCluster, type Cluster } from "../../../common/cluster/cluster.types";
 
 @Injectable()
-export class StreamConsumerService implements OnModuleInit {
+export class StreamConsumerService implements EventHandler<SwapEvent> {
     private readonly logger = new Logger(StreamConsumerService.name);
     private latestPrices = new Map<string, { network: Cluster; address: string; price: number }>();
 
     constructor(
-        private readonly pubSubService: PubSubService,
         @InjectRepository(MarketPriceEvent)
         private readonly priceEventRepository: Repository<MarketPriceEvent>,
         @InjectRepository(Transaction)
@@ -27,14 +28,13 @@ export class StreamConsumerService implements OnModuleInit {
         private readonly tokenRepository: Repository<Token>
     ) {}
 
-    async onModuleInit(): Promise<void> {
-        for (const channel of INDEXER_TRADE_CHANNELS) {
-            const network = requireCluster(channel.split(":").pop(), `Redis trade channel ${channel}`);
-            await this.pubSubService.subscribe<SwapEvent>(channel, (swap) => {
-                this.handleSwap({ ...swap, network }).catch((error) => logError(this.logger, "Error handling swap event", error));
-            });
-            this.logger.log(`Subscribed to Redis channel "${channel}" for DB persistence`);
-        }
+    channels(): RedisChannel<SwapEvent>[] {
+        return CLUSTERS.map((cluster) => REDIS_CHANNELS.TRADE_EVENTS(cluster));
+    }
+
+    async handle(swap: SwapEvent, channel: RedisChannel<SwapEvent>): Promise<void> {
+        const normalizedSwap = swap.network ? swap : { ...swap, network: clusterFromChannel(channel) };
+        await this.handleSwap(normalizedSwap);
     }
 
     private resolvePrice(swap: SwapEvent): number {
@@ -45,8 +45,6 @@ export class StreamConsumerService implements OnModuleInit {
     }
 
     private async handleSwap(swap: SwapEvent): Promise<void> {
-        // Store valid USD prices before persisting so resolvePrice can use them as fallback
-        swap.timestamp = Math.floor(Date.now() / 1000);
         const tokenMint = getTokenMintFromSwap(swap);
         if (swap.price_usd != null && swap.price_usd > 0) {
             const network = this.eventNetwork(swap);

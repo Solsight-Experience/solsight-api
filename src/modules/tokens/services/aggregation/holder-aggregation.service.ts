@@ -2,7 +2,6 @@ import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/commo
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
 import { RedisService } from "../../../../redis/services/redis.service";
-import { PubSubService } from "../../../../redis/services/pubsub.service";
 import { HolderData, SwapEvent } from "../../types/swap-event.types";
 import { getWalletLabel } from "../../data/wallet-labels";
 import { JupiterService } from "../../../../infra/jupiter/jupiter.service";
@@ -10,7 +9,7 @@ import { EnrichedHolder, HolderUpdateEvent, PriceUpdateEvent, HolderUpsertRow, H
 import { Holder } from "../../entities/holder.entity";
 import { logError } from "src/common/errors/error-helper";
 import { TokenPriceService } from "../token-price.service";
-import { CLUSTERS, type Cluster } from "src/common/cluster/cluster.types";
+import type { Cluster } from "src/common/cluster/cluster.types";
 
 const HOLDER_UPSERT_FLUSH_MS = 5_000;
 
@@ -23,32 +22,17 @@ export class HolderAggregationService implements OnModuleInit, OnModuleDestroy {
     constructor(
         private readonly redisService: RedisService,
         private readonly tokenPriceService: TokenPriceService,
-        private readonly pubSubService: PubSubService,
         private readonly jupiterService: JupiterService,
         @InjectRepository(Holder)
         private readonly holderRepository: Repository<Holder>
     ) {}
 
-    async onModuleInit(): Promise<void> {
+    onModuleInit(): void {
         this.flushTimer = setInterval(() => {
             void this.flushHolderUpserts().catch((error) => {
                 logError(this.logger, "Failed to flush holder upsert buffer", error);
             });
         }, HOLDER_UPSERT_FLUSH_MS);
-
-        for (const network of CLUSTERS) {
-            await this.pubSubService.subscribe<HolderUpdateEvent>(`solsight:holder_updates:${network}`, (message) => {
-                void this.onHolderUpdate({ ...message, network }).catch((error) => {
-                    logError(this.logger, "Error processing holder update", error);
-                });
-            });
-
-            await this.pubSubService.subscribe<PriceUpdateEvent>(`solsight:price_updates:${network}`, (message) => {
-                void this.onPriceUpdate({ ...message, network }).catch((error) => {
-                    logError(this.logger, "Error processing price update", error);
-                });
-            });
-        }
     }
 
     async onModuleDestroy(): Promise<void> {

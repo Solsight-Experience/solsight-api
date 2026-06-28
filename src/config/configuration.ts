@@ -1,6 +1,8 @@
+import { REDIS_CHANNELS } from "../redis/channels";
+
 export const TRADE_CHANNELS = {
-    mainnet: "solsight:trade_events:mainnet",
-    devnet: "solsight:trade_events:devnet"
+    mainnet: REDIS_CHANNELS.TRADE_EVENTS("mainnet"),
+    devnet: REDIS_CHANNELS.TRADE_EVENTS("devnet")
 } as const;
 
 export const INDEXER_TRADE_CHANNELS = [TRADE_CHANNELS.mainnet, TRADE_CHANNELS.devnet] as const;
