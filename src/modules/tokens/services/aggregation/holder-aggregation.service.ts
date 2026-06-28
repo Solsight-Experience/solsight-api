@@ -123,21 +123,22 @@ export class HolderAggregationService implements OnModuleInit, OnModuleDestroy {
     }
 
     async onPriceUpdate(event: PriceUpdateEvent): Promise<void> {
+        const network = event.network;
+
+        await this.tokenPriceService.setPrice({
+            cluster: network,
+            mint: event.mint,
+            priceUsd: event.price_usd,
+            priceNative: event.price_native,
+            slot: event.slot,
+            source: event.source
+        });
+
         const redis = this.redisService.getClient();
         if (!redis) return;
 
-        const network = event.network;
-        const priceKey = RedisService.KEYS.TOKEN_PRICE_LATEST(network, event.mint);
-
         try {
-            await redis.hset(priceKey, {
-                price_usd: event.price_usd,
-                price_native: event.price_native,
-                slot: event.slot,
-                source: event.source
-            });
             this.logger.log(`Updated price for token: ${event.mint}, price=${event.price_usd}`);
-            await redis.expire(priceKey, RedisService.TTL.TOKEN_PRICE_LATEST);
 
             // Recalculate unrealized PnL for top 50 holders
             const rankingKey = RedisService.KEYS.HOLDER_RANKING(network, event.mint);

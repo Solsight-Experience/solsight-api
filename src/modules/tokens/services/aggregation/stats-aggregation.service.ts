@@ -42,18 +42,19 @@ export class StatsAggregationService {
     private async storePriceData(tokenMint: string, network: Cluster, priceUsd: number, priceNative: number, swap: SwapEvent): Promise<void> {
         if (!isValidPrice(priceUsd)) return;
 
+        await this.tokenPriceService.setPrice({
+            cluster: network,
+            mint: tokenMint,
+            priceUsd,
+            priceNative,
+            slot: swap.slot,
+            source: "solsight-api"
+        });
+
         const redis = this.redisService.getClient();
         if (!redis) return;
 
         try {
-            // Store latest price
-            await this.redisService.hset(RedisService.KEYS.TOKEN_PRICE_LATEST(network, tokenMint), {
-                price_usd: priceUsd,
-                price_native: priceNative,
-                slot: swap.slot,
-                source: "solsight-api"
-            });
-
             // Store price in history for 24h change calculation
             const now = Date.now();
             const historyKey = RedisService.KEYS.TOKEN_PRICE_HISTORY(network, tokenMint);
