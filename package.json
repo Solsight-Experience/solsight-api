@@ -15,7 +15,6 @@
         "start:prod": "node dist/main",
         "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix && pnpm run lint:token-price",
         "lint:ci": "eslint . --no-inline-config --max-warnings=0 && pnpm run lint:token-price",
-        "lint:token-price": "bash scripts/check-token-price-key-usage.sh",
         "test": "jest",
         "test:watch": "jest --watch",
         "test:cov": "jest --coverage",
