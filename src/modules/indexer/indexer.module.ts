@@ -6,9 +6,10 @@ import { Token } from "../tokens/entities/token.entity";
 import { StreamConsumerService } from "./services/stream-consumer.service";
 import { RedisModule } from "../../redis/redis.module";
 import { INDEXER_EVENT_HANDLERS_TOKEN } from "../../redis/event-handler";
+import { TokensModule } from "../tokens/tokens.module";
 
 @Module({
-    imports: [TypeOrmModule.forFeature([MarketPriceEvent, Transaction, Token]), RedisModule],
+    imports: [TypeOrmModule.forFeature([MarketPriceEvent, Transaction, Token]), RedisModule, TokensModule],
     providers: [
         StreamConsumerService,
         {

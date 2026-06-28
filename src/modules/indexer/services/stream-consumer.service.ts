@@ -13,11 +13,11 @@ import { REDIS_CHANNELS, clusterFromChannel } from "../../../redis/channels";
 import type { EventHandler } from "../../../redis/event-handler";
 import type { RedisChannel } from "../../../redis/utils/redisChannels";
 import { logError } from "src/common/errors/error-helper";
+import { TokenPriceService } from "../../tokens/services/token-price.service";
 
 @Injectable()
 export class StreamConsumerService implements EventHandler<SwapEvent> {
     private readonly logger = new Logger(StreamConsumerService.name);
-    private latestPrices = new Map<string, { network: Cluster; address: string; price: number }>();
 
     constructor(
         @InjectRepository(MarketPriceEvent)
@@ -25,7 +25,8 @@ export class StreamConsumerService implements EventHandler<SwapEvent> {
         @InjectRepository(Transaction)
         private readonly transactionRepository: Repository<Transaction>,
         @InjectRepository(Token)
-        private readonly tokenRepository: Repository<Token>
+        private readonly tokenRepository: Repository<Token>,
+        private readonly tokenPriceService: TokenPriceService
     ) {}
 
     channels(): RedisChannel<SwapEvent>[] {
@@ -37,29 +38,39 @@ export class StreamConsumerService implements EventHandler<SwapEvent> {
         await this.handleSwap(normalizedSwap);
     }
 
-    private resolvePrice(swap: SwapEvent): number {
+    private async resolvePriceUsd(swap: SwapEvent): Promise<number> {
         if (swap.price_usd != null && swap.price_usd > 0) return swap.price_usd;
         const tokenMint = getTokenMintFromSwap(swap);
-        const network = this.eventNetwork(swap);
-        return this.latestPrices.get(`${network}:${tokenMint}`)?.price ?? swap.price_native;
+        const price = await this.tokenPriceService.getPrice(this.eventNetwork(swap), tokenMint);
+        return price.priceUsd;
     }
 
     private async handleSwap(swap: SwapEvent): Promise<void> {
         const tokenMint = getTokenMintFromSwap(swap);
+        const network = this.eventNetwork(swap);
+
         if (swap.price_usd != null && swap.price_usd > 0) {
-            const network = this.eventNetwork(swap);
-            this.latestPrices.set(`${network}:${tokenMint}`, { network, address: tokenMint, price: swap.price_usd });
+            await this.tokenPriceService.setPrice({
+                cluster: network,
+                mint: tokenMint,
+                priceUsd: swap.price_usd,
+                priceNative: swap.price_native,
+                slot: swap.slot,
+                source: "indexer-stream-consumer"
+            });
         }
 
-        await Promise.all([this.persistPriceEvent(swap), this.persistTransaction(swap)]);
+        const resolvedPriceUsd = await this.resolvePriceUsd(swap);
+
+        await Promise.all([this.persistPriceEvent(swap, resolvedPriceUsd), this.persistTransaction(swap, resolvedPriceUsd)]);
     }
 
-    private async persistPriceEvent(swap: SwapEvent): Promise<void> {
+    private async persistPriceEvent(swap: SwapEvent, resolvedPriceUsd: number): Promise<void> {
         try {
             const entity = this.priceEventRepository.create({
                 tokenMint: getTokenMintFromSwap(swap),
                 network: this.eventNetwork(swap),
-                price: this.resolvePrice(swap),
+                price: resolvedPriceUsd,
                 slot: String(swap.slot),
                 timestamp: String(swap.timestamp),
                 txSignature: swap.signature,
@@ -73,7 +84,7 @@ export class StreamConsumerService implements EventHandler<SwapEvent> {
         }
     }
 
-    private async persistTransaction(swap: SwapEvent): Promise<void> {
+    private async persistTransaction(swap: SwapEvent, resolvedPriceUsd: number): Promise<void> {
         try {
             const entity: TransactionInsertRow = {
                 signature: swap.signature,
@@ -90,7 +101,7 @@ export class StreamConsumerService implements EventHandler<SwapEvent> {
                 metadata: {
                     direction: swap.direction,
                     price_native: swap.price_native,
-                    price_usd: this.resolvePrice(swap),
+                    price_usd: resolvedPriceUsd,
                     fee_amount_ui: swap.fee_amount_ui
                 }
             };
@@ -140,18 +151,7 @@ export class StreamConsumerService implements EventHandler<SwapEvent> {
 
     @Cron("*/30 * * * * *")
     async flushTokenPrices(): Promise<void> {
-        if (!this.latestPrices.size) return;
-        const snapshot = new Map(this.latestPrices);
-        this.latestPrices.clear();
-
-        for (const { network, address, price } of snapshot.values()) {
-            try {
-                await this.tokenRepository.update({ address, network }, { price });
-            } catch (err) {
-                logError(this.logger, `Failed to update price for token ${address}`, err);
-            }
-        }
-        this.logger.debug(`Flushed prices for ${snapshot.size} tokens`);
+        return Promise.resolve();
     }
 
     private eventNetwork(swap: SwapEvent): Cluster {
