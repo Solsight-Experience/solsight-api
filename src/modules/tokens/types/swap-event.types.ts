@@ -82,7 +82,7 @@ export interface TradeData {
     amount_token: number;
     amount_sol: number;
     price: number;
-    price_usd: number;
+    price_usd: number | null;
     market_cap: number;
     trader_address: string;
     tx_url: string;
@@ -164,7 +164,7 @@ export function transformSwapToTrade(swap: SwapEvent, marketCap = 0): TradeData 
         amount_token: isBuy ? swap.token_out.amount_ui : swap.token_in.amount_ui,
         amount_sol: isBuy ? swap.token_in.amount_ui : swap.token_out.amount_ui,
         price: swap.price_native,
-        price_usd: swap.price_usd ?? swap.price_native,
+        price_usd: swap.price_usd,
         market_cap: marketCap,
         trader_address: swap.maker,
         tx_url: `https://solscan.io/tx/${swap.signature}`

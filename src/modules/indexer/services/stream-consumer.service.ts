@@ -34,11 +34,11 @@ export class StreamConsumerService implements EventHandler<SwapEvent> {
         await this.handleSwap(normalizedSwap);
     }
 
-    private async resolvePriceUsd(swap: SwapEvent): Promise<number> {
+    private async resolvePriceUsd(swap: SwapEvent): Promise<number | null> {
         if (swap.price_usd != null && swap.price_usd > 0) return swap.price_usd;
         const tokenMint = getTokenMintFromSwap(swap);
         const price = await this.tokenPriceService.getPrice(this.eventNetwork(swap), tokenMint);
-        return price.priceUsd;
+        return price.priceUsd > 0 ? price.priceUsd : null;
     }
 
     private async handleSwap(swap: SwapEvent): Promise<void> {
@@ -61,7 +61,9 @@ export class StreamConsumerService implements EventHandler<SwapEvent> {
         await Promise.all([this.persistPriceEvent(swap, resolvedPriceUsd), this.persistTransaction(swap, resolvedPriceUsd)]);
     }
 
-    private async persistPriceEvent(swap: SwapEvent, resolvedPriceUsd: number): Promise<void> {
+    private async persistPriceEvent(swap: SwapEvent, resolvedPriceUsd: number | null): Promise<void> {
+        if (resolvedPriceUsd == null) return;
+
         try {
             const entity = this.priceEventRepository.create({
                 tokenMint: getTokenMintFromSwap(swap),
@@ -80,7 +82,7 @@ export class StreamConsumerService implements EventHandler<SwapEvent> {
         }
     }
 
-    private async persistTransaction(swap: SwapEvent, resolvedPriceUsd: number): Promise<void> {
+    private async persistTransaction(swap: SwapEvent, resolvedPriceUsd: number | null): Promise<void> {
         try {
             const entity: TransactionInsertRow = {
                 signature: swap.signature,
