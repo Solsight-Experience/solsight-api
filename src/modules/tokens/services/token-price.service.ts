@@ -9,6 +9,14 @@ import type { TokenPriceResult, TokenPriceSetInput } from "../types/token-price.
 import { getErrorMessage, logError } from "src/common/errors/error-helper";
 
 @Injectable()
+/**
+ * Owns the live latest-price cache in Redis.
+ *
+ * Redis `TOKEN_PRICE_LATEST` is the slot-ordered, short-latency USD price source for
+ * request-time reads and trade ingestion. `tokens.price` remains a slower reference
+ * fallback populated by background token catalog sync jobs and is never treated as the
+ * live write target for swaps.
+ */
 export class TokenPriceService {
     private readonly logger = new Logger(TokenPriceService.name);
     private static readonly STALE_THRESHOLD_S = 5 * 60;

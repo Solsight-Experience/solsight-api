@@ -1,10 +1,8 @@
 import { Injectable, Logger } from "@nestjs/common";
-import { Cron } from "@nestjs/schedule";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
 import { MarketPriceEvent } from "../entities/market-price-event.entity";
 import { Transaction, TransactionStatus, TransactionType } from "../../transactions/entities/transaction.entity";
-import { Token } from "../../tokens/entities/token.entity";
 import { SwapEvent, getTokenMintFromSwap } from "../../tokens/types/swap-event.types";
 import { TransactionInsertParam, TransactionInsertRow } from "../types/stream-consumer.types";
 import type { Cluster } from "../../../common/cluster/cluster.types";
@@ -24,8 +22,6 @@ export class StreamConsumerService implements EventHandler<SwapEvent> {
         private readonly priceEventRepository: Repository<MarketPriceEvent>,
         @InjectRepository(Transaction)
         private readonly transactionRepository: Repository<Transaction>,
-        @InjectRepository(Token)
-        private readonly tokenRepository: Repository<Token>,
         private readonly tokenPriceService: TokenPriceService
     ) {}
 
@@ -148,12 +144,6 @@ export class StreamConsumerService implements EventHandler<SwapEvent> {
             params
         );
     }
-
-    @Cron("*/30 * * * * *")
-    async flushTokenPrices(): Promise<void> {
-        return Promise.resolve();
-    }
-
     private eventNetwork(swap: SwapEvent): Cluster {
         return swap.network;
     }
