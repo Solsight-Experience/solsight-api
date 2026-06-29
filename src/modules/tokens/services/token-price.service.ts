@@ -15,7 +15,8 @@ import { getErrorMessage, logError } from "src/common/errors/error-helper";
  * Redis `TOKEN_PRICE_LATEST` is the slot-ordered, short-latency USD price source for
  * request-time reads and trade ingestion. `tokens.price` remains a slower reference
  * fallback populated by background token catalog sync jobs and is never treated as the
- * live write target for swaps.
+ * live write target for swaps. ESLint blocks `RedisService.KEYS.TOKEN_PRICE_LATEST`
+ * references outside this service and the Redis key registry.
  */
 export class TokenPriceService {
     private readonly logger = new Logger(TokenPriceService.name);
