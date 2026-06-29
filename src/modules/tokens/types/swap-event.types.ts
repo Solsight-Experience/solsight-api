@@ -16,13 +16,11 @@ export interface SwapPriceResult {
 }
 
 export function calculateSwapPrices(swap: SwapEvent): SwapPriceResult {
+    const priceNative = swap.price_native;
     const priceUsd = swap.price_usd ?? 0;
 
-    let priceUsdTokenIn: number;
-    let priceUsdTokenOut: number;
-
-    priceUsdTokenOut = priceUsd;
-    priceUsdTokenIn = swap.token_in.amount_ui > 0 ? (swap.token_out.amount_ui / swap.token_in.amount_ui) * priceUsd : 0;
+    const priceUsdTokenOut = priceUsd;
+    const priceUsdTokenIn = priceNative > 0 ? priceNative * priceUsd : 0;
 
     return {
         priceUsdTokenIn,
