@@ -2,16 +2,10 @@ import type { Cluster } from "../../../common/cluster/cluster.types";
 
 export type TradeDirection = "BUY" | "SELL";
 
-const STABLECOIN_SYMBOLS = new Set(["USDC", "USDT"]);
-
 const MAX_PRICE_USD = 1_000_000_000; // 1 billion USD — cap for out-of-range detection
 
 export function isValidPrice(price: number): boolean {
     return isFinite(price) && price > 0 && price < MAX_PRICE_USD;
-}
-
-export function isStablecoin(token: TokenInfo): boolean {
-    return STABLECOIN_SYMBOLS.has(token.symbol);
 }
 
 export interface SwapPriceResult {
@@ -27,16 +21,8 @@ export function calculateSwapPrices(swap: SwapEvent): SwapPriceResult {
     let priceUsdTokenIn: number;
     let priceUsdTokenOut: number;
 
-    if (isStablecoin(swap.token_in)) {
-        priceUsdTokenIn = 1;
-        priceUsdTokenOut = priceUsd;
-    } else if (isStablecoin(swap.token_out)) {
-        priceUsdTokenIn = priceUsd;
-        priceUsdTokenOut = 1;
-    } else {
-        priceUsdTokenOut = priceUsd;
-        priceUsdTokenIn = swap.token_in.amount_ui > 0 ? (swap.token_out.amount_ui / swap.token_in.amount_ui) * priceUsd : 0;
-    }
+    priceUsdTokenOut = priceUsd;
+    priceUsdTokenIn = swap.token_in.amount_ui > 0 ? (swap.token_out.amount_ui / swap.token_in.amount_ui) * priceUsd : 0;
 
     return {
         priceUsdTokenIn,
