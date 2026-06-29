@@ -146,6 +146,7 @@ export class StreamConsumerService implements EventHandler<SwapEvent> {
             params
         );
     }
+
     private eventNetwork(swap: SwapEvent): Cluster {
         return swap.network;
     }

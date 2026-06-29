@@ -106,7 +106,7 @@ export class EventStreamDispatcher implements OnApplicationBootstrap {
         const seen = new Set<EventHandler>();
 
         for (const provider of this.discoveryService.getProviders()) {
-            const instance = provider.instance;
+            const instance: unknown = provider.instance;
             if (!this.isEventHandler(instance) || seen.has(instance)) {
                 continue;
             }

@@ -6,6 +6,7 @@ import globals from "globals";
 import tseslint from "typescript-eslint";
 
 export default defineConfig(
+    // Only test spec files are excluded from ESLint; production sources still lint normally.
     globalIgnores(["eslint.config.mjs", "node_modules/", "dist/", "coverage/", "logs/", "test/", "**/*.spec.ts", "**/*.e2e-spec.ts"]),
     eslint.configs.recommended,
     ...tseslint.configs.recommendedTypeChecked,

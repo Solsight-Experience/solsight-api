@@ -31,6 +31,11 @@ export class HolderTrackingService implements OnModuleDestroy {
         }
     }
 
+    logResponse(event: unknown, channel: string): void {
+        const cluster = channel.split(":").pop();
+        this.logger.debug(`Indexer ${cluster} response: ${JSON.stringify(event)}`);
+    }
+
     /**
      * Called when a client subscribes to a holders room.
      * Extracts the token mint from the room name and tracks it.
@@ -157,11 +162,6 @@ export class HolderTrackingService implements OnModuleDestroy {
 
     private trackingKey(cluster: Cluster, mint: string): string {
         return `${cluster}:${mint}`;
-    }
-
-    logResponse(event: unknown, channel: string): void {
-        const cluster = channel.split(":").pop();
-        this.logger.debug(`Indexer ${cluster} response: ${JSON.stringify(event)}`);
     }
 
     private async sendTrackCommand(cluster: Cluster, mint: string, bootstrap = true): Promise<void> {

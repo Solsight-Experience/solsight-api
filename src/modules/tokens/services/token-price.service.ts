@@ -8,7 +8,6 @@ import { RedisService } from "src/redis";
 import type { TokenPriceResult, TokenPriceSetInput } from "../types/token-price.types";
 import { getErrorMessage, logError } from "src/common/errors/error-helper";
 
-@Injectable()
 /**
  * Owns the live latest-price cache in Redis.
  *
@@ -18,6 +17,7 @@ import { getErrorMessage, logError } from "src/common/errors/error-helper";
  * live write target for swaps. ESLint blocks `RedisService.KEYS.TOKEN_PRICE_LATEST`
  * references outside this service and the Redis key registry.
  */
+@Injectable()
 export class TokenPriceService {
     private readonly logger = new Logger(TokenPriceService.name);
     private static readonly STALE_THRESHOLD_S = 5 * 60;
