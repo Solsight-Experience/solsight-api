@@ -14,7 +14,7 @@ export class HeliusService extends BaseSolanaRpcService {
     constructor(rpcUrl: string, apiKey: string) {
         super(rpcUrl);
         this.apiClient = axios.create({
-            baseURL: rpcUrl,
+            baseURL: HeliusService.stripApiKeyFromUrl(rpcUrl),
             timeout: 10000,
             headers: {
                 "Content-Type": "application/json"
@@ -23,6 +23,15 @@ export class HeliusService extends BaseSolanaRpcService {
                 "api-key": apiKey
             }
         });
+    }
+
+    static stripApiKeyFromUrl(url: string): string {
+        if (url.includes("api-key")) {
+            const parsedUrl = new URL(url);
+            parsedUrl.searchParams.delete("api-key");
+            return parsedUrl.toString();
+        }
+        return url;
     }
 
     async getAsset(

@@ -4,39 +4,41 @@ import { GetTrendingDto } from "../dtos/get-trending.dto";
 import { GetNewListingsDto } from "../dtos/get-new-listings.dto";
 import { GetGainersLosersDto } from "../dtos/get-gainers-losers.dto";
 import { GetCategoryDto } from "../dtos/get-category.dto";
+import { RequestCluster } from "../../../common/cluster/request-cluster.decorator";
+import type { Cluster } from "../../../common/cluster/cluster.types";
 
 @Controller("discovery")
 export class DiscoveryController {
     constructor(private readonly discoveryService: DiscoveryService) {}
 
     @Get("trending")
-    async getTrending(@Query() dto: GetTrendingDto) {
-        return this.discoveryService.getTrending(dto);
+    async getTrending(@RequestCluster() cluster: Cluster, @Query() dto: GetTrendingDto) {
+        return this.discoveryService.getTrending(cluster, dto);
     }
 
     @Get("new-listings")
-    async getNewListings(@Query() dto: GetNewListingsDto) {
-        return this.discoveryService.getNewListings(dto);
+    async getNewListings(@RequestCluster() cluster: Cluster, @Query() dto: GetNewListingsDto) {
+        return this.discoveryService.getNewListings(cluster, dto);
     }
 
     @Get("categories")
-    async getCategories(@Query() dto: GetCategoryDto) {
-        return this.discoveryService.getCategories(dto);
+    async getCategories(@RequestCluster() cluster: Cluster, @Query() dto: GetCategoryDto) {
+        return this.discoveryService.getCategories(cluster, dto);
     }
 
     @Get("categories/sync")
-    async syncCategories() {
-        await this.discoveryService.syncCategories();
+    async syncCategories(@RequestCluster() cluster: Cluster) {
+        await this.discoveryService.syncCategoriesForCluster(cluster);
         return { message: "Categories synced successfully" };
     }
 
     @Get("categories/:slug")
-    async getCategoryDetail(@Param("slug") slug: string, @Query() dto: GetCategoryDto) {
-        return this.discoveryService.getCategoryDetail(slug, dto);
+    async getCategoryDetail(@RequestCluster() cluster: Cluster, @Param("slug") slug: string, @Query() dto: GetCategoryDto) {
+        return this.discoveryService.getCategoryDetail(cluster, slug, dto);
     }
 
     @Get("gainers-losers")
-    async getGainersLosers(@Query() dto: GetGainersLosersDto) {
-        return this.discoveryService.getGainersLosers(dto);
+    async getGainersLosers(@RequestCluster() cluster: Cluster, @Query() dto: GetGainersLosersDto) {
+        return this.discoveryService.getGainersLosers(cluster, dto);
     }
 }

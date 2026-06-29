@@ -4,6 +4,8 @@ import { ChatService } from "../services/chat.service";
 import { SendMessageDto } from "../dtos/send-message.dto";
 import { ChatResponsePayload } from "../types/chat.types";
 import { CurrentUser, CurrentUserPayload } from "../../../common/decorators/current-user.decorator";
+import { RequestCluster } from "../../../common/cluster/request-cluster.decorator";
+import type { Cluster } from "../../../common/cluster/cluster.types";
 
 @Controller("chat")
 @UseGuards(JwtAuthGuard)
@@ -16,7 +18,7 @@ export class ChatController {
     constructor(private readonly chatService: ChatService) {}
 
     @Post("message")
-    async sendMessage(@Body() dto: SendMessageDto, @CurrentUser() user: CurrentUserPayload): Promise<ChatResponsePayload> {
+    async sendMessage(@RequestCluster() cluster: Cluster, @Body() dto: SendMessageDto, @CurrentUser() user: CurrentUserPayload): Promise<ChatResponsePayload> {
         const userId = user.id;
 
         const now = Date.now();
@@ -39,6 +41,7 @@ export class ChatController {
         this.logger.log(`Received chat message from userId=${userId} session=${dto.sessionId}`, ChatController.name);
 
         return this.chatService.sendMessage({
+            cluster,
             message: dto.message,
             sessionId: dto.sessionId,
             userId: userId,

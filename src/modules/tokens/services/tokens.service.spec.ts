@@ -1,5 +1,4 @@
 import type { Repository } from "typeorm";
-import type { ClusterProvider } from "../../../common/cluster/cluster.provider";
 import type { CoinGeckoService } from "../../../infra/coingecko/coingecko.service";
 import type { JupiterService } from "../../../infra/jupiter/jupiter.service";
 import type { SolanaService } from "../../../infra/solana/solana.service";
@@ -7,6 +6,7 @@ import type { RedisService } from "../../../redis/services/redis.service";
 import type { Holder } from "../entities/holder.entity";
 import type { OhlcCandle } from "../entities/ohlc-candle.entity";
 import type { Token } from "../entities/token.entity";
+import type { Transaction } from "../../transactions/entities/transaction.entity";
 import type { EnrichedHolder, HolderEnrichmentInput } from "../types/holder-aggregation.types";
 import type { HolderAggregationService } from "./aggregation/holder-aggregation.service";
 import type { OhlcAggregationService } from "./aggregation/ohlc-aggregation.service";
@@ -33,8 +33,7 @@ describe("TokensService", () => {
             {} as Repository<Token>,
             {} as Repository<OhlcCandle>,
             holderRepository as unknown as Repository<Holder>,
-            {} as Repository<import("../../transactions/entities/transaction.entity").Transaction>,
-            { cluster: "devnet" } as ClusterProvider,
+            {} as Repository<Transaction>,
             {} as SolanaService,
             {} as JupiterService,
             {} as CoinGeckoService,
@@ -55,7 +54,7 @@ describe("TokensService", () => {
         holderRepository.findAndCount.mockResolvedValue([holderRows, 42]);
         holderAggregationService.enrichHolders.mockResolvedValue(enrichedHolders);
 
-        const result = await service.getHolders("mint-address", 2);
+        const result = await service.getHolders("devnet", "mint-address", 2);
 
         expect(holderRepository.findAndCount).toHaveBeenCalledWith({
             where: { tokenMint: "mint-address", network: "devnet" },
@@ -106,7 +105,7 @@ describe("TokensService", () => {
         holderRepository.findAndCount.mockResolvedValue([[], 0]);
         holderAggregationService.enrichHolders.mockResolvedValue([]);
 
-        await service.getHolders("mint-address", 1000);
+        await service.getHolders("devnet", "mint-address", 1000);
 
         expect(holderRepository.findAndCount).toHaveBeenCalledWith(
             expect.objectContaining({

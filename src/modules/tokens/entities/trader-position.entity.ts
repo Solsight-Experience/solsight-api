@@ -1,9 +1,9 @@
 import { Entity, PrimaryGeneratedColumn, Column, Index, Unique, UpdateDateColumn, CreateDateColumn } from "typeorm";
 
 @Entity("trader_positions")
-@Unique(["walletAddress", "tokenMint"])
-@Index(["tokenMint", "totalVolume"])
-@Index(["tokenMint", "realizedPnl"])
+@Unique("UQ_trader_positions_wallet_token_network", ["walletAddress", "tokenMint", "network"])
+@Index(["tokenMint", "network", "totalVolume"])
+@Index(["tokenMint", "network", "realizedPnl"])
 export class TraderPosition {
     @PrimaryGeneratedColumn("uuid")
     id: string;

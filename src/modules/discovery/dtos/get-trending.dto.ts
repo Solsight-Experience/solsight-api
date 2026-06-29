@@ -1,5 +1,6 @@
 import { IsEnum, IsInt, IsNumber, IsOptional, Max, Min } from "class-validator";
 import { Type } from "class-transformer";
+import { ClusterQueryDto } from "../../../common/cluster/cluster-query.dto";
 
 export enum SortByTrending {
     VOLUME_24H = "volume_24h",
@@ -19,7 +20,7 @@ export enum TimeFrame {
     SEVEN_DAYS = "7d"
 }
 
-export class GetTrendingDto {
+export class GetTrendingDto extends ClusterQueryDto {
     @IsOptional()
     @IsEnum(SortByTrending)
     sort_by?: SortByTrending = SortByTrending.VOLUME_24H;

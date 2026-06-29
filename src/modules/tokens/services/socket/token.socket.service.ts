@@ -12,6 +12,8 @@ import { EnrichedHolder } from "../../types/holder-aggregation.types";
 import { TokenSocketData } from "../../types/token-socket.types";
 import { INDEXER_TRADE_CHANNELS } from "../../../../config/configuration";
 import { logError } from "src/common/errors/error-helper";
+import { requireCluster, type Cluster } from "../../../../common/cluster/cluster.types";
+import { RoomFactory } from "./room/room.factory";
 
 @Injectable()
 export class TokenSocketService implements OnModuleInit {
@@ -46,11 +48,11 @@ export class TokenSocketService implements OnModuleInit {
 
     private async subscribeToTrades(): Promise<void> {
         for (const channel of INDEXER_TRADE_CHANNELS) {
-            const network = channel.split(":").pop();
+            const network = requireCluster(channel.split(":").pop(), `Redis trade channel ${channel}`);
             this.logger.log(`Subscribing to Redis channel: ${channel}`);
 
             await this.pubSubService.subscribe<SwapEvent>(channel, (swap) => {
-                void this.processSwapEvent({ ...swap, network: swap.network || network }).catch((error) => {
+                void this.processSwapEvent({ ...swap, network }).catch((error) => {
                     logError(this.logger, "Error processing swap event", error);
                 });
             });
@@ -74,17 +76,17 @@ export class TokenSocketService implements OnModuleInit {
 
         // Buffer trades for scheduler emission
         const [supplyOut, supplyIn] = await Promise.all([
-            this.statsAggregation.getTotalSupply(swap.token_out.mint),
-            this.statsAggregation.getTotalSupply(swap.token_in.mint)
+            this.statsAggregation.getTotalSupply(swap.network, swap.token_out.mint),
+            this.statsAggregation.getTotalSupply(swap.network, swap.token_in.mint)
         ]);
 
         const tradeDataTokenOut = transformSwapToTradeForToken(swap, swap.token_out.mint, prices.priceUsdTokenOut, prices.priceUsdTokenOut * supplyOut);
-        this.bufferTrade(swap.token_out.mint, tradeDataTokenOut);
-        await this.statsAggregation.storeTradeData(swap.token_out.mint, tradeDataTokenOut, swap.network || "mainnet");
+        this.bufferTrade(swap.network, swap.token_out.mint, tradeDataTokenOut);
+        await this.statsAggregation.storeTradeData(swap.network, swap.token_out.mint, tradeDataTokenOut);
 
         const tradeDataTokenIn = transformSwapToTradeForToken(swap, swap.token_in.mint, prices.priceUsdTokenIn, prices.priceUsdTokenIn * supplyIn);
-        this.bufferTrade(swap.token_in.mint, tradeDataTokenIn);
-        await this.statsAggregation.storeTradeData(swap.token_in.mint, tradeDataTokenIn, swap.network || "mainnet");
+        this.bufferTrade(swap.network, swap.token_in.mint, tradeDataTokenIn);
+        await this.statsAggregation.storeTradeData(swap.network, swap.token_in.mint, tradeDataTokenIn);
     }
 
     private startScheduler(domain: RoomDomain, interval: RoomInterval) {
@@ -115,11 +117,11 @@ export class TokenSocketService implements OnModuleInit {
     }
 
     private async buildData(domain: RoomDomain, room: string, _interval: RoomInterval): Promise<TokenSocketData | null> {
-        const [, token] = room.split(":");
+        const { cluster, resource: token } = RoomFactory.parse(room);
 
         switch (domain) {
             case "price": {
-                const stats = await this.statsAggregation.getStats(token);
+                const stats = await this.statsAggregation.getStats(cluster, token);
                 return {
                     token,
                     price: stats.price,
@@ -128,7 +130,7 @@ export class TokenSocketService implements OnModuleInit {
             }
 
             case "stats": {
-                const stats = await this.statsAggregation.getStats(token);
+                const stats = await this.statsAggregation.getStats(cluster, token);
                 return {
                     token,
                     ...stats
@@ -136,7 +138,7 @@ export class TokenSocketService implements OnModuleInit {
             }
 
             case "volume": {
-                const stats = await this.statsAggregation.getStats(token);
+                const stats = await this.statsAggregation.getStats(cluster, token);
                 return {
                     token,
                     volume: stats.volume["24h"],
@@ -146,15 +148,16 @@ export class TokenSocketService implements OnModuleInit {
 
             case "trades":
             case "tx": {
-                const buffered = this.tradesBuffer.get(token);
+                const bufferKey = this.tokenKey(cluster, token);
+                const buffered = this.tradesBuffer.get(bufferKey);
                 if (!buffered || buffered.length === 0) return null;
                 const trades = [...buffered];
-                this.tradesBuffer.delete(token);
+                this.tradesBuffer.delete(bufferKey);
                 return { token, trades };
             }
 
             case "top_traders": {
-                const traders = await this.traderAggregation.getTopTraders(token, 10);
+                const traders = await this.traderAggregation.getTopTraders(cluster, token, 10);
                 if (traders.length === 0) return null;
                 return {
                     token,
@@ -163,9 +166,10 @@ export class TokenSocketService implements OnModuleInit {
             }
 
             case "holders": {
-                const holders = await this.holderAggregation.getTopHolders(token, 20);
+                const holders = await this.holderAggregation.getTopHolders(cluster, token, 20);
 
-                const prev = this.previousHolders.get(token) ?? new Map<string, EnrichedHolder>();
+                const holderKey = this.tokenKey(cluster, token);
+                const prev = this.previousHolders.get(holderKey) ?? new Map<string, EnrichedHolder>();
                 const current = new Map<string, EnrichedHolder>(holders.map((h) => [h.address, h]));
 
                 const changed = holders.filter((h) => {
@@ -176,7 +180,7 @@ export class TokenSocketService implements OnModuleInit {
 
                 const removed = [...prev.keys()].filter((addr) => !current.has(addr));
 
-                this.previousHolders.set(token, current);
+                this.previousHolders.set(holderKey, current);
 
                 if (changed.length === 0 && removed.length === 0) return null;
 
@@ -193,11 +197,11 @@ export class TokenSocketService implements OnModuleInit {
     }
 
     private async emitOhlc(room: string, ohlcInterval: OhlcInterval): Promise<void> {
-        const [, token] = room.split(":");
+        const { cluster, resource: token } = RoomFactory.parse(room);
         const bucketTime = this.ohlcAggregation.getBucketTimestamp(ohlcInterval) / 1000;
         const lastClose = this.lastEmittedClose.get(room);
 
-        const currentOhlc = await this.ohlcAggregation.getOhlc(token, ohlcInterval);
+        const currentOhlc = await this.ohlcAggregation.getOhlc(cluster, token, ohlcInterval);
 
         if (!currentOhlc) {
             // Bucket trống (không có swap) → emit flat candle từ lastClose
@@ -234,12 +238,17 @@ export class TokenSocketService implements OnModuleInit {
         this.lastEmittedClose.set(room, candle.close);
     }
 
-    private bufferTrade(tokenMint: string, trade: TradeData): void {
-        if (!this.tradesBuffer.has(tokenMint)) {
-            this.tradesBuffer.set(tokenMint, []);
+    private bufferTrade(cluster: Cluster, tokenMint: string, trade: TradeData): void {
+        const key = this.tokenKey(cluster, tokenMint);
+        if (!this.tradesBuffer.has(key)) {
+            this.tradesBuffer.set(key, []);
         }
-        const buffer = this.tradesBuffer.get(tokenMint)!;
+        const buffer = this.tradesBuffer.get(key)!;
         if (buffer.some((t) => t.tx_hash === trade.tx_hash)) return;
         buffer.push({ token: tokenMint, ...trade });
+    }
+
+    private tokenKey(cluster: Cluster, tokenMint: string): string {
+        return `${cluster}:${tokenMint}`;
     }
 }

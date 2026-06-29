@@ -3,23 +3,25 @@ import { BuildStakingTransactionDto } from "../dtos/build-staking-transaction.dt
 import { GetStakingHistoryDto } from "../dtos/get-staking-history.dto";
 import { GetStakingPositionDto } from "../dtos/get-staking-position.dto";
 import { StakingService } from "../services/staking.service";
+import { RequestCluster } from "../../../common/cluster/request-cluster.decorator";
+import type { Cluster } from "../../../common/cluster/cluster.types";
 
 @Controller("staking")
 export class StakingController {
     constructor(private readonly stakingService: StakingService) {}
 
     @Get("position")
-    getPosition(@Query() dto: GetStakingPositionDto) {
-        return this.stakingService.getPosition(dto);
+    getPosition(@RequestCluster() cluster: Cluster, @Query() dto: GetStakingPositionDto) {
+        return this.stakingService.getPosition(cluster, dto);
     }
 
     @Get("history")
-    getHistory(@Query() dto: GetStakingHistoryDto) {
-        return this.stakingService.getHistory(dto);
+    getHistory(@RequestCluster() cluster: Cluster, @Query() dto: GetStakingHistoryDto) {
+        return this.stakingService.getHistory(cluster, dto);
     }
 
     @Post("transaction")
-    buildTransaction(@Body() dto: BuildStakingTransactionDto) {
-        return this.stakingService.buildTransaction(dto);
+    buildTransaction(@RequestCluster() cluster: Cluster, @Body() dto: BuildStakingTransactionDto) {
+        return this.stakingService.buildTransaction(cluster, dto);
     }
 }

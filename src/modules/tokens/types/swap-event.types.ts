@@ -1,3 +1,5 @@
+import type { Cluster } from "../../../common/cluster/cluster.types";
+
 export type TradeDirection = "BUY" | "SELL";
 
 const STABLECOIN_SYMBOLS = new Set(["USDC", "USDT"]);
@@ -58,7 +60,7 @@ export interface TokenInfo {
 }
 
 export interface SwapEvent {
-    network?: string;
+    network: Cluster;
     event_id: string;
     event_type: string;
     timestamp: number;

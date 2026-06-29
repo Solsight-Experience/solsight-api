@@ -1,7 +1,7 @@
-import { Injectable, Logger, Optional } from "@nestjs/common";
+import { Injectable, Logger, ServiceUnavailableException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import axios, { AxiosInstance } from "axios";
-import { ClusterProvider } from "../../common/cluster/cluster.provider";
+import type { Cluster } from "../../common/cluster/cluster.types";
 import { JsonValue } from "../../common/types";
 import {
     CancelOrderParams,
@@ -29,10 +29,7 @@ export class JupiterService {
     private readonly CACHE_DURATION = 3600000; // 1 hour
     private readonly skippedOperationWarnings = new Set<string>();
 
-    constructor(
-        private readonly configService: ConfigService,
-        @Optional() private readonly clusterProvider?: ClusterProvider
-    ) {
+    constructor(private readonly configService: ConfigService) {
         const baseUrl = this.configService.get<string>("jupiter.apiUrl");
         const apiKey = this.configService.get<string>("jupiter.apiKey");
 
@@ -48,11 +45,8 @@ export class JupiterService {
         this.logger.log(`Jupiter API initialized: ${baseUrl} (mainnet-only; skipped on non-mainnet clusters)`);
     }
 
-    private canUseJupiter(operation: string): boolean {
-        const cluster = this.clusterProvider?.cluster ?? "mainnet";
-        if (cluster === "mainnet") {
-            return true;
-        }
+    private assertMainnet(cluster: Cluster, operation: string): void {
+        if (cluster === "mainnet") return;
 
         const warningKey = `${cluster}:${operation}`;
         if (!this.skippedOperationWarnings.has(warningKey)) {
@@ -60,7 +54,7 @@ export class JupiterService {
             this.logger.warn(`Skipping Jupiter ${operation} on ${cluster}; Jupiter API is mainnet-only`);
         }
 
-        return false;
+        throw new ServiceUnavailableException(`Jupiter ${operation} is unavailable on devnet.`);
     }
 
     /**
@@ -68,11 +62,9 @@ export class JupiterService {
      * @param tokenAddresses Array of token mint addresses
      * @returns Map of token address to price in USD
      */
-    async getTokenPrices(tokenAddresses: string[]): Promise<Map<string, number>> {
+    async getTokenPrices(cluster: Cluster, tokenAddresses: string[]): Promise<Map<string, number>> {
+        this.assertMainnet(cluster, "price lookup");
         if (tokenAddresses.length === 0) {
-            return new Map();
-        }
-        if (!this.canUseJupiter("price lookup")) {
             return new Map();
         }
 
@@ -109,18 +101,16 @@ export class JupiterService {
     /**
      * Get single token price
      */
-    async getTokenPrice(tokenAddress: string): Promise<number | null> {
-        const prices = await this.getTokenPrices([tokenAddress]);
+    async getTokenPrice(cluster: Cluster, tokenAddress: string): Promise<number | null> {
+        const prices = await this.getTokenPrices(cluster, [tokenAddress]);
         return prices.get(tokenAddress) || null;
     }
 
     /**
      * Get all verified tokens from Jupiter
      */
-    async getTokenList(): Promise<JupiterTokenV2[]> {
-        if (!this.canUseJupiter("token list lookup")) {
-            return [];
-        }
+    async getTokenList(cluster: Cluster): Promise<JupiterTokenV2[]> {
+        this.assertMainnet(cluster, "token list lookup");
 
         // Return cached data if still valid
         const now = Date.now();
@@ -146,10 +136,8 @@ export class JupiterService {
         }
     }
 
-    async searchTokens(tokenAddresses: string[]): Promise<JupiterTokenMintInformation[]> {
-        if (!this.canUseJupiter("token search")) {
-            return [];
-        }
+    async searchTokens(cluster: Cluster, tokenAddresses: string[]): Promise<JupiterTokenMintInformation[]> {
+        this.assertMainnet(cluster, "token search");
 
         try {
             const response = await this.apiClient.get<JupiterTokenMintInformation[]>("/tokens/v2/search", {
@@ -172,8 +160,8 @@ export class JupiterService {
     /**
      * Get token info from Jupiter (normalized to JupiterToken interface)
      */
-    async searchToken(tokenAddress: string): Promise<JupiterTokenMintInformation | null> {
-        const response = await this.searchTokens([tokenAddress]);
+    async searchToken(cluster: Cluster, tokenAddress: string): Promise<JupiterTokenMintInformation | null> {
+        const response = await this.searchTokens(cluster, [tokenAddress]);
         if (response.length == 0) {
             return null;
         }
@@ -183,10 +171,8 @@ export class JupiterService {
     /**
      * Create a limit order on Jupiter
      */
-    async createOrder(params: CreateOrderParams): Promise<CreateOrderResponse | null> {
-        if (!this.canUseJupiter("limit order create")) {
-            return null;
-        }
+    async createOrder(cluster: Cluster, params: CreateOrderParams): Promise<CreateOrderResponse> {
+        this.assertMainnet(cluster, "limit order create");
 
         try {
             this.logger.log(`Creating limit order: ${params.inputMint} -> ${params.outputMint}`);
@@ -204,10 +190,8 @@ export class JupiterService {
     /**
      * Cancel a single limit order
      */
-    async cancelOrder(cancelOrderParams: CancelOrderParams): Promise<CancelOrderResponse | null> {
-        if (!this.canUseJupiter("limit order cancel")) {
-            return null;
-        }
+    async cancelOrder(cluster: Cluster, cancelOrderParams: CancelOrderParams): Promise<CancelOrderResponse> {
+        this.assertMainnet(cluster, "limit order cancel");
 
         const order = cancelOrderParams.order;
         try {
@@ -226,10 +210,8 @@ export class JupiterService {
     /**
      * Cancel multiple limit orders (batched in groups of 5)
      */
-    async cancelOrders(maker: string, orders?: string[], computeUnitPrice = "auto"): Promise<CancelOrdersResponse | null> {
-        if (!this.canUseJupiter("limit order cancel batch")) {
-            return null;
-        }
+    async cancelOrders(cluster: Cluster, maker: string, orders?: string[], computeUnitPrice = "auto"): Promise<CancelOrdersResponse> {
+        this.assertMainnet(cluster, "limit order cancel batch");
 
         try {
             this.logger.log(`Canceling ${orders?.length || "all"} orders for maker: ${maker}`);
@@ -261,16 +243,15 @@ export class JupiterService {
      * Get trigger orders (active or history)
      */
     async getTriggerOrders(
+        cluster: Cluster,
         user: string,
         orderStatus: "active" | "history",
         inputMint?: string,
         outputMint?: string,
         page = 1,
         includeFailedTx?: boolean
-    ): Promise<JsonValue | null> {
-        if (!this.canUseJupiter("limit order lookup")) {
-            return null;
-        }
+    ): Promise<JsonValue> {
+        this.assertMainnet(cluster, "limit order lookup");
 
         try {
             const params: {
@@ -312,10 +293,8 @@ export class JupiterService {
     /**
      * Get a swap quote from Jupiter
      */
-    async getSwapQuote(params: JupiterGetSwapQuoteParams): Promise<JupiterQuoteResponse | null> {
-        if (!this.canUseJupiter("swap quote")) {
-            return null;
-        }
+    async getSwapQuote(cluster: Cluster, params: JupiterGetSwapQuoteParams): Promise<JupiterQuoteResponse> {
+        this.assertMainnet(cluster, "swap quote");
 
         try {
             const response = await this.apiClient.get<JupiterQuoteResponse>("/swap/v1/quote", { params });
@@ -329,10 +308,8 @@ export class JupiterService {
     /**
      * Get an unsigned swap transaction from Jupiter
      */
-    async getSwapTransaction(params: JupiterSwapRequest): Promise<JupiterSwapResponse | null> {
-        if (!this.canUseJupiter("swap transaction")) {
-            return null;
-        }
+    async getSwapTransaction(cluster: Cluster, params: JupiterSwapRequest): Promise<JupiterSwapResponse> {
+        this.assertMainnet(cluster, "swap transaction");
 
         try {
             const response = await this.apiClient.post<JupiterSwapResponse>("/swap/v1/swap", {
@@ -349,10 +326,8 @@ export class JupiterService {
     /**
      * Execute a limit order transaction
      */
-    async executeOrder(executeOrderParams: ExecuteParams): Promise<ExecuteResponse | null> {
-        if (!this.canUseJupiter("limit order execute")) {
-            return null;
-        }
+    async executeOrder(cluster: Cluster, executeOrderParams: ExecuteParams): Promise<ExecuteResponse> {
+        this.assertMainnet(cluster, "limit order execute");
 
         const requestId = executeOrderParams.requestId;
         try {

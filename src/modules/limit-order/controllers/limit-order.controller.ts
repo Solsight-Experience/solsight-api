@@ -2,6 +2,8 @@ import { Controller, Post, Get, Body, Query, UseGuards } from "@nestjs/common";
 import { LimitOrderService } from "../services/limit-order.service";
 import { CreateOrderDto, CancelOrderDto, CancelOrdersDto, GetOrdersDto, ExecuteOrderDto } from "../dtos";
 import { JwtAuthGuard } from "../../auth/guards/jwt-auth.guard";
+import { RequestCluster } from "../../../common/cluster/request-cluster.decorator";
+import type { Cluster } from "../../../common/cluster/cluster.types";
 
 @Controller("limit-orders")
 @UseGuards(JwtAuthGuard)
@@ -14,8 +16,8 @@ export class LimitOrderController {
      * @returns Order creation result with transaction to sign
      */
     @Post("create")
-    async createOrder(@Body() createOrderDto: CreateOrderDto) {
-        return this.limitOrderService.createOrder(createOrderDto);
+    async createOrder(@RequestCluster() cluster: Cluster, @Body() createOrderDto: CreateOrderDto) {
+        return this.limitOrderService.createOrder(cluster, createOrderDto);
     }
 
     /**
@@ -24,8 +26,8 @@ export class LimitOrderController {
      * @returns Cancellation transaction to sign
      */
     @Post("cancel")
-    async cancelOrder(@Body() cancelOrderDto: CancelOrderDto) {
-        return this.limitOrderService.cancelOrder(cancelOrderDto);
+    async cancelOrder(@RequestCluster() cluster: Cluster, @Body() cancelOrderDto: CancelOrderDto) {
+        return this.limitOrderService.cancelOrder(cluster, cancelOrderDto);
     }
 
     /**
@@ -34,8 +36,8 @@ export class LimitOrderController {
      * @returns Cancellation transactions to sign (batched in groups of 5)
      */
     @Post("cancel-multiple")
-    async cancelOrders(@Body() cancelOrdersDto: CancelOrdersDto) {
-        return this.limitOrderService.cancelOrders(cancelOrdersDto);
+    async cancelOrders(@RequestCluster() cluster: Cluster, @Body() cancelOrdersDto: CancelOrdersDto) {
+        return this.limitOrderService.cancelOrders(cluster, cancelOrdersDto);
     }
 
     /**
@@ -44,8 +46,8 @@ export class LimitOrderController {
      * @returns List of orders (paginated, 10 per page)
      */
     @Get()
-    async getOrders(@Query() getOrdersDto: GetOrdersDto) {
-        return this.limitOrderService.getOrders(getOrdersDto);
+    async getOrders(@RequestCluster() cluster: Cluster, @Query() getOrdersDto: GetOrdersDto) {
+        return this.limitOrderService.getOrders(cluster, getOrdersDto);
     }
 
     /**
@@ -54,7 +56,7 @@ export class LimitOrderController {
      * @returns Transaction signature
      */
     @Post("execute")
-    async executeOrder(@Body() executeOrderDto: ExecuteOrderDto) {
-        return this.limitOrderService.executeOrder(executeOrderDto);
+    async executeOrder(@RequestCluster() cluster: Cluster, @Body() executeOrderDto: ExecuteOrderDto) {
+        return this.limitOrderService.executeOrder(cluster, executeOrderDto);
     }
 }

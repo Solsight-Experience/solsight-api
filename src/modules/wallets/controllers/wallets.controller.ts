@@ -2,14 +2,16 @@ import { Controller, Get, Post, Put, Delete, Body, Param, Query } from "@nestjs/
 import { WalletsService } from "../services/wallets.service";
 import { CreateWalletDto } from "../dtos/create-wallet.dto";
 import { Wallet } from "../entities/wallet.entity";
+import { RequestCluster } from "../../../common/cluster/request-cluster.decorator";
+import type { Cluster } from "../../../common/cluster/cluster.types";
 
 @Controller("wallets")
 export class WalletsController {
     constructor(private readonly walletsService: WalletsService) {}
 
     @Post("user/:userId")
-    async create(@Param("userId") userId: string, @Body() createWalletDto: CreateWalletDto): Promise<Wallet> {
-        return await this.walletsService.create(userId, createWalletDto);
+    async create(@RequestCluster() cluster: Cluster, @Param("userId") userId: string, @Body() createWalletDto: CreateWalletDto): Promise<Wallet> {
+        return await this.walletsService.create(cluster, userId, createWalletDto);
     }
 
     @Get("user/:userId")
@@ -39,19 +41,23 @@ export class WalletsController {
     }
 
     @Post(":id/update-balance")
-    async updateBalance(@Param("id") id: string): Promise<Wallet> {
-        return await this.walletsService.updateBalance(id);
+    async updateBalance(@RequestCluster() cluster: Cluster, @Param("id") id: string): Promise<Wallet> {
+        return await this.walletsService.updateBalance(cluster, id);
     }
 
     @Get(":id/token-balance/:mintAddress")
-    async getTokenBalance(@Param("id") id: string, @Param("mintAddress") mintAddress: string): Promise<{ balance: number }> {
-        const balance = await this.walletsService.getTokenBalance(id, mintAddress);
+    async getTokenBalance(
+        @RequestCluster() cluster: Cluster,
+        @Param("id") id: string,
+        @Param("mintAddress") mintAddress: string
+    ): Promise<{ balance: number }> {
+        const balance = await this.walletsService.getTokenBalance(cluster, id, mintAddress);
         return { balance };
     }
 
     @Get(":id/transactions")
-    async getTransactionHistory(@Param("id") id: string, @Query("limit") limit = 10) {
-        return await this.walletsService.getTransactionHistory(id, Number(limit));
+    async getTransactionHistory(@RequestCluster() cluster: Cluster, @Param("id") id: string, @Query("limit") limit = 10) {
+        return await this.walletsService.getTransactionHistory(cluster, id, Number(limit));
     }
 
     @Post(":id/verify")

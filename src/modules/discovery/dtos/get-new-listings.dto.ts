@@ -1,8 +1,9 @@
 import { IsEnum, IsInt, IsNumber, IsOptional, Max, Min } from "class-validator";
 import { Type } from "class-transformer";
 import { TimeFrame } from "./get-trending.dto";
+import { ClusterQueryDto } from "../../../common/cluster/cluster-query.dto";
 
-export class GetNewListingsDto {
+export class GetNewListingsDto extends ClusterQueryDto {
     @IsOptional()
     @IsEnum(TimeFrame)
     time_frame?: TimeFrame = TimeFrame.TWENTY_FOUR_HOURS;

@@ -3,7 +3,7 @@ import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
 import { RedisService } from "../../../../redis/services/redis.service";
 import { Token } from "../../entities/token.entity";
-import { ClusterProvider } from "../../../../common/cluster/cluster.provider";
+import type { Cluster } from "../../../../common/cluster/cluster.types";
 import { SwapEvent, TokenStats, SwapPriceResult, TradeData, isValidPrice } from "../../types/swap-event.types";
 import { logError } from "src/common/errors/error-helper";
 import { TokenPriceService } from "../token-price.service";
@@ -18,8 +18,7 @@ export class StatsAggregationService {
         private readonly redisService: RedisService,
         @InjectRepository(Token)
         private readonly tokenRepository: Repository<Token>,
-        private readonly tokenPriceService: TokenPriceService,
-        private readonly clusterProvider: ClusterProvider
+        private readonly tokenPriceService: TokenPriceService
     ) {}
 
     async onSwapEvent(swap: SwapEvent, prices: SwapPriceResult): Promise<void> {
@@ -40,7 +39,7 @@ export class StatsAggregationService {
         await this.storeVolumeAndTxns(tokenInMint, network, prices.volumeUsdTokenIn, "sell", prices.priceUsdTokenIn);
     }
 
-    private async storePriceData(tokenMint: string, network: string, priceUsd: number, priceNative: number, swap: SwapEvent): Promise<void> {
+    private async storePriceData(tokenMint: string, network: Cluster, priceUsd: number, priceNative: number, swap: SwapEvent): Promise<void> {
         if (!isValidPrice(priceUsd)) return;
 
         const redis = this.redisService.getClient();
@@ -73,7 +72,7 @@ export class StatsAggregationService {
         }
     }
 
-    private async storeVolumeAndTxns(tokenMint: string, network: string, volumeUsd: number, txType: "buy" | "sell", priceUsd: number): Promise<void> {
+    private async storeVolumeAndTxns(tokenMint: string, network: Cluster, volumeUsd: number, txType: "buy" | "sell", priceUsd: number): Promise<void> {
         if (!isValidPrice(priceUsd)) return;
 
         const redis = this.redisService.getClient();
@@ -99,24 +98,23 @@ export class StatsAggregationService {
         }
     }
 
-    async getStats(tokenMint: string): Promise<TokenStats> {
+    async getStats(cluster: Cluster, tokenMint: string): Promise<TokenStats> {
         // Get latest price from Redis (object with native and usd)
-        const network = this.clusterProvider.cluster;
-        const latestPriceData = await this.tokenPriceService.getPrice(tokenMint, network);
+        const latestPriceData = await this.tokenPriceService.getPrice(cluster, tokenMint);
 
         // Get token from database for other stats
-        const token = await this.tokenRepository.findOneBy({ address: tokenMint, network: this.clusterProvider.cluster });
+        const token = await this.tokenRepository.findOneBy({ address: tokenMint, network: cluster });
 
         // Calculate 24h price change (use USD price)
         const priceUsd = latestPriceData?.priceUsd;
-        const priceChange24h = await this.calculatePriceChange24h(tokenMint, priceUsd);
+        const priceChange24h = await this.calculatePriceChange24h(cluster, tokenMint, priceUsd);
 
         // Get volume and txns from Redis (real-time from swap events)
-        const volume24h = await this.getVolume24h(tokenMint);
-        const txns24h = await this.getTxns24h(tokenMint);
+        const volume24h = await this.getVolume24h(cluster, tokenMint);
+        const txns24h = await this.getTxns24h(cluster, tokenMint);
 
         const price = priceUsd ?? token?.price ?? 0;
-        const totalSupply = await this.getTotalSupply(tokenMint);
+        const totalSupply = await this.getTotalSupply(cluster, tokenMint);
         this.logger.log(`[GET] token="${tokenMint}" price=${price} (${latestPriceData ? "Redis" : "DB"})`);
 
         return {
@@ -148,23 +146,23 @@ export class StatsAggregationService {
         };
     }
 
-    async getTotalSupply(tokenMint: string): Promise<number> {
-        const cacheKey = RedisService.KEYS.SUPPLY(this.clusterProvider.cluster, tokenMint);
+    async getTotalSupply(cluster: Cluster, tokenMint: string): Promise<number> {
+        const cacheKey = RedisService.KEYS.SUPPLY(cluster, tokenMint);
         const cached = await this.redisService.get<number>(cacheKey);
         if (cached != null) return cached;
 
-        const token = await this.tokenRepository.findOneBy({ address: tokenMint, network: this.clusterProvider.cluster });
+        const token = await this.tokenRepository.findOneBy({ address: tokenMint, network: cluster });
         const totalSupply = Number(token?.totalSupply ?? 0);
         await this.redisService.set(cacheKey, totalSupply, RedisService.TTL.SUPPLY);
         return totalSupply;
     }
 
-    private async getVolume24h(tokenMint: string): Promise<number> {
+    private async getVolume24h(cluster: Cluster, tokenMint: string): Promise<number> {
         const redis = this.redisService.getClient();
         if (!redis) return 0;
 
         try {
-            const volumeKey = RedisService.KEYS.VOLUME_24H(this.clusterProvider.cluster, tokenMint);
+            const volumeKey = RedisService.KEYS.VOLUME_24H(cluster, tokenMint);
             const entries = await redis.zrange(volumeKey, 0, -1);
             if (!entries || entries.length === 0) return 0;
 
@@ -182,12 +180,12 @@ export class StatsAggregationService {
         }
     }
 
-    private async getTxns24h(tokenMint: string): Promise<{ total: number; buys: number; sells: number }> {
+    private async getTxns24h(cluster: Cluster, tokenMint: string): Promise<{ total: number; buys: number; sells: number }> {
         const redis = this.redisService.getClient();
         if (!redis) return { total: 0, buys: 0, sells: 0 };
 
         try {
-            const txnsKey = RedisService.KEYS.TXNS_24H(this.clusterProvider.cluster, tokenMint);
+            const txnsKey = RedisService.KEYS.TXNS_24H(cluster, tokenMint);
             const entries = await redis.zrange(txnsKey, 0, -1);
             if (!entries || entries.length === 0) {
                 return { total: 0, buys: 0, sells: 0 };
@@ -209,12 +207,12 @@ export class StatsAggregationService {
         }
     }
 
-    async storeTradeData(tokenMint: string, tradeData: TradeData, network: string = this.clusterProvider.cluster): Promise<void> {
+    async storeTradeData(cluster: Cluster, tokenMint: string, tradeData: TradeData): Promise<void> {
         const redis = this.redisService.getClient();
         if (!redis) return;
 
         try {
-            const tradesKey = RedisService.KEYS.TRADES_24H(network, tokenMint);
+            const tradesKey = RedisService.KEYS.TRADES_24H(cluster, tokenMint);
             await redis.zadd(tradesKey, tradeData.timestamp, JSON.stringify(tradeData));
             await redis.zremrangebyrank(tradesKey, 0, -(TRADES_MAX_SIZE + 1));
             await redis.expire(tradesKey, RedisService.TTL.TRADES_24H);
@@ -223,12 +221,12 @@ export class StatsAggregationService {
         }
     }
 
-    async getTrades(tokenMint: string, limit = 50): Promise<{ trades: TradeData[]; total: number }> {
+    async getTrades(cluster: Cluster, tokenMint: string, limit = 50): Promise<{ trades: TradeData[]; total: number }> {
         const redis = this.redisService.getClient();
         if (!redis) return { trades: [], total: 0 };
 
         try {
-            const tradesKey = RedisService.KEYS.TRADES_24H(this.clusterProvider.cluster, tokenMint);
+            const tradesKey = RedisService.KEYS.TRADES_24H(cluster, tokenMint);
             const [entries, total] = await Promise.all([redis.zrevrange(tradesKey, 0, limit - 1), redis.zcard(tradesKey)]);
 
             if (!entries || entries.length === 0) return { trades: [], total: 0 };
@@ -250,14 +248,14 @@ export class StatsAggregationService {
         }
     }
 
-    private async calculatePriceChange24h(tokenMint: string, currentPrice: number | null): Promise<number | null> {
+    private async calculatePriceChange24h(cluster: Cluster, tokenMint: string, currentPrice: number | null): Promise<number | null> {
         if (!currentPrice) return null;
 
         const redis = this.redisService.getClient();
         if (!redis) return null;
 
         try {
-            const historyKey = RedisService.KEYS.TOKEN_PRICE_HISTORY(this.clusterProvider.cluster, tokenMint);
+            const historyKey = RedisService.KEYS.TOKEN_PRICE_HISTORY(cluster, tokenMint);
             const oldest = await redis.zrange(historyKey, 0, 0);
             if (!oldest || oldest.length === 0) return null;
 
@@ -272,7 +270,7 @@ export class StatsAggregationService {
         }
     }
 
-    private eventNetwork(swap: SwapEvent): string {
-        return swap.network || "mainnet";
+    private eventNetwork(swap: SwapEvent): Cluster {
+        return swap.network;
     }
 }

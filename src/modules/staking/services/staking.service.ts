@@ -12,8 +12,7 @@ import {
     type AccountMeta
 } from "@solana/web3.js";
 import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
-import { ClusterProvider } from "../../../common/cluster/cluster.provider";
-import { Cluster } from "../../../common/cluster/cluster.types";
+import type { Cluster } from "../../../common/cluster/cluster.types";
 import { HeliusResolver } from "../../../infra/solana/helius.resolver";
 import { BuildStakingTransactionDto, StakingTransactionAction } from "../dtos/build-staking-transaction.dto";
 import { GetStakingHistoryDto } from "../dtos/get-staking-history.dto";
@@ -49,12 +48,11 @@ import {
 export class StakingService {
     constructor(
         private readonly configService: ConfigService,
-        private readonly clusterProvider: ClusterProvider,
         private readonly heliusResolver: HeliusResolver
     ) {}
 
-    async getPosition(dto: GetStakingPositionDto): Promise<StakingPositionResponse | null> {
-        const { rpc, owner, pdas } = this.resolveStakingContext(dto.wallet);
+    async getPosition(cluster: Cluster, dto: GetStakingPositionDto): Promise<StakingPositionResponse | null> {
+        const { rpc, owner, pdas } = this.resolveStakingContext(cluster, dto.wallet);
         const ifInfo = await rpc.getAccountInfo(pdas.insuranceFund, "confirmed");
         if (!ifInfo) return null;
 
@@ -89,8 +87,8 @@ export class StakingService {
         };
     }
 
-    async getHistory(dto: GetStakingHistoryDto): Promise<StakingHistoryResponse> {
-        const { rpc, pdas, ifProgramId } = this.resolveStakingContext(dto.wallet);
+    async getHistory(cluster: Cluster, dto: GetStakingHistoryDto): Promise<StakingHistoryResponse> {
+        const { rpc, pdas, ifProgramId } = this.resolveStakingContext(cluster, dto.wallet);
         const page = dto.page ?? 1;
         const pageSize = dto.pageSize ?? 8;
         const allSigs = await rpc.getSignaturesForAddress(pdas.ifStake, { limit: 100 });
@@ -135,9 +133,9 @@ export class StakingService {
         return { records, total };
     }
 
-    async buildTransaction(dto: BuildStakingTransactionDto): Promise<BuiltStakingTransaction> {
+    async buildTransaction(cluster: Cluster, dto: BuildStakingTransactionDto): Promise<BuiltStakingTransaction> {
         const network = this.getConfiguredNetwork();
-        this.assertRequestCluster(network);
+        this.assertRequestCluster(cluster, network);
 
         const owner = this.parsePublicKey(dto.wallet, "wallet");
         const amountLamports = this.parseAmountLamports(dto);
@@ -322,9 +320,9 @@ export class StakingService {
         ];
     }
 
-    private resolveStakingContext(wallet: string) {
+    private resolveStakingContext(cluster: Cluster, wallet: string) {
         const network = this.getConfiguredNetwork();
-        this.assertRequestCluster(network);
+        this.assertRequestCluster(cluster, network);
         const owner = this.parsePublicKey(wallet, "wallet");
         const ifProgramId = this.getRequiredPublicKey("staking.ifProgramId", "IF_PROGRAM_ID");
         const ifAuthority = this.getRequiredPublicKey("staking.ifAuthority", "IF_AUTHORITY");
@@ -370,9 +368,9 @@ export class StakingService {
         throw new BadRequestException("Invalid SOLANA_NETWORK for staking. Use devnet or mainnet.");
     }
 
-    private assertRequestCluster(network: Cluster) {
-        if (this.clusterProvider.cluster !== network) {
-            throw new BadRequestException(`Staking is configured for ${network}, but request cluster is ${this.clusterProvider.cluster}.`);
+    private assertRequestCluster(cluster: Cluster, network: Cluster) {
+        if (cluster !== network) {
+            throw new BadRequestException(`Staking is configured for ${network}, but request cluster is ${cluster}.`);
         }
     }
 
