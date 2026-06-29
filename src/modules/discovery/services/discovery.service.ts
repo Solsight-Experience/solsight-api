@@ -140,6 +140,10 @@ export class DiscoveryService implements OnModuleInit {
         return map[tf];
     }
 
+    // For a 5-minute window, use 1m candles instead of 5m: a 5m candle is written
+    // to the DB only when its bucket closes, so the current (in-progress) candle may
+    // not exist yet — leaving up to 5 minutes of volume missing. 1m candles close
+    // more frequently, keeping the gap under 1 minute.
     private resolveOhlcInterval(tf: TimeFrame): string {
         if (tf === TimeFrame.FIVE_MINUTES) return "1m";
         return "5m";
