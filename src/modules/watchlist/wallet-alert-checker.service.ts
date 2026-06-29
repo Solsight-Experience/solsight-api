@@ -115,15 +115,20 @@ export class WalletAlertCheckerService implements OnModuleInit {
                     "INVARIANT"
                 ];
                 if (tx.type === "SWAP" || !!tx.events?.swap || DEX_SOURCES.includes(tx.source)) return true;
-                // Structural detection: SOL spent + token received (buy), or token sent + token received (swap)
+                // Structural detection via tokenTransfers
                 const nativeSolOut = (tx.nativeTransfers ?? []).some((t) => t.fromUserAccount === walletAddress && t.amount > 0);
                 const tokenIn = (tx.tokenTransfers ?? []).some((t) => t.toUserAccount === walletAddress);
                 const tokenOut = (tx.tokenTransfers ?? []).some((t) => t.fromUserAccount === walletAddress);
-                if ((nativeSolOut && tokenIn) || (tokenOut && tokenIn)) return true;
-                // Last resort: Jupiter multi-hop routes split into separate txs (each looks like TRANSFER).
-                // Treat any tx where the wallet received a token as a swap trigger, since ANY_SWAP
-                // alerts care about token movements regardless of Helius classification.
-                return tokenIn;
+                if ((nativeSolOut && tokenIn) || (tokenOut && tokenIn) || tokenIn) return true;
+                // Devnet fallback: Helius on devnet returns empty tokenTransfers but populates
+                // accountData.tokenBalanceChanges — detect swap if wallet received a token plus
+                // either sent another token or spent SOL.
+                const walletAccData = (tx.accountData ?? []).find((d) => d.account === walletAddress);
+                const changes = walletAccData?.tokenBalanceChanges ?? [];
+                const hasTokenIn = changes.some((c) => parseFloat(c.rawTokenAmount?.tokenAmount ?? "0") > 0);
+                const hasTokenOut = changes.some((c) => parseFloat(c.rawTokenAmount?.tokenAmount ?? "0") < 0);
+                const solSpent = (walletAccData?.nativeBalanceChange ?? 0) < 0;
+                return hasTokenIn && (hasTokenOut || solSpent);
             }
 
             case WalletAlertType.TOKEN_BALANCE_CHANGE:
@@ -140,16 +145,26 @@ export class WalletAlertCheckerService implements OnModuleInit {
     private checkTokenChange(condition: WalletAlertCondition | undefined, tx: EnhancedTransaction, walletAddress: string): boolean {
         if (!condition?.tokenMint) return false;
 
-        const transfers = tx.tokenTransfers ?? [];
-        const relevant = transfers.filter((t) => t.mint === condition.tokenMint);
-        if (!relevant.length) return false;
-
         let netChange = 0;
-        for (const t of relevant) {
+
+        const transfers = (tx.tokenTransfers ?? []).filter((t) => t.mint === condition.tokenMint);
+        for (const t of transfers) {
             const amount: number = t.tokenAmount ?? 0;
             if (t.toUserAccount === walletAddress) netChange += amount;
             else if (t.fromUserAccount === walletAddress) netChange -= amount;
         }
+
+        // Devnet fallback: use accountData.tokenBalanceChanges when tokenTransfers is missing
+        if (!transfers.length) {
+            const walletAccData = (tx.accountData ?? []).find((d) => d.account === walletAddress);
+            for (const c of walletAccData?.tokenBalanceChanges ?? []) {
+                if (c.mint === condition.tokenMint) {
+                    netChange += parseFloat(c.rawTokenAmount?.tokenAmount ?? "0");
+                }
+            }
+        }
+
+        if (netChange === 0) return false;
 
         const threshold = condition.threshold ?? 0;
         if (Math.abs(netChange) < threshold) return false;
@@ -218,6 +233,24 @@ export class WalletAlertCheckerService implements OnModuleInit {
                 if (solReceived > 0) {
                     mintOut = COMMON_TOKEN_MINT.SOL;
                     amountOut = solReceived / 1e9;
+                }
+            }
+            // Devnet fallback: use accountData.tokenBalanceChanges when tokenTransfers is empty
+            if (!mintIn && !mintOut) {
+                const walletAccData = (tx.accountData ?? []).find((d) => d.account === walletAddress);
+                for (const c of walletAccData?.tokenBalanceChanges ?? []) {
+                    const raw = parseFloat(c.rawTokenAmount?.tokenAmount ?? "0");
+                    if (raw < 0 && !mintIn) {
+                        mintIn = c.mint;
+                        amountIn = Math.abs(raw);
+                    } else if (raw > 0 && !mintOut) {
+                        mintOut = c.mint;
+                        amountOut = raw;
+                    }
+                }
+                if (!mintIn && (walletAccData?.nativeBalanceChange ?? 0) < 0) {
+                    mintIn = COMMON_TOKEN_MINT.SOL;
+                    amountIn = Math.abs(walletAccData!.nativeBalanceChange) / 1e9;
                 }
             }
         }
