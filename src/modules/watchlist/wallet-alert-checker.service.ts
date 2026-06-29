@@ -32,14 +32,17 @@ export class WalletAlertCheckerService implements OnModuleInit {
         const alerts = await this.walletAlertService.getAllActiveAlerts();
         if (!alerts.length) return;
 
-        const alertsByWallet = new Map<string, WalletAlert[]>();
+        const alertsByKey = new Map<string, WalletAlert[]>();
         for (const alert of alerts) {
-            const list = alertsByWallet.get(alert.walletAddress) ?? [];
+            const network = (alert as WalletAlertWithWallet).watchedWallet?.network ?? "mainnet";
+            const key = `${alert.walletAddress}::${network}`;
+            const list = alertsByKey.get(key) ?? [];
             list.push(alert);
-            alertsByWallet.set(alert.walletAddress, list);
+            alertsByKey.set(key, list);
         }
 
-        for (const [walletAddress, walletAlerts] of alertsByWallet) {
+        for (const [, walletAlerts] of alertsByKey) {
+            const walletAddress = walletAlerts[0].walletAddress;
             try {
                 await this.processWallet(walletAddress, walletAlerts);
             } catch (err) {
