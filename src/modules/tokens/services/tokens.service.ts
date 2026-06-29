@@ -449,12 +449,12 @@ export class TokensService {
         }
 
         if (sort_by === "volume_24h") {
-            qb.orderBy("ohlc_stats.agg_vol", orderValue as "ASC" | "DESC", "NULLS LAST");
+            qb.orderBy("ohlc_stats.agg_vol", orderValue, "NULLS LAST");
         } else if (sort_by === "txns_24h") {
-            qb.orderBy("tx_stats.agg_cnt", orderValue as "ASC" | "DESC", "NULLS LAST");
+            qb.orderBy("tx_stats.agg_cnt", orderValue, "NULLS LAST");
         } else {
             const col = SortByMap[sort_by];
-            if (col) qb.orderBy(`token.${col}`, orderValue as "ASC" | "DESC");
+            if (col) qb.orderBy(`token.${col}`, orderValue);
         }
 
         const total = await qb.getCount();
