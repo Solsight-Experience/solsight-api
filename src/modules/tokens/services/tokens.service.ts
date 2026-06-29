@@ -20,6 +20,7 @@ import { HolderAggregationService } from "./aggregation/holder-aggregation.servi
 import type { HoldersResponseDto } from "../dtos/holder.response.dto";
 import { Transaction, TransactionType } from "../../transactions/entities/transaction.entity";
 import { TimeFrame } from "../../discovery/dtos/get-trending.dto";
+import { StatsAggregationService } from "./aggregation/stats-aggregation.service";
 
 @Injectable()
 export class TokensService {
@@ -39,7 +40,8 @@ export class TokensService {
         private readonly coinGeckoService: CoinGeckoService,
         private readonly ohlcAggregationService: OhlcAggregationService,
         private readonly holderAggregationService: HolderAggregationService,
-        private readonly redisService: RedisService
+        private readonly redisService: RedisService,
+        private readonly statsAggregationService: StatsAggregationService
     ) {}
 
     private async cacheTokenMetadata(
@@ -608,6 +610,11 @@ export class TokensService {
     }
 
     async getTrades(cluster: Cluster, address: string, limit = 50): Promise<{ trades: TradeData[]; total: number }> {
+        const redisTrades = await this.statsAggregationService.getTrades(cluster, address, limit);
+        if (redisTrades.trades.length > 0) {
+            return redisTrades;
+        }
+
         const [rows, total] = await this.transactionRepository.findAndCount({
             where: [
                 { tokenMint: address, network: cluster, type: TransactionType.SWAP },

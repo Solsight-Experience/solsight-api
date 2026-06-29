@@ -22,24 +22,20 @@ export interface SwapPriceResult {
 }
 
 export function calculateSwapPrices(swap: SwapEvent): SwapPriceResult {
-    const priceNative = swap.price_native;
     const priceUsd = swap.price_usd ?? 0;
 
     let priceUsdTokenIn: number;
     let priceUsdTokenOut: number;
 
     if (isStablecoin(swap.token_in)) {
+        priceUsdTokenIn = 1;
         priceUsdTokenOut = priceUsd;
-        priceUsdTokenIn = priceUsd * priceNative;
     } else if (isStablecoin(swap.token_out)) {
         priceUsdTokenIn = priceUsd;
-        priceUsdTokenOut = priceNative > 0 ? priceUsd / priceNative : 0;
-    } else if (swap.token_in.is_quote) {
-        priceUsdTokenOut = priceUsd;
-        priceUsdTokenIn = priceUsd * priceNative;
+        priceUsdTokenOut = 1;
     } else {
-        priceUsdTokenIn = priceUsd;
-        priceUsdTokenOut = priceNative > 0 ? priceUsd / priceNative : 0;
+        priceUsdTokenOut = priceUsd;
+        priceUsdTokenIn = swap.token_in.amount_ui > 0 ? (swap.token_out.amount_ui / swap.token_in.amount_ui) * priceUsd : 0;
     }
 
     return {
