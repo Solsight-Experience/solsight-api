@@ -48,7 +48,7 @@ export class StatsAggregationService {
             priceUsd,
             priceNative,
             slot: swap.slot,
-            source: "solsight-api"
+            source: "swap"
         });
 
         const redis = this.redisService.getClient();

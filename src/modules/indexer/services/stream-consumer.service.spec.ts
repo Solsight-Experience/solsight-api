@@ -96,7 +96,7 @@ describe("StreamConsumerService", () => {
             priceUsd: 42,
             priceNative: 0.25,
             slot: 123,
-            source: "indexer-stream-consumer"
+            source: "swap"
         });
         expect(priceEventRepository.create).toHaveBeenCalledWith(
             expect.objectContaining({

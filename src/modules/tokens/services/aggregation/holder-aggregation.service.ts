@@ -131,7 +131,7 @@ export class HolderAggregationService implements OnModuleInit, OnModuleDestroy {
             priceUsd: event.price_usd,
             priceNative: event.price_native,
             slot: event.slot,
-            source: event.source
+            source: "indexer-price-update"
         });
         if (!stored) return;
 

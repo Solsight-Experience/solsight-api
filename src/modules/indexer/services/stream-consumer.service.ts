@@ -52,7 +52,7 @@ export class StreamConsumerService implements EventHandler<SwapEvent> {
                 priceUsd: swap.price_usd,
                 priceNative: swap.price_native,
                 slot: swap.slot,
-                source: "indexer-stream-consumer"
+                source: "swap"
             });
         }
 

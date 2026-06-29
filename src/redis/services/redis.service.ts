@@ -12,6 +12,9 @@ export class RedisService implements OnModuleDestroy {
     private readonly logger = new Logger(RedisService.name);
 
     public static readonly KEYS = redisKeys({
+        // Latest-price hash fields: `price_usd`, `price_native`, `slot`, `source`.
+        // `source` must describe price origin (`swap`, `indexer-price-update`, `reference-sync`),
+        // never the name of the service process that happened to write last.
         TOKEN_PRICE_LATEST: (network: string, mint: string) => `price:${network}:${mint}:latest`,
         TOKEN_PRICE_HISTORY: (network: string, mint: string) => `price:${network}:${mint}:history`,
         TOKEN_METADATA: (network: string, mint: string) => `token:meta:${network}:${mint}`,

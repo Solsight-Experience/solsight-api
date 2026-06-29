@@ -42,7 +42,7 @@ describe("TokenPriceService", () => {
                 priceUsd: 12.34,
                 priceNative: 0.056,
                 slot: 123,
-                source: "test"
+                source: "swap"
             })
         ).resolves.toBe(true);
 
@@ -54,7 +54,7 @@ describe("TokenPriceService", () => {
             String(TokenPriceService.PRICE_TTL_S),
             "12.34",
             "0.056",
-            "test"
+            "swap"
         );
     });
 
@@ -66,7 +66,7 @@ describe("TokenPriceService", () => {
                 priceUsd: 0,
                 priceNative: 0.056,
                 slot: 123,
-                source: "test"
+                source: "swap"
             })
         ).resolves.toBe(false);
 
@@ -77,7 +77,7 @@ describe("TokenPriceService", () => {
                 priceUsd: Number.NaN,
                 priceNative: 0.056,
                 slot: 123,
-                source: "test"
+                source: "swap"
             })
         ).resolves.toBe(false);
 
@@ -88,7 +88,7 @@ describe("TokenPriceService", () => {
                 priceUsd: 12.34,
                 priceNative: -1,
                 slot: 123,
-                source: "test"
+                source: "swap"
             })
         ).resolves.toBe(false);
 
@@ -105,7 +105,7 @@ describe("TokenPriceService", () => {
                 priceUsd: 12.34,
                 priceNative: 0.056,
                 slot: 122,
-                source: "test"
+                source: "swap"
             })
         ).resolves.toBe(false);
     });
