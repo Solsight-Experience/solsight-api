@@ -16,8 +16,9 @@ export class RedisService implements OnModuleDestroy {
         TOKEN_PRICE_HISTORY: (network: string, mint: string) => `price:${network}:${mint}:history`,
         TOKEN_METADATA: (network: string, mint: string) => `token:meta:${network}:${mint}`,
         TOKEN_SUMMARY: (network: string, address: string) => `token:summary:${network}:${address}`,
-        DISCOVERY_TRENDING_WINDOW: (network: string, sortBy: string, window: number) => `discovery:${network}:trending:${sortBy}:${window}`,
-        DISCOVERY_TRENDING_TOTAL: (network: string, sortBy: string) => `discovery:${network}:trending:${sortBy}:total`,
+        DISCOVERY_TRENDING_WINDOW: (network: string, sortBy: string, timeFrame: string, window: number) =>
+            `discovery:${network}:trending:${sortBy}:${timeFrame}:${window}`,
+        DISCOVERY_TRENDING_TOTAL: (network: string, sortBy: string, timeFrame: string) => `discovery:${network}:trending:${sortBy}:${timeFrame}:total`,
         DISCOVERY_CATEGORIES_WINDOW: (window: number) => `discovery:categories:${window}`,
         DISCOVERY_CATEGORIES_TOTAL: () => `discovery:categories:total`,
         DISCOVERY_CATEGORY_DETAIL: (slug: string) => `discovery:category:${slug}`,

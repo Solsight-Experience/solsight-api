@@ -1,6 +1,6 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { Between, FindOptionsOrder, FindOptionsOrderValue, FindOptionsWhere, ILike, In, LessThanOrEqual, MoreThanOrEqual, Repository } from "typeorm";
+import { Between, Brackets, FindOptionsOrder, FindOptionsOrderValue, FindOptionsWhere, ILike, In, LessThanOrEqual, MoreThanOrEqual, Repository } from "typeorm";
 import { Token } from "../entities/token.entity";
 import { OhlcCandle } from "../entities/ohlc-candle.entity";
 import { Holder } from "../entities/holder.entity";
@@ -19,6 +19,7 @@ import type { Cluster } from "../../../common/cluster/cluster.types";
 import { HolderAggregationService } from "./aggregation/holder-aggregation.service";
 import type { HoldersResponseDto } from "../dtos/holder.response.dto";
 import { Transaction, TransactionType } from "../../transactions/entities/transaction.entity";
+import { TimeFrame } from "../../discovery/dtos/get-trending.dto";
 
 @Injectable()
 export class TokensService {
@@ -221,6 +222,32 @@ export class TokensService {
         return tokens.map((token) => mapTokenEntityToResponseDto(token, cluster));
     }
 
+    private resolvePriceChangeColumn(time_frame: TimeFrame): keyof Token {
+        if (time_frame === TimeFrame.SEVEN_DAYS) return "priceChange7d";
+        if (
+            time_frame === TimeFrame.ONE_HOUR ||
+            time_frame === TimeFrame.FIVE_MINUTES ||
+            time_frame === TimeFrame.FIFTEEN_MINUTES ||
+            time_frame === TimeFrame.THIRTY_MINUTES ||
+            time_frame === TimeFrame.SIX_HOURS
+        )
+            return "priceChange1h";
+        return "priceChange24h";
+    }
+
+    private filterTimeFrameToMs(tf: TimeFrame): number {
+        const map: Record<TimeFrame, number> = {
+            [TimeFrame.FIVE_MINUTES]: 5 * 60 * 1000,
+            [TimeFrame.FIFTEEN_MINUTES]: 15 * 60 * 1000,
+            [TimeFrame.THIRTY_MINUTES]: 30 * 60 * 1000,
+            [TimeFrame.ONE_HOUR]: 60 * 60 * 1000,
+            [TimeFrame.SIX_HOURS]: 6 * 60 * 60 * 1000,
+            [TimeFrame.TWENTY_FOUR_HOURS]: 24 * 60 * 60 * 1000,
+            [TimeFrame.SEVEN_DAYS]: 7 * 24 * 60 * 60 * 1000
+        };
+        return map[tf];
+    }
+
     async filter(
         cluster: Cluster,
         filter: TokenFilterConditionDto,
@@ -229,16 +256,28 @@ export class TokensService {
         sort_order?: "asc" | "desc",
         offset?: number
     ): Promise<TokenFilterResponseDto> {
+        const time_frame = filter?.time_frame ?? TimeFrame.TWENTY_FOUR_HOURS;
+        const priceChangeColumn = this.resolvePriceChangeColumn(time_frame);
         const orderValue: FindOptionsOrderValue = sort_order?.toUpperCase() === "ASC" ? "ASC" : "DESC";
-        const SortByMap = {
+
+        const SortByMap: Record<string, string> = {
             market_cap: "marketCap",
             volume_24h: "volume24h",
             txns_24h: "txns24hTotal",
             holders: "holdersCount",
             age: "ageSeconds",
-            price_change_24h: "priceChange24h"
-        } as const;
-        const column = SortByMap[sort_by as keyof typeof SortByMap];
+            price_change_24h: priceChangeColumn
+        };
+
+        const needsAggregation = time_frame !== TimeFrame.TWENTY_FOUR_HOURS;
+        const hasVolumeFilter = filter?.metrics && (filter.metrics.volume_24h_min || filter.metrics.volume_24h_max);
+        const hasTxnsFilter = filter?.metrics && (filter.metrics.txns_24h_min || filter.metrics.txns_24h_max);
+
+        if (needsAggregation && (hasVolumeFilter || hasTxnsFilter)) {
+            return this.filterWithAggregation(cluster, filter, limit, sort_by, sort_order, offset, time_frame, priceChangeColumn, SortByMap);
+        }
+
+        const column = SortByMap[sort_by];
         const whereConditions: FindOptionsWhere<Token> = { network: cluster };
 
         // Treat 0 as "not set" — 0 is the default unset value from the filter form.
@@ -262,7 +301,7 @@ export class TokensService {
             whereConditions.volume24h = rangeOp(m.volume_24h_min, m.volume_24h_max);
             whereConditions.txns24hTotal = rangeOp(m.txns_24h_min, m.txns_24h_max);
             whereConditions.holdersCount = rangeOp(m.holders_min, m.holders_max);
-            whereConditions.priceChange24h = rangeOp(m.price_change_24h_min, m.price_change_24h_max);
+            (whereConditions as Record<string, unknown>)[priceChangeColumn] = rangeOp(m.price_change_24h_min, m.price_change_24h_max);
         }
 
         if (filter?.holder_filters) {
@@ -304,6 +343,129 @@ export class TokensService {
         return {
             tokens: responseTokens,
             total: responseTokens.length,
+            filter_applied: filter
+        };
+    }
+
+    private async filterWithAggregation(
+        cluster: Cluster,
+        filter: TokenFilterConditionDto,
+        limit: number,
+        sort_by: string,
+        sort_order: string | undefined,
+        offset: number | undefined,
+        time_frame: TimeFrame,
+        priceChangeColumn: keyof Token,
+        SortByMap: Record<string, string>
+    ): Promise<TokenFilterResponseDto> {
+        const fromMs = Date.now() - this.filterTimeFrameToMs(time_frame);
+        const ohlcInterval = time_frame === TimeFrame.FIVE_MINUTES ? "1m" : "5m";
+        const orderValue = sort_order?.toUpperCase() === "ASC" ? "ASC" : "DESC";
+
+        const qb = this.tokenRepository
+            .createQueryBuilder("token")
+            .leftJoinAndSelect("token.category", "category")
+            .where("token.network = :network", { network: cluster });
+
+        qb.leftJoin(
+            (sub) =>
+                sub
+                    .select("c.tokenMint", "mint")
+                    .addSelect("COALESCE(SUM(c.volume), 0)", "agg_vol")
+                    .from(OhlcCandle, "c")
+                    .where("c.interval = :ohlcInterval")
+                    .andWhere("c.timestamp >= :fromMs")
+                    .andWhere("c.network = :ohlcNetwork")
+                    .groupBy("c.tokenMint"),
+            "ohlc_stats",
+            "ohlc_stats.mint = token.address"
+        )
+            .setParameter("ohlcInterval", ohlcInterval)
+            .setParameter("fromMs", fromMs)
+            .setParameter("ohlcNetwork", cluster);
+
+        qb.leftJoin(
+            (sub) =>
+                sub
+                    .select("t.tokenMint", "mint")
+                    .addSelect("COUNT(*)", "agg_cnt")
+                    .from(Transaction, "t")
+                    .where("t.blockTime >= :txFrom")
+                    .andWhere("t.type = :swapType")
+                    .groupBy("t.tokenMint"),
+            "tx_stats",
+            "tx_stats.mint = token.address"
+        )
+            .setParameter("txFrom", new Date(fromMs))
+            .setParameter("swapType", TransactionType.SWAP);
+
+        if (filter?.metrics) {
+            const m = filter.metrics;
+            const applyRange = (expr: string, min: number | null | undefined, max: number | null | undefined, tag: string) => {
+                const lo = min != null && min !== 0 ? min : null;
+                const hi = max != null && max !== 0 ? max : null;
+                if (lo !== null && hi !== null) qb.andWhere(`${expr} BETWEEN :${tag}Lo AND :${tag}Hi`, { [`${tag}Lo`]: lo, [`${tag}Hi`]: hi });
+                else if (lo !== null) qb.andWhere(`${expr} >= :${tag}Lo`, { [`${tag}Lo`]: lo });
+                else if (hi !== null) qb.andWhere(`${expr} <= :${tag}Hi`, { [`${tag}Hi`]: hi });
+            };
+
+            const ageMin = m.age_min_minutes != null ? m.age_min_minutes * 60 : null;
+            const ageMax = m.age_max_minutes != null ? m.age_max_minutes * 60 : null;
+            applyRange("token.ageSeconds", ageMin, ageMax, "age");
+            applyRange("token.liquidity", m.liquidity_min, m.liquidity_max, "liq");
+            applyRange("token.marketCap", m.market_cap_min, m.market_cap_max, "mc");
+            applyRange(`token.${priceChangeColumn}`, m.price_change_24h_min, m.price_change_24h_max, "pc");
+            applyRange("token.holdersCount", m.holders_min, m.holders_max, "holders");
+            applyRange("COALESCE(ohlc_stats.agg_vol, 0)", m.volume_24h_min, m.volume_24h_max, "vol");
+            applyRange("CAST(COALESCE(tx_stats.agg_cnt, 0) AS bigint)", m.txns_24h_min, m.txns_24h_max, "txns");
+        }
+
+        if (filter?.holder_filters) {
+            const h = filter.holder_filters;
+            if (h.top_10_max_percent != null) qb.andWhere("token.top10Percent <= :top10", { top10: h.top_10_max_percent });
+            if (h.insider_max_percent != null) qb.andWhere("token.insiderPercent <= :insider", { insider: h.insider_max_percent });
+        }
+
+        if (filter?.audit_filters) {
+            const a = filter.audit_filters;
+            if (a.mint_authority_disabled) qb.andWhere("token.mintAuthorityDisabled = true");
+            if (a.freeze_authority_disabled) qb.andWhere("token.freezeAuthorityDisabled = true");
+            if (a.lp_burnt) qb.andWhere("token.lpBurnt = true");
+            if (a.has_social_links) qb.andWhere("token.hasSocialLinks = true");
+        }
+
+        if (filter?.categories?.length > 0) {
+            qb.andWhere("category.slug IN (:...cats)", { cats: filter.categories });
+        }
+
+        if (filter?.search_query) {
+            qb.andWhere(
+                new Brackets((bqb) => {
+                    bqb.where("token.name ILIKE :sq", { sq: `%${filter.search_query}%` })
+                        .orWhere("token.symbol ILIKE :sq")
+                        .orWhere("token.address ILIKE :sq");
+                })
+            );
+        }
+
+        if (sort_by === "volume_24h") {
+            qb.orderBy("ohlc_stats.agg_vol", orderValue, "NULLS LAST");
+        } else if (sort_by === "txns_24h") {
+            qb.orderBy("tx_stats.agg_cnt", orderValue, "NULLS LAST");
+        } else {
+            const col = SortByMap[sort_by];
+            if (col) qb.orderBy(`token.${col}`, orderValue);
+        }
+
+        const total = await qb.getCount();
+        const tokens = await qb
+            .limit(limit)
+            .offset(offset ?? 0)
+            .getMany();
+
+        return {
+            tokens: tokens.map((t) => mapTokenEntityToOverviewDto(t, cluster)),
+            total,
             filter_applied: filter
         };
     }
