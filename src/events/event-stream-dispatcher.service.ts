@@ -1,11 +1,10 @@
 import { Injectable, Logger, OnApplicationBootstrap } from "@nestjs/common";
 import { DiscoveryService } from "@nestjs/core";
 import type { EventHandler } from "../redis/event-handler";
-import { REDIS_CHANNELS } from "../redis/channels";
+import { isTradeEventChannel } from "../redis/channels";
 import { PubSubService } from "../redis/services/pubsub.service";
 import type { RedisChannel } from "../redis/utils/redisChannels";
 
-const TRADE_EVENT_PREFIX = REDIS_CHANNELS.TRADE_EVENTS("mainnet").replace("mainnet", "");
 const TRADE_TIMESTAMP_SANITY_FLOOR_AGE_S = 365 * 24 * 60 * 60;
 
 @Injectable()
@@ -40,7 +39,7 @@ export class EventStreamDispatcher implements OnApplicationBootstrap {
                     return;
                 }
 
-                if (channelName.startsWith(TRADE_EVENT_PREFIX)) {
+                if (isTradeEventChannel(channelName)) {
                     this.overrideTradeTimestampWhenInvalid(event, channelName);
                 }
 
