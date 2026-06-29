@@ -1,5 +1,4 @@
-import { HttpException, Injectable, Logger } from "@nestjs/common";
-import { ConfigService } from "@nestjs/config";
+import { HttpException, Inject, Injectable, Logger } from "@nestjs/common";
 import type { ChatCompletionMessageParam, ChatCompletionTool } from "openai/resources/chat/completions";
 import { OpenAIService } from "../../../infra/openai/openai.service";
 import { SortByTrending, TimeFrame } from "../../discovery/dtos/get-trending.dto";
@@ -7,8 +6,10 @@ import { DiscoveryService } from "../../discovery/services/discovery.service";
 import { PortfolioService } from "../../portfolio/services/portfolio.service";
 import { TokensService } from "../../tokens/services/tokens.service";
 import { ChatResponsePayload, SendMessagePayload, PageContext } from "../types/chat.types";
-import { COMMON_SYMBOLS, COMMON_DECIMALS } from "../../../common/constants/token.constants";
+import { COMMON_SYMBOLS } from "../../../common/constants/token.constants";
 import { RagService } from "./rag.service";
+import { EXECUTOR_SERVICE } from "../../../infra/executor/constants/executor.token";
+import type { ExecutorService } from "../../../infra/executor/interfaces/executor-service.interface";
 import * as fs from "fs";
 import * as path from "path";
 import type { Cluster } from "../../../common/cluster/cluster.types";
@@ -314,13 +315,14 @@ export class ChatService {
         private readonly portfolioService: PortfolioService,
         private readonly openaiService: OpenAIService,
         private readonly ragService: RagService,
+        @Inject(EXECUTOR_SERVICE)
+        private readonly executorService: ExecutorService,
         @InjectRepository(ChatSessionEntity)
         private readonly sessionRepo: Repository<ChatSessionEntity>,
         @InjectRepository(ChatMessageEntity)
         private readonly messageRepo: Repository<ChatMessageEntity>,
         @InjectRepository(Wallet)
-        private readonly walletRepo: Repository<Wallet>,
-        private readonly configService: ConfigService
+        private readonly walletRepo: Repository<Wallet>
     ) {}
 
     private mapToCompletionMessage(message: ChatMessageEntity): ChatCompletionMessageParam {
@@ -350,51 +352,39 @@ export class ChatService {
     }
 
     /**
-     * Fetch price impact from Jupiter Quote API for a given swap pair.
-     * Returns the raw decimal fraction (e.g. 0.05 for 5%), or null if the quote fails.
+     * Fetch price impact for a given swap pair via the ExecutorService interface.
+     *
+     * Delegates to whichever executor is configured (solsight-executor or Jupiter).
+     * Both return `priceImpactPct` as a decimal-fraction string, e.g. "0.05" = 5%.
+     *
+     * Returns the raw decimal fraction, or null if the quote cannot be obtained.
      * Never throws — errors are swallowed so prepare_swap continues regardless.
      */
-    // TODO(Nam): use native executor service instead of Jupiter call
     private async fetchPriceImpact(cluster: Cluster, inputMint: string, outputMint: string, amount: number): Promise<number | null> {
         try {
-            if (cluster === "devnet") return null;
             if (!inputMint || !outputMint || amount <= 0) return null;
-            let inputDecimals = COMMON_DECIMALS[inputMint]; // TODO(Nam): token meta fetch always go through tokensService
-            if (inputDecimals === undefined) {
-                const meta = await this.tokensService.getTokenMetadata(cluster, inputMint);
-                inputDecimals = meta?.decimals ?? 6;
-            }
+
+            // Resolve input token decimals via tokensService.
+            const meta = await this.tokensService.getTokenMetadata(cluster, inputMint);
+            const inputDecimals = meta?.decimals ?? 6;
 
             const amountBaseUnits = Math.round(amount * Math.pow(10, inputDecimals));
             if (amountBaseUnits <= 0) return null;
 
-            const params = new URLSearchParams({
+            const quote = await this.executorService.getQuote(cluster, {
                 inputMint,
                 outputMint,
                 amount: String(amountBaseUnits),
                 swapMode: "ExactIn",
-                slippageBps: "50"
+                slippageBps: 50
             });
 
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 5000);
-
-            try {
-                // TODO(Nam): replace by jupiter service call, not direct API fetch
-                // Better: use native executor service to quote, it also provide price impact
-                const quoteUrl = this.configService.get<string>("jupiter.quoteApiUrl") || "https://api.jup.ag/swap/v1/quote";
-                const response = await fetch(`${quoteUrl}?${params.toString()}`, {
-                    signal: controller.signal
-                });
-                if (!response.ok) return null;
-                const data = (await response.json()) as Record<string, unknown>;
-                const raw = data.priceImpactPct;
-                const pct = typeof raw === "number" ? raw : typeof raw === "string" ? Number(raw) : null;
-                return pct !== null && Number.isFinite(pct) ? pct : null;
-            } finally {
-                clearTimeout(timeoutId);
-            }
+            // priceImpactPct is a decimal-fraction string from both Jupiter and
+            // solsight-executor, e.g. "0.05" means 5% impact.
+            const pct = Number(quote.priceImpactPct);
+            return Number.isFinite(pct) ? pct : null;
         } catch {
+            // Best-effort: never block the swap flow on a failed quote.
             return null;
         }
     }
