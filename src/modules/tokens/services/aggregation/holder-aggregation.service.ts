@@ -125,7 +125,7 @@ export class HolderAggregationService implements OnModuleInit, OnModuleDestroy {
     async onPriceUpdate(event: PriceUpdateEvent): Promise<void> {
         const network = event.network;
 
-        await this.tokenPriceService.setPrice({
+        const stored = await this.tokenPriceService.setPrice({
             cluster: network,
             mint: event.mint,
             priceUsd: event.price_usd,
@@ -133,12 +133,16 @@ export class HolderAggregationService implements OnModuleInit, OnModuleDestroy {
             slot: event.slot,
             source: event.source
         });
+        if (!stored) return;
 
         const redis = this.redisService.getClient();
         if (!redis) return;
 
         try {
-            this.logger.log(`Updated price for token: ${event.mint}, price=${event.price_usd}`);
+            const committedPrice = await this.tokenPriceService.getPrice(network, event.mint);
+            if (committedPrice.priceUsd <= 0) return;
+
+            this.logger.log(`Updated price for token: ${event.mint}, price=${committedPrice.priceUsd}`);
 
             // Recalculate unrealized PnL for top 50 holders
             const rankingKey = RedisService.KEYS.HOLDER_RANKING(network, event.mint);
@@ -152,7 +156,7 @@ export class HolderAggregationService implements OnModuleInit, OnModuleDestroy {
 
                     const balance = parseFloat(data.balance);
                     const costBasis = parseFloat(data.cost_basis);
-                    const unrealizedPnl = balance * event.price_usd - costBasis;
+                    const unrealizedPnl = balance * committedPrice.priceUsd - costBasis;
                     await redis.hset(holderKey, "unrealized_pnl", unrealizedPnl);
                 })
             );
