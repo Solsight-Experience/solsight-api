@@ -5,6 +5,8 @@ import { ClsService } from "nestjs-cls";
 import { ILike, IsNull, MoreThan, Not, Repository, SelectQueryBuilder } from "typeorm";
 import { Token } from "../../tokens/entities/token.entity";
 import { Category } from "../../tokens/entities/category.entity";
+import { OhlcCandle } from "../../tokens/entities/ohlc-candle.entity";
+import { Transaction, TransactionType } from "../../transactions/entities/transaction.entity";
 import { GetTrendingDto, SortByTrending, TimeFrame } from "../dtos/get-trending.dto";
 import { GetNewListingsDto } from "../dtos/get-new-listings.dto";
 import { GetGainersLosersDto, GainersLosersType, GainersLosersTimeFrame } from "../dtos/get-gainers-losers.dto";
@@ -35,6 +37,10 @@ export class DiscoveryService implements OnModuleInit {
         private readonly tokenRepository: Repository<Token>,
         @InjectRepository(Category)
         private readonly categoryRepository: Repository<Category>,
+        @InjectRepository(OhlcCandle)
+        private readonly ohlcCandleRepository: Repository<OhlcCandle>,
+        @InjectRepository(Transaction)
+        private readonly transactionRepository: Repository<Transaction>,
         private readonly clusterProvider: ClusterProvider,
         private readonly cls: ClsService
     ) {}
@@ -130,13 +136,46 @@ export class DiscoveryService implements OnModuleInit {
         };
     }
 
-    private getTrendingOrderBy(sort_by: SortByTrending): { [key: string]: "DESC" | "ASC" } {
+    private timeFrameToMs(tf: TimeFrame): number {
+        const map: Record<TimeFrame, number> = {
+            [TimeFrame.FIVE_MINUTES]: 5 * 60 * 1000,
+            [TimeFrame.FIFTEEN_MINUTES]: 15 * 60 * 1000,
+            [TimeFrame.THIRTY_MINUTES]: 30 * 60 * 1000,
+            [TimeFrame.ONE_HOUR]: 60 * 60 * 1000,
+            [TimeFrame.SIX_HOURS]: 6 * 60 * 60 * 1000,
+            [TimeFrame.TWENTY_FOUR_HOURS]: 24 * 60 * 60 * 1000,
+            [TimeFrame.SEVEN_DAYS]: 7 * 24 * 60 * 60 * 1000
+        };
+        return map[tf];
+    }
+
+    private resolveOhlcInterval(tf: TimeFrame): string {
+        if (tf === TimeFrame.FIVE_MINUTES) return "1m";
+        return "5m";
+    }
+
+    // Returns true when sort needs aggregation from OHLC/transactions instead of pre-computed fields
+    private needsCustomAggregation(sort_by: SortByTrending, time_frame: TimeFrame): boolean {
+        if (time_frame === TimeFrame.TWENTY_FOUR_HOURS) return false;
+        return sort_by === SortByTrending.VOLUME_24H || sort_by === SortByTrending.TXNS_24H;
+    }
+
+    private getTrendingOrderBy(sort_by: SortByTrending, time_frame: TimeFrame = TimeFrame.TWENTY_FOUR_HOURS): { [key: string]: "DESC" | "ASC" } {
         switch (sort_by) {
             case SortByTrending.VOLUME_24H:
                 return { volume24h: "DESC" };
             case SortByTrending.TXNS_24H:
                 return { txns24hTotal: "DESC" };
             case SortByTrending.PRICE_CHANGE_24H:
+                if (time_frame === TimeFrame.SEVEN_DAYS) return { priceChange7d: "DESC" };
+                if (
+                    time_frame === TimeFrame.ONE_HOUR ||
+                    time_frame === TimeFrame.FIVE_MINUTES ||
+                    time_frame === TimeFrame.FIFTEEN_MINUTES ||
+                    time_frame === TimeFrame.THIRTY_MINUTES ||
+                    time_frame === TimeFrame.SIX_HOURS
+                )
+                    return { priceChange1h: "DESC" };
                 return { priceChange24h: "DESC" };
             case SortByTrending.MARKET_CAP:
                 return { marketCap: "DESC" };
@@ -147,9 +186,81 @@ export class DiscoveryService implements OnModuleInit {
         }
     }
 
+    private async getTrendingWithAggregation(
+        sort_by: SortByTrending,
+        time_frame: TimeFrame,
+        limit: number,
+        offset: number
+    ): Promise<{ tokens: TokenOverview[]; total: number; updated_at: string }> {
+        const fromMs = Date.now() - this.timeFrameToMs(time_frame);
+
+        const qb = this.tokenRepository
+            .createQueryBuilder("token")
+            .leftJoinAndSelect("token.category", "category")
+            .where("token.network = :network", { network: this.network });
+
+        if (sort_by === SortByTrending.VOLUME_24H) {
+            const ohlcInterval = this.resolveOhlcInterval(time_frame);
+            qb.leftJoin(
+                (subQuery) =>
+                    subQuery
+                        .select("c.tokenMint", "mint")
+                        .addSelect("COALESCE(SUM(c.volume), 0)", "agg_vol")
+                        .from(OhlcCandle, "c")
+                        .where("c.interval = :ohlcInterval")
+                        .andWhere("c.timestamp >= :fromMs")
+                        .andWhere("c.network = :ohlcNetwork")
+                        .groupBy("c.tokenMint"),
+                "ohlc_stats",
+                "ohlc_stats.mint = token.address"
+            )
+                .setParameter("ohlcInterval", ohlcInterval)
+                .setParameter("fromMs", fromMs)
+                .setParameter("ohlcNetwork", this.network);
+        } else if (sort_by === SortByTrending.TXNS_24H) {
+            qb.leftJoin(
+                (subQuery) =>
+                    subQuery
+                        .select("t.tokenMint", "mint")
+                        .addSelect("COUNT(*)", "agg_cnt")
+                        .from(Transaction, "t")
+                        .where("t.blockTime >= :txFrom")
+                        .andWhere("t.type = :swapType")
+                        .groupBy("t.tokenMint"),
+                "tx_stats",
+                "tx_stats.mint = token.address"
+            )
+                .setParameter("txFrom", new Date(fromMs))
+                .setParameter("swapType", TransactionType.SWAP);
+        }
+
+        // getCount() must run before orderBy — virtual subquery aliases (ohlc_stats,
+        // tx_stats) have no TypeORM entity metadata; adding orderBy first causes
+        // createOrderByCombinedWithSelectExpression to throw when building COUNT.
+        const total = await qb.getCount();
+
+        if (sort_by === SortByTrending.VOLUME_24H) {
+            qb.orderBy("ohlc_stats.agg_vol", "DESC", "NULLS LAST");
+        } else if (sort_by === SortByTrending.TXNS_24H) {
+            qb.orderBy("tx_stats.agg_cnt", "DESC", "NULLS LAST");
+        }
+
+        // Use limit()/offset() instead of take()/skip() — take/skip triggers TypeORM's
+        // complex pagination subquery which calls createOrderByCombinedWithSelectExpression
+        // and tries to resolve virtual subquery aliases as entity metadata → crashes.
+        const tokens = await qb.limit(limit).offset(offset).getMany();
+
+        return {
+            tokens: tokens.map((t) => this.transformToTokenOverview(t)),
+            total,
+            updated_at: new Date().toISOString()
+        };
+    }
+
     async getTrending(dto: GetTrendingDto) {
         const {
             sort_by = SortByTrending.VOLUME_24H,
+            time_frame = TimeFrame.TWENTY_FOUR_HOURS,
             limit = 20,
             offset = 0,
             min_liquidity,
@@ -170,6 +281,11 @@ export class DiscoveryService implements OnModuleInit {
         this.validateRange(min_txns_24h, max_txns_24h, "txns_24h");
         this.validateRange(min_holders, max_holders, "holders");
 
+        // Custom aggregation path: VOLUME or TXNS with non-24h time frame
+        if (this.needsCustomAggregation(sort_by, time_frame)) {
+            return this.getTrendingWithAggregation(sort_by, time_frame, limit, offset);
+        }
+
         const hasFilters = [
             min_liquidity,
             max_liquidity,
@@ -184,7 +300,7 @@ export class DiscoveryService implements OnModuleInit {
         ].some((v) => v !== undefined);
 
         if (hasFilters) {
-            const orderBy = this.getTrendingOrderBy(sort_by);
+            const orderBy = this.getTrendingOrderBy(sort_by, time_frame);
             const [orderColumn, orderDir] = Object.entries(orderBy)[0];
 
             const query = this.tokenRepository
@@ -215,7 +331,7 @@ export class DiscoveryService implements OnModuleInit {
         const windowData: TokenOverview[][] = [];
 
         for (let w = startWindow; w <= endWindow; w++) {
-            const windowKey = RedisService.KEYS.DISCOVERY_TRENDING_WINDOW(this.network, sort_by, w);
+            const windowKey = RedisService.KEYS.DISCOVERY_TRENDING_WINDOW(this.network, sort_by, time_frame, w);
             let window = await this.redisService.get<TokenOverview[]>(windowKey);
 
             if (!window) {
@@ -225,7 +341,7 @@ export class DiscoveryService implements OnModuleInit {
                 }
                 const tokens = await this.tokenRepository.find({
                     where: { network: this.network },
-                    order: this.getTrendingOrderBy(sort_by),
+                    order: this.getTrendingOrderBy(sort_by, time_frame),
                     take: WINDOW_SIZE,
                     skip: w * WINDOW_SIZE,
                     relations: ["category"]
@@ -236,7 +352,7 @@ export class DiscoveryService implements OnModuleInit {
             windowData.push(window);
         }
 
-        const totalKey = RedisService.KEYS.DISCOVERY_TRENDING_TOTAL(this.network, sort_by);
+        const totalKey = RedisService.KEYS.DISCOVERY_TRENDING_TOTAL(this.network, sort_by, time_frame);
         let total = await this.redisService.get<number>(totalKey);
         if (total === null) {
             total = await this.tokenRepository.count({ where: { network: this.network } });

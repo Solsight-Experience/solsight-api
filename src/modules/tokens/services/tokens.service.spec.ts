@@ -10,7 +10,6 @@ import type { Token } from "../entities/token.entity";
 import type { EnrichedHolder, HolderEnrichmentInput } from "../types/holder-aggregation.types";
 import type { HolderAggregationService } from "./aggregation/holder-aggregation.service";
 import type { OhlcAggregationService } from "./aggregation/ohlc-aggregation.service";
-import type { StatsAggregationService } from "./aggregation/stats-aggregation.service";
 import { TokensService } from "./tokens.service";
 
 describe("TokensService", () => {
@@ -34,12 +33,12 @@ describe("TokensService", () => {
             {} as Repository<Token>,
             {} as Repository<OhlcCandle>,
             holderRepository as unknown as Repository<Holder>,
+            {} as Repository<import("../../transactions/entities/transaction.entity").Transaction>,
             { cluster: "devnet" } as ClusterProvider,
             {} as SolanaService,
             {} as JupiterService,
             {} as CoinGeckoService,
             {} as OhlcAggregationService,
-            {} as StatsAggregationService,
             holderAggregationService as unknown as HolderAggregationService,
             {} as RedisService
         );

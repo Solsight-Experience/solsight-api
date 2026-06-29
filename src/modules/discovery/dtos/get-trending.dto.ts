@@ -10,7 +10,11 @@ export enum SortByTrending {
 }
 
 export enum TimeFrame {
+    FIVE_MINUTES = "5m",
+    FIFTEEN_MINUTES = "15m",
+    THIRTY_MINUTES = "30m",
     ONE_HOUR = "1h",
+    SIX_HOURS = "6h",
     TWENTY_FOUR_HOURS = "24h",
     SEVEN_DAYS = "7d"
 }
