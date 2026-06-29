@@ -5,6 +5,7 @@ import { PubSubService } from "../redis/services/pubsub.service";
 import type { RedisChannel } from "../redis/utils/redisChannels";
 
 const TRADE_EVENT_PREFIX = REDIS_CHANNELS.TRADE_EVENTS("mainnet").replace("mainnet", "");
+const TRADE_TIMESTAMP_SANITY_FLOOR_AGE_S = 365 * 24 * 60 * 60;
 
 @Injectable()
 export class EventStreamDispatcher implements OnApplicationBootstrap {
@@ -38,7 +39,7 @@ export class EventStreamDispatcher implements OnApplicationBootstrap {
                 }
 
                 if (channelName.startsWith(TRADE_EVENT_PREFIX)) {
-                    event.timestamp = Math.floor(Date.now() / 1000);
+                    this.overrideTradeTimestampWhenInvalid(event, channelName);
                 }
 
                 Object.freeze(event);
@@ -76,5 +77,35 @@ export class EventStreamDispatcher implements OnApplicationBootstrap {
 
         this.logger.error(`Unsupported event payload on ${channelName}`);
         return null;
+    }
+
+    private overrideTradeTimestampWhenInvalid(event: Record<string, unknown>, channelName: string): void {
+        const timestamp = typeof event.timestamp === "number" ? event.timestamp : Number(event.timestamp);
+        const reason =
+            !Number.isFinite(timestamp) || Number.isNaN(timestamp)
+                ? "missing_or_non_numeric"
+                : timestamp <= 0
+                  ? "non_positive"
+                  : timestamp < this.tradeTimestampSanityFloorSec()
+                    ? "below_sanity_floor"
+                    : null;
+
+        if (!reason) return;
+
+        // Temporary guard for the upstream indexer `block_time.unwrap_or(0)` bug.
+        // Delete this branch after the producer always emits sane timestamps.
+        event.timestamp = Math.floor(Date.now() / 1000);
+        this.logger.warn(
+            JSON.stringify({
+                metric: "swap_timestamp_overridden_total",
+                channel: channelName,
+                signature: typeof event.signature === "string" ? event.signature : null,
+                reason
+            })
+        );
+    }
+
+    private tradeTimestampSanityFloorSec(): number {
+        return Math.floor(Date.now() / 1000) - TRADE_TIMESTAMP_SANITY_FLOOR_AGE_S;
     }
 }

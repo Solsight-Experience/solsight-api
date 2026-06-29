@@ -50,7 +50,8 @@ describe("EventStreamDispatcher", () => {
         expect(received[0]).toBe(received[1]);
     });
 
-    it("stamps trade timestamps, freezes the event, and preserves non-trade channels", async () => {
+    it("overwrites missing trade timestamps, preserves valid ones, and guards very old producer timestamps", async () => {
+        const loggerWarnSpy = jest.spyOn(Logger.prototype, "warn").mockImplementation();
         const tradeHandler = jest.fn((event: Record<string, unknown>) => {
             expect(Object.isFrozen(event)).toBe(true);
             expect(typeof event.timestamp).toBe("number");
@@ -75,14 +76,47 @@ describe("EventStreamDispatcher", () => {
         await dispatcher.onApplicationBootstrap();
 
         const before = Math.floor(Date.now() / 1000);
-        subscriptions.get(REDIS_CHANNELS.TRADE_EVENTS("devnet"))?.({ signature: "sig-2", network: "devnet" }, REDIS_CHANNELS.TRADE_EVENTS("devnet"));
+        subscriptions.get(REDIS_CHANNELS.TRADE_EVENTS("devnet"))?.({ signature: "sig-missing", network: "devnet" }, REDIS_CHANNELS.TRADE_EVENTS("devnet"));
         const after = Math.floor(Date.now() / 1000);
         const stampedEvent = tradeHandler.mock.calls[0][0] as { timestamp: number };
         expect(stampedEvent.timestamp).toBeGreaterThanOrEqual(before);
         expect(stampedEvent.timestamp).toBeLessThanOrEqual(after);
+        expect(loggerWarnSpy).toHaveBeenCalledWith(
+            JSON.stringify({
+                metric: "swap_timestamp_overridden_total",
+                channel: REDIS_CHANNELS.TRADE_EVENTS("devnet"),
+                signature: "sig-missing",
+                reason: "missing_or_non_numeric"
+            })
+        );
+
+        const recentTimestamp = Math.floor(Date.now() / 1000) - 60;
+        subscriptions.get(REDIS_CHANNELS.TRADE_EVENTS("devnet"))?.(
+            { signature: "sig-valid", network: "devnet", timestamp: recentTimestamp },
+            REDIS_CHANNELS.TRADE_EVENTS("devnet")
+        );
+        expect((tradeHandler.mock.calls[1][0] as { timestamp: number }).timestamp).toBe(recentTimestamp);
+
+        const staleTimestamp = Math.floor(Date.now() / 1000) - 366 * 24 * 60 * 60;
+        subscriptions.get(REDIS_CHANNELS.TRADE_EVENTS("devnet"))?.(
+            { signature: "sig-stale", network: "devnet", timestamp: staleTimestamp },
+            REDIS_CHANNELS.TRADE_EVENTS("devnet")
+        );
+        const refreshedEvent = tradeHandler.mock.calls[2][0] as { timestamp: number };
+        expect(refreshedEvent.timestamp).toBeGreaterThanOrEqual(before);
+        expect(refreshedEvent.timestamp).toBeLessThanOrEqual(Math.floor(Date.now() / 1000));
+        expect(loggerWarnSpy).toHaveBeenLastCalledWith(
+            JSON.stringify({
+                metric: "swap_timestamp_overridden_total",
+                channel: REDIS_CHANNELS.TRADE_EVENTS("devnet"),
+                signature: "sig-stale",
+                reason: "below_sanity_floor"
+            })
+        );
 
         subscriptions.get(REDIS_CHANNELS.HOLDER_UPDATES("mainnet"))?.({ mint: "mint-1" }, REDIS_CHANNELS.HOLDER_UPDATES("mainnet"));
         expect(holderHandler).toHaveBeenCalledTimes(1);
+        loggerWarnSpy.mockRestore();
     });
 
     it("keeps dispatching when sibling handlers throw or reject", async () => {
