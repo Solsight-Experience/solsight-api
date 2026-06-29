@@ -290,11 +290,14 @@ export class SwapService {
         if (data?.["errorCode"] === "TOKEN_NOT_TRADABLE") {
             message = "This token is not tradable on Jupiter.";
         } else if (data?.["message"]) {
-            message = String(data["message"]);
+            const v = data["message"];
+            message = typeof v === "string" ? v : JSON.stringify(v);
         } else if (data?.["error"]) {
-            message = String(data["error"]);
+            const v = data["error"];
+            message = typeof v === "string" ? v : JSON.stringify(v);
         } else if (data?.["detail"]) {
-            message = String(data["detail"]);
+            const v = data["detail"];
+            message = typeof v === "string" ? v : JSON.stringify(v);
         } else if (typeof rawData === "string" && rawData.length > 0) {
             message = rawData;
         } else if (error instanceof Error) {
