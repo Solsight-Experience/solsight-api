@@ -62,15 +62,6 @@ export class EventStreamDispatcher implements OnApplicationBootstrap {
     }
 
     private parseMessage(message: unknown, channelName: string): Record<string, unknown> | null {
-        if (typeof message === "string") {
-            try {
-                return JSON.parse(message) as Record<string, unknown>;
-            } catch (error) {
-                this.logger.error(`Failed to JSON.parse message on ${channelName}`, error);
-                return null;
-            }
-        }
-
         if (message && typeof message === "object") {
             return message as Record<string, unknown>;
         }

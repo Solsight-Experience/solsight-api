@@ -77,6 +77,21 @@ describe("PubSubService", () => {
         expect(handlerB).toHaveBeenCalledWith({ ok: true }, "ch1");
     });
 
+    it("drops invalid JSON channel payloads and logs the parse error", async () => {
+        const { nestRedisService, listeners } = createRedisDouble();
+        const service = new PubSubService(nestRedisService);
+        const handler = jest.fn();
+        const loggerErrorSpy = jest.spyOn(Logger.prototype, "error").mockImplementation();
+
+        await service.subscribe("ch1", handler);
+
+        (listeners.get("message") ?? [])[0]?.("ch1", "{bad json");
+
+        expect(handler).not.toHaveBeenCalled();
+        expect(loggerErrorSpy).toHaveBeenCalledWith('Redis channel payload parse error for "ch1"', expect.any(SyntaxError));
+        loggerErrorSpy.mockRestore();
+    });
+
     it("pattern-subscribes once and fans out to all handlers", async () => {
         const { nestRedisService, subscriber, listeners } = createRedisDouble();
         const service = new PubSubService(nestRedisService);

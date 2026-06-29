@@ -7,8 +7,8 @@ export class PubSubService implements OnModuleDestroy {
     private readonly publisher: Redis | null;
     private readonly subscriber: Redis | null;
     private readonly logger = new Logger(PubSubService.name);
-    private readonly handlers = new Map<string, Array<(message: string, channel: string) => void>>();
-    private readonly patternHandlers = new Map<string, Array<(message: string, channel: string) => void>>();
+    private readonly handlers = new Map<string, Array<(message: unknown, channel: string) => void>>();
+    private readonly patternHandlers = new Map<string, Array<(message: unknown, channel: string) => void>>();
 
     constructor(private readonly redisService: NestRedisService) {
         try {
@@ -26,9 +26,11 @@ export class PubSubService implements OnModuleDestroy {
 
             this.subscriber.on("message", (channel: string, message: string) => {
                 const callbacks = this.handlers.get(channel) ?? [];
+                const parsed = this.parsePayload(message, channel, "channel");
+                if (parsed == null) return;
                 for (const callback of callbacks) {
                     try {
-                        callback(message, channel);
+                        callback(parsed, channel);
                     } catch (error) {
                         this.logger.error(`Redis subscriber handler threw on channel "${channel}"`, error);
                     }
@@ -37,9 +39,11 @@ export class PubSubService implements OnModuleDestroy {
 
             this.subscriber.on("pmessage", (pattern: string, channel: string, message: string) => {
                 const callbacks = this.patternHandlers.get(pattern) ?? [];
+                const parsed = this.parsePayload(message, pattern, "pattern");
+                if (parsed == null) return;
                 for (const callback of callbacks) {
                     try {
-                        callback(message, channel);
+                        callback(parsed, channel);
                     } catch (error) {
                         this.logger.error(`Redis pattern handler threw on pattern "${pattern}"`, error);
                     }
@@ -68,12 +72,8 @@ export class PubSubService implements OnModuleDestroy {
             this.logger.warn(`Cannot subscribe to "${channel}": Redis unavailable`);
             return;
         }
-        const wrapped = (message: string, receivedChannel: string): void => {
-            try {
-                handler(JSON.parse(message) as T, receivedChannel);
-            } catch {
-                handler(message as T, receivedChannel);
-            }
+        const wrapped = (message: unknown, receivedChannel: string): void => {
+            handler(message as T, receivedChannel);
         };
 
         const existing = this.handlers.get(channel);
@@ -109,12 +109,8 @@ export class PubSubService implements OnModuleDestroy {
             this.logger.warn(`Cannot psubscribe to "${pattern}": Redis unavailable`);
             return;
         }
-        const wrapped = (message: string, channel: string): void => {
-            try {
-                handler(JSON.parse(message) as T, channel);
-            } catch {
-                handler(message as T, channel);
-            }
+        const wrapped = (message: unknown, channel: string): void => {
+            handler(message as T, channel);
         };
 
         const existing = this.patternHandlers.get(pattern);
@@ -148,6 +144,21 @@ export class PubSubService implements OnModuleDestroy {
             this.logger.log("PubSub connections closed");
         } catch (error) {
             this.logger.error("Error closing PubSub connections:", error);
+        }
+    }
+
+    private parsePayload(message: string, name: string, kind: "channel" | "pattern"): Record<string, unknown> | null {
+        try {
+            const parsed = JSON.parse(message) as unknown;
+            if (parsed && typeof parsed === "object") {
+                return parsed as Record<string, unknown>;
+            }
+
+            this.logger.error(`Redis ${kind} payload on "${name}" was not a JSON object`);
+            return null;
+        } catch (error) {
+            this.logger.error(`Redis ${kind} payload parse error for "${name}"`, error);
+            return null;
         }
     }
 }
