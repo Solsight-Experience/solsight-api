@@ -56,6 +56,7 @@ export class TokenPriceService {
         private readonly coinGeckoService: CoinGeckoService
     ) {}
 
+    // Keep the write API singular until a real production bulk writer exists.
     async setPrice({ cluster, mint, ...price }: TokenPriceSetInput): Promise<boolean> {
         if (!this.isValidWritePrice(price.priceUsd) || !this.isValidWritePrice(price.priceNative)) {
             this.logger.debug(`Rejected invalid latest price for ${cluster}:${mint}`);
@@ -89,13 +90,6 @@ export class TokenPriceService {
             logError(this.logger, `Failed to write Redis price for ${cluster}:${mint}`, error);
             return false;
         }
-    }
-
-    async setPrices(prices: TokenPriceSetInput[]): Promise<number> {
-        if (prices.length === 0) return 0;
-
-        const writes = await Promise.all(prices.map((price) => this.setPrice(price)));
-        return writes.filter(Boolean).length;
     }
 
     async getPrice(cluster: Cluster, mint: string): Promise<TokenPriceResult> {

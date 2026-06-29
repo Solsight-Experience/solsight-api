@@ -110,39 +110,6 @@ describe("TokenPriceService", () => {
         ).resolves.toBe(false);
     });
 
-    it("returns the number of successful writes for bulk updates", async () => {
-        redisClient.eval.mockRejectedValueOnce(new Error("boom"));
-
-        await expect(
-            service.setPrices([
-                {
-                    cluster: "mainnet",
-                    mint: "mint-1",
-                    priceUsd: 1,
-                    priceNative: 0.1,
-                    slot: 1,
-                    source: "test"
-                },
-                {
-                    cluster: "mainnet",
-                    mint: "mint-2",
-                    priceUsd: 2,
-                    priceNative: 0.2,
-                    slot: 2,
-                    source: "test"
-                },
-                {
-                    cluster: "mainnet",
-                    mint: "mint-3",
-                    priceUsd: 0,
-                    priceNative: 0.3,
-                    slot: 3,
-                    source: "test"
-                }
-            ])
-        ).resolves.toBe(1);
-    });
-
     it("returns Redis prices only when the TTL is still fresh", async () => {
         const redisHash = {
             price_usd: "12.34"
