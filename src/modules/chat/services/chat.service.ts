@@ -9,8 +9,11 @@ import { TokensService } from "../../tokens/services/tokens.service";
 import { ChatResponsePayload, SendMessagePayload, PageContext } from "../types/chat.types";
 import { COMMON_SYMBOLS, COMMON_DECIMALS } from "../../../common/constants/token.constants";
 import { RagService } from "./rag.service";
-import { SYSTEM_PROMPT } from "../../../config/ai-prompt.config";
+import * as fs from "fs";
+import * as path from "path";
 import type { Cluster } from "../../../common/cluster/cluster.types";
+
+const SYSTEM_PROMPT = fs.readFileSync(path.join(process.cwd(), "prompts/system.prompt.md"), "utf-8");
 
 const STATIC_ROUTES = ["/", "/token/[tokenAddress]", "/portfolio", "/multi-chart", "/wallet-tracker", "/notifications"];
 
@@ -320,6 +323,32 @@ export class ChatService {
         private readonly configService: ConfigService
     ) {}
 
+    private mapToCompletionMessage(message: ChatMessageEntity): ChatCompletionMessageParam {
+        if (message.role === "tool") {
+            return {
+                role: "tool" as const,
+                content: message.content,
+                tool_call_id: message.toolCallId || "",
+                name: message.toolName
+            } as unknown as ChatCompletionMessageParam;
+        }
+
+        if (message.role === "assistant") {
+            const data = message.data as { toolCalls?: unknown[] } | null | undefined;
+            const toolCalls = data?.toolCalls;
+            return {
+                role: "assistant" as const,
+                content: message.content || null,
+                ...(toolCalls && toolCalls.length > 0 ? { tool_calls: toolCalls } : {})
+            } as unknown as ChatCompletionMessageParam;
+        }
+
+        return {
+            role: message.role as "user" | "system",
+            content: message.content
+        } as ChatCompletionMessageParam;
+    }
+
     /**
      * Fetch price impact from Jupiter Quote API for a given swap pair.
      * Returns the raw decimal fraction (e.g. 0.05 for 5%), or null if the quote fails.
@@ -558,22 +587,7 @@ export class ChatService {
             }
         }
 
-        messages.push(
-            ...recentMessages.map((message): ChatCompletionMessageParam => {
-                if (message.role === "tool") {
-                    return {
-                        role: "tool" as const,
-                        content: message.content,
-                        tool_call_id: message.toolCallId || ""
-                    };
-                }
-
-                return {
-                    role: message.role,
-                    content: message.content
-                };
-            })
-        );
+        messages.push(...recentMessages.map((message) => this.mapToCompletionMessage(message)));
 
         this.logger.debug(`LLM request: messages=${messages.length}`, ChatService.name);
 
@@ -615,7 +629,10 @@ export class ChatService {
                     this.messageRepo.create({
                         sessionId,
                         role: "assistant",
-                        content: assistantMessage.content || ""
+                        content: assistantMessage.content || "",
+                        data: {
+                            toolCalls: assistantMessage.tool_calls
+                        }
                     })
                 );
 
@@ -704,20 +721,7 @@ export class ChatService {
                       }
                   ]
                 : []),
-            ...recentMessages.map((message): ChatCompletionMessageParam => {
-                if (message.role === "tool") {
-                    return {
-                        role: "tool" as const,
-                        content: message.content,
-                        tool_call_id: message.toolCallId || ""
-                    };
-                }
-
-                return {
-                    role: message.role,
-                    content: message.content
-                };
-            })
+            ...recentMessages.map((message) => this.mapToCompletionMessage(message))
         ];
 
         this.logger.debug(`LLM stream request: messages=${messages.length}`, ChatService.name);
@@ -729,7 +733,12 @@ export class ChatService {
         }, LLM_TIMEOUT_MS);
 
         let finalContent = "";
-        const toolCallMap: Record<string, { function: { name: string; arguments: string } }> = {};
+        const toolCallsAccumulator: {
+            id?: string;
+            type?: string;
+            function: { name: string; arguments: string };
+            extra_content?: unknown;
+        }[] = [];
 
         try {
             const stream = await this.openaiService.createCompletion(
@@ -755,23 +764,51 @@ export class ChatService {
                 }
                 if (delta.tool_calls) {
                     for (const toolCall of delta.tool_calls) {
-                        const id = toolCall.id;
-                        if (id) {
-                            if (!toolCallMap[id]) toolCallMap[id] = { function: { name: toolCall.function?.name || "", arguments: "" } };
-                            if (toolCall.function?.name) toolCallMap[id].function.name = toolCall.function.name;
-                            if (toolCall.function?.arguments) toolCallMap[id].function.arguments += toolCall.function.arguments;
+                        const index = toolCall.index;
+                        if (index === undefined) continue;
+
+                        if (!toolCallsAccumulator[index]) {
+                            toolCallsAccumulator[index] = {
+                                function: { name: "", arguments: "" }
+                            };
+                        }
+
+                        const acc = toolCallsAccumulator[index];
+                        if (toolCall.id) acc.id = toolCall.id;
+                        if (toolCall.type) acc.type = toolCall.type;
+                        if (toolCall.function?.name) acc.function.name = toolCall.function.name;
+                        if (toolCall.function?.arguments) acc.function.arguments += toolCall.function.arguments;
+                        const extraContent = (toolCall as unknown as Record<string, unknown>).extra_content;
+                        if (extraContent !== undefined) {
+                            acc.extra_content = extraContent;
                         }
                     }
                 }
                 if (choice.finish_reason === "tool_calls") {
+                    const toolCalls = toolCallsAccumulator
+                        .filter((tc) => tc.id)
+                        .map((tc) => ({
+                            id: tc.id!,
+                            type: tc.type || "function",
+                            function: {
+                                name: tc.function.name,
+                                arguments: tc.function.arguments
+                            },
+                            ...(tc.extra_content ? { extra_content: tc.extra_content } : {})
+                        }));
+
                     await this.messageRepo.save(
                         this.messageRepo.create({
                             sessionId,
                             role: "assistant",
-                            content: ""
+                            content: "",
+                            data: {
+                                toolCalls
+                            }
                         })
                     );
-                    for (const [toolCallId, toolCall] of Object.entries(toolCallMap)) {
+
+                    for (const toolCall of toolCalls) {
                         const toolName = toolCall.function.name;
                         let args: Record<string, unknown> = {};
                         try {
@@ -788,7 +825,7 @@ export class ChatService {
                                 sessionId,
                                 role: "tool",
                                 content: result,
-                                toolCallId,
+                                toolCallId: toolCall.id,
                                 toolName
                             })
                         );
@@ -1018,7 +1055,16 @@ export class ChatService {
     }
 
     private inferTypedResponseFromTools(messages: ChatMessageEntity[]): ChatResponsePayload | null {
-        const recentToolMessages = [...messages]
+        const lastMessage = messages[messages.length - 1];
+        if (!lastMessage || lastMessage.role !== "tool") {
+            return null;
+        }
+
+        // Only look at messages from the current turn (since the last "user" message)
+        const lastUserIndex = [...messages].reverse().findIndex((m) => m.role === "user");
+        const currentTurnMessages = lastUserIndex !== -1 ? messages.slice(messages.length - lastUserIndex) : messages;
+
+        const recentToolMessages = currentTurnMessages
             .reverse()
             .filter((message) => message.role === "tool")
             .slice(0, 5);
