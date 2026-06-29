@@ -29,7 +29,6 @@ import { GeminiModule } from "../../infra/gemini/gemini.module";
 import { TokenPriceService } from "./services/token-price.service";
 import { TradeFanoutHandler } from "./services/socket/trade-fanout.handler";
 import { HolderResponseHandler } from "./services/socket/holder-response.handler";
-import { TOKENS_EVENT_HANDLERS_TOKEN } from "../../redis/event-handler";
 
 @Module({
     imports: [
@@ -58,19 +57,9 @@ import { TOKENS_EVENT_HANDLERS_TOKEN } from "../../redis/event-handler";
         TokenSeederService,
         TokenPriceService,
         TradeFanoutHandler,
-        HolderResponseHandler,
-        {
-            provide: TOKENS_EVENT_HANDLERS_TOKEN,
-            useFactory: (
-                tradeFanoutHandler: TradeFanoutHandler,
-                holderUpdateHandler: HolderUpdateHandler,
-                priceUpdateHandler: PriceUpdateHandler,
-                holderResponseHandler: HolderResponseHandler
-            ) => [tradeFanoutHandler, holderUpdateHandler, priceUpdateHandler, holderResponseHandler],
-            inject: [TradeFanoutHandler, HolderUpdateHandler, PriceUpdateHandler, HolderResponseHandler]
-        }
+        HolderResponseHandler
     ],
     controllers: [TokensController],
-    exports: [TokensService, HolderTrackingService, TokenPriceService, TOKENS_EVENT_HANDLERS_TOKEN]
+    exports: [TokensService, HolderTrackingService, TokenPriceService]
 })
 export class TokensModule {}

@@ -1,4 +1,5 @@
 import { Logger } from "@nestjs/common";
+import type { DiscoveryService } from "@nestjs/core";
 import { EventStreamDispatcher } from "./event-stream-dispatcher.service";
 import { REDIS_CHANNELS } from "../redis/channels";
 import type { EventHandler } from "../redis/event-handler";
@@ -6,6 +7,7 @@ import type { EventHandler } from "../redis/event-handler";
 describe("EventStreamDispatcher", () => {
     let subscriptions = new Map<string, (message: unknown, channel: string) => void>();
     let pubSubService: { subscribe: jest.Mock<Promise<void>, [string, (message: unknown, channel: string) => void]> };
+    let discoveryService: Pick<DiscoveryService, "getProviders">;
 
     beforeEach(() => {
         subscriptions = new Map();
@@ -14,6 +16,9 @@ describe("EventStreamDispatcher", () => {
                 subscriptions.set(channel, handler);
                 return Promise.resolve();
             })
+        };
+        discoveryService = {
+            getProviders: jest.fn()
         };
     });
 
@@ -35,7 +40,8 @@ describe("EventStreamDispatcher", () => {
             channels: () => [REDIS_CHANNELS.TRADE_EVENTS("mainnet")],
             handle: handleB
         };
-        const dispatcher = new EventStreamDispatcher(pubSubService as never, [handlerA, handlerB]);
+        (discoveryService.getProviders as jest.Mock).mockReturnValue([{ instance: handlerA }, { instance: handlerB }]);
+        const dispatcher = new EventStreamDispatcher(pubSubService as never, discoveryService as DiscoveryService);
 
         await dispatcher.onApplicationBootstrap();
 
@@ -62,16 +68,21 @@ describe("EventStreamDispatcher", () => {
         const holderHandler = jest.fn((event: Record<string, unknown>) => {
             expect(event.timestamp).toBeUndefined();
         });
-        const dispatcher = new EventStreamDispatcher(pubSubService as never, [
+        (discoveryService.getProviders as jest.Mock).mockReturnValue([
             {
-                channels: () => [REDIS_CHANNELS.TRADE_EVENTS("devnet")],
-                handle: tradeHandler
+                instance: {
+                    channels: () => [REDIS_CHANNELS.TRADE_EVENTS("devnet")],
+                    handle: tradeHandler
+                } satisfies EventHandler
             },
             {
-                channels: () => [REDIS_CHANNELS.HOLDER_UPDATES("mainnet")],
-                handle: holderHandler
+                instance: {
+                    channels: () => [REDIS_CHANNELS.HOLDER_UPDATES("mainnet")],
+                    handle: holderHandler
+                } satisfies EventHandler
             }
         ]);
+        const dispatcher = new EventStreamDispatcher(pubSubService as never, discoveryService as DiscoveryService);
 
         await dispatcher.onApplicationBootstrap();
 
@@ -135,11 +146,12 @@ describe("EventStreamDispatcher", () => {
             channels: () => [REDIS_CHANNELS.TRADE_EVENTS("mainnet")],
             handle: rejectingHandle
         };
-        const dispatcher = new EventStreamDispatcher(pubSubService as never, [
-            throwingHandler as EventHandler,
-            rejectingHandler as EventHandler,
-            healthyHandler as EventHandler
+        (discoveryService.getProviders as jest.Mock).mockReturnValue([
+            { instance: throwingHandler as EventHandler },
+            { instance: rejectingHandler as EventHandler },
+            { instance: healthyHandler as EventHandler }
         ]);
+        const dispatcher = new EventStreamDispatcher(pubSubService as never, discoveryService as DiscoveryService);
 
         await dispatcher.onApplicationBootstrap();
 
@@ -153,7 +165,8 @@ describe("EventStreamDispatcher", () => {
 
     it("warns when no handlers are registered", async () => {
         const loggerWarnSpy = jest.spyOn(Logger.prototype, "warn").mockImplementation();
-        const dispatcher = new EventStreamDispatcher(pubSubService as never, []);
+        (discoveryService.getProviders as jest.Mock).mockReturnValue([{ instance: { healthcheck: true } }]);
+        const dispatcher = new EventStreamDispatcher(pubSubService as never, discoveryService as DiscoveryService);
 
         await dispatcher.onApplicationBootstrap();
 

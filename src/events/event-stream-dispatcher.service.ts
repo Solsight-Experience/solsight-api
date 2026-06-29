@@ -1,5 +1,6 @@
-import { Inject, Injectable, Logger, OnApplicationBootstrap } from "@nestjs/common";
-import { EventHandler, EVENT_HANDLER_TOKEN } from "../redis/event-handler";
+import { Injectable, Logger, OnApplicationBootstrap } from "@nestjs/common";
+import { DiscoveryService } from "@nestjs/core";
+import type { EventHandler } from "../redis/event-handler";
 import { REDIS_CHANNELS } from "../redis/channels";
 import { PubSubService } from "../redis/services/pubsub.service";
 import type { RedisChannel } from "../redis/utils/redisChannels";
@@ -13,17 +14,18 @@ export class EventStreamDispatcher implements OnApplicationBootstrap {
 
     constructor(
         private readonly pubSubService: PubSubService,
-        @Inject(EVENT_HANDLER_TOKEN) private readonly handlers: EventHandler[]
+        private readonly discoveryService: DiscoveryService
     ) {}
 
     async onApplicationBootstrap(): Promise<void> {
-        if (this.handlers.length === 0) {
+        const handlers = this.discoverHandlers();
+        if (handlers.length === 0) {
             this.logger.warn("EventStreamDispatcher: zero handlers registered");
             return;
         }
 
         const handlersByChannel = new Map<string, EventHandler[]>();
-        for (const handler of this.handlers) {
+        for (const handler of handlers) {
             for (const channel of handler.channels()) {
                 const existing = handlersByChannel.get(channel) ?? [];
                 existing.push(handler);
@@ -58,7 +60,7 @@ export class EventStreamDispatcher implements OnApplicationBootstrap {
         }
 
         const channelList = [...handlersByChannel.keys()].sort().join(", ");
-        this.logger.log(`EventStreamDispatcher: registered ${this.handlers.length} handlers across ${handlersByChannel.size} channels: [${channelList}]`);
+        this.logger.log(`EventStreamDispatcher: registered ${handlers.length} handlers across ${handlersByChannel.size} channels: [${channelList}]`);
     }
 
     private parseMessage(message: unknown, channelName: string): Record<string, unknown> | null {
@@ -98,5 +100,30 @@ export class EventStreamDispatcher implements OnApplicationBootstrap {
 
     private tradeTimestampSanityFloorSec(): number {
         return Math.floor(Date.now() / 1000) - TRADE_TIMESTAMP_SANITY_FLOOR_AGE_S;
+    }
+
+    private discoverHandlers(): EventHandler[] {
+        const handlers: EventHandler[] = [];
+        const seen = new Set<EventHandler>();
+
+        for (const provider of this.discoveryService.getProviders()) {
+            const instance = provider.instance;
+            if (!this.isEventHandler(instance) || seen.has(instance)) {
+                continue;
+            }
+            seen.add(instance);
+            handlers.push(instance);
+        }
+
+        return handlers;
+    }
+
+    private isEventHandler(instance: unknown): instance is EventHandler {
+        return (
+            !!instance &&
+            typeof instance === "object" &&
+            typeof (instance as EventHandler).channels === "function" &&
+            typeof (instance as EventHandler).handle === "function"
+        );
     }
 }
