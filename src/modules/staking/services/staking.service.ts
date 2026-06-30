@@ -36,6 +36,7 @@ import {
     estimateShareValue,
     InsuranceFundState,
     isCompiledMessageShape,
+    parseWalletBalanceDeltaSol,
     parseStakeAmountFromInstructionData,
     readU128LE,
     serializeFund,
@@ -88,9 +89,16 @@ export class StakingService {
     }
 
     async getHistory(cluster: Cluster, dto: GetStakingHistoryDto): Promise<StakingHistoryResponse> {
-        const { rpc, pdas, ifProgramId } = this.resolveStakingContext(cluster, dto.wallet);
+        const { rpc, pdas, ifProgramId, owner } = this.resolveStakingContext(cluster, dto.wallet);
         const page = dto.page ?? 1;
         const pageSize = dto.pageSize ?? 8;
+        const ifInfo = await rpc.getAccountInfo(pdas.insuranceFund, "confirmed");
+        if (!ifInfo) {
+            return { records: [], total: 0 };
+        }
+        const fund = decodeInsuranceFund(ifInfo.data);
+        const vaultBalance = await rpc.getTokenAccountBalance(fund.vaultTokenAccount, "confirmed").catch(() => null);
+        const vaultUnits = vaultBalance ? BigInt(vaultBalance.value.amount) : ZERO;
         const allSigs = await rpc.getSignaturesForAddress(pdas.ifStake, { limit: 100 });
         const total = allSigs.length;
         const start = (page - 1) * pageSize;
@@ -108,7 +116,15 @@ export class StakingService {
                     const actionType = classifyStakeAction(tx.meta?.logMessages ?? []);
                     if (!actionType) return null;
 
-                    const amountSol = this.parseAmountFromTransaction(tx.transaction.message, ifProgramId, actionType);
+                    const amountSol = this.parseAmountFromTransaction(
+                        tx.transaction.message,
+                        tx.meta,
+                        ifProgramId,
+                        owner,
+                        actionType,
+                        fund.totalShares,
+                        vaultUnits
+                    );
                     const status: StakeRecordStatus = tx.meta?.err
                         ? "failed"
                         : actionType === "unstake"
@@ -331,15 +347,28 @@ export class StakingService {
         return { network, owner, ifProgramId, ifAuthority, pdas, rpc };
     }
 
-    private parseAmountFromTransaction(message: unknown, ifProgramId: PublicKey, actionType: StakeActionType): string {
+    private parseAmountFromTransaction(
+        message: unknown,
+        meta: unknown,
+        ifProgramId: PublicKey,
+        owner: PublicKey,
+        actionType: StakeActionType,
+        totalShares: bigint,
+        vaultUnits: bigint
+    ): string {
         if (!isCompiledMessageShape(message)) return "0";
 
         for (const ix of message.compiledInstructions) {
             const programKey = message.staticAccountKeys[ix.programIdIndex];
             if (!programKey || !programKey.equals(ifProgramId)) continue;
-            return parseStakeAmountFromInstructionData(ix.data, actionType);
+            const amountFromInstruction = parseStakeAmountFromInstructionData(ix.data, actionType, totalShares, vaultUnits);
+            if (actionType !== "withdraw") {
+                return amountFromInstruction;
+            }
+
+            return parseWalletBalanceDeltaSol(meta as { fee?: number; preBalances?: number[]; postBalances?: number[] } | null | undefined, message, owner);
         }
-        return "0";
+        return "0.000000";
     }
 
     private getPdas(ifProgramId: PublicKey, ifAuthority: PublicKey, owner: PublicKey): ResolvedPdas {

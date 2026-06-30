@@ -1,5 +1,5 @@
 import { LAMPORTS_PER_SOL, PublicKey } from "@solana/web3.js";
-import { CompiledMessageShape, StakeActionType, StakingFundSnapshot } from "../types/staking.types";
+import { CompiledMessageShape, StakeActionType, StakingFundSnapshot, TransactionMetaBalanceShape } from "../types/staking.types";
 
 const U32_FACTOR = BigInt(0x100000000);
 const U64_FACTOR = BigInt(2) ** BigInt(64);
@@ -138,18 +138,38 @@ export function classifyStakeAction(logs: string[]): StakeActionType | null {
     return null;
 }
 
-export function parseStakeAmountFromInstructionData(data: Uint8Array, actionType: StakeActionType): string {
+export function parseStakeAmountFromInstructionData(data: Uint8Array, actionType: StakeActionType, totalShares?: bigint, vaultUnits?: bigint): string {
     try {
         if (actionType === "stake" && data.length >= 16) {
             const lamports = readU64LE(data, 8);
             const sol = Number(lamports) / LAMPORTS_PER_SOL;
-            return sol > 0 ? sol.toFixed(6) : "0";
+            return sol > 0 ? sol.toFixed(6) : "0.000000";
+        }
+
+        if (actionType === "unstake" && data.length >= 24 && totalShares && vaultUnits && totalShares > ZERO && vaultUnits > ZERO) {
+            const shares = readU128LE(data, 8);
+            const sol = Number((shares * vaultUnits) / totalShares) / LAMPORTS_PER_SOL;
+            return sol > 0 ? sol.toFixed(6) : "0.000000";
         }
     } catch {
-        return "0";
+        return "0.000000";
     }
 
-    return "0";
+    return "0.000000";
+}
+
+export function parseWalletBalanceDeltaSol(meta: TransactionMetaBalanceShape | null | undefined, message: CompiledMessageShape, owner: PublicKey): string {
+    const ownerIndex = message.staticAccountKeys.findIndex((key) => key.equals(owner));
+    if (ownerIndex < 0) return "0.000000";
+
+    const preBalance = meta?.preBalances?.[ownerIndex];
+    const postBalance = meta?.postBalances?.[ownerIndex];
+    if (preBalance == null || postBalance == null) return "0.000000";
+
+    const deltaLamports = BigInt(postBalance - preBalance + (meta?.fee ?? 0));
+    if (deltaLamports <= ZERO) return "0.000000";
+
+    return (Number(deltaLamports) / LAMPORTS_PER_SOL).toFixed(6);
 }
 
 export const encoder = new TextEncoder();
