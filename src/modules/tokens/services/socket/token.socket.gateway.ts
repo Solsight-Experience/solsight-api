@@ -29,7 +29,7 @@ export class TokenSocketGateway {
                 });
             }
         } catch (error) {
-            this.logger.error("Error in subscribe:", error, TokenSocketGateway.name);
+            this.logger.error("Error in subscribe:", error instanceof Error ? error.stack : String(error), TokenSocketGateway.name);
         }
     }
 
@@ -43,7 +43,7 @@ export class TokenSocketGateway {
                 this.holderTracking.onHolderRoomLeave(room);
             }
         } catch (error) {
-            this.logger.error("Error in unsubscribe:", error, TokenSocketGateway.name);
+            this.logger.error("Error in unsubscribe:", error instanceof Error ? error.stack : String(error), TokenSocketGateway.name);
         }
     }
 

@@ -54,19 +54,26 @@ export class WalletAlertCheckerService implements OnModuleInit {
     private async processWallet(walletAddress: string, alerts: WalletAlert[]): Promise<void> {
         const cluster = (alerts[0] as WalletAlertWithWallet).watchedWallet?.network ?? "mainnet";
         const txs = await this.fetchRecentTxs(walletAddress, cluster);
-        if (!txs.length) return;
+        if (!txs.length) {
+            this.logger.debug(`No transactions found for ${walletAddress} (${cluster})`);
+            return;
+        }
 
         const latestSig: string = txs[0].signature;
+        this.logger.debug(`Wallet ${walletAddress} (${cluster}): ${txs.length} txs, latest=${latestSig.slice(0, 8)}...`);
 
         for (const alert of alerts) {
             // First-time initialization: set the cursor without triggering notifications
             if (!alert.lastCheckedSignature) {
+                this.logger.log(`Alert ${alert.id} initialized cursor to ${latestSig.slice(0, 8)}... (${cluster})`);
                 await this.walletAlertService.updateLastChecked(alert.id, latestSig);
                 continue;
             }
 
             const newTxs = this.getNewTransactions(txs, alert.lastCheckedSignature);
-            this.logger.log(`Alert ${alert.id} (${alert.alertType}): ${newTxs.length} new tx(s)`);
+            this.logger.log(
+                `Alert ${alert.id} (${alert.alertType}) [${walletAddress.slice(0, 6)}... ${cluster}]: ${newTxs.length} new tx(s), cursor=${alert.lastCheckedSignature.slice(0, 8)}...`
+            );
             if (!newTxs.length) continue;
 
             for (const tx of newTxs) {
@@ -90,7 +97,8 @@ export class WalletAlertCheckerService implements OnModuleInit {
     private async fetchRecentTxs(walletAddress: string, cluster: "mainnet" | "devnet"): Promise<EnhancedTransaction[]> {
         try {
             return await this.heliusResolver.forCluster(cluster).getEnhancedTransactionsByAddress(walletAddress, { limit: 50 });
-        } catch {
+        } catch (err) {
+            this.logger.warn(`fetchRecentTxs failed for ${walletAddress} (${cluster}): ${err instanceof Error ? err.message : String(err)}`);
             return [];
         }
     }
