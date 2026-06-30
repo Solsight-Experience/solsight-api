@@ -1,12 +1,3 @@
-export const TRADE_CHANNELS = {
-    mainnet: "solsight:trade_events:mainnet",
-    devnet: "solsight:trade_events:devnet"
-} as const;
-
-export const INDEXER_TRADE_CHANNELS = [TRADE_CHANNELS.mainnet, TRADE_CHANNELS.devnet] as const;
-
-export type TradeChannels = (typeof TRADE_CHANNELS)[keyof typeof TRADE_CHANNELS];
-
 const configuration = () => ({
     port: parseInt(process.env.PORT || "", 10) || 3000,
     ws_port: parseInt(process.env.WS_PORT || "", 10) || 3001,

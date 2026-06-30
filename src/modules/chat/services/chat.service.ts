@@ -1,5 +1,4 @@
-import { HttpException, Injectable, Logger } from "@nestjs/common";
-import { ConfigService } from "@nestjs/config";
+import { HttpException, Inject, Injectable, Logger } from "@nestjs/common";
 import type { ChatCompletionMessageParam, ChatCompletionTool } from "openai/resources/chat/completions";
 import { OpenAIService } from "../../../infra/openai/openai.service";
 import { SortByTrending, TimeFrame } from "../../discovery/dtos/get-trending.dto";
@@ -7,10 +6,15 @@ import { DiscoveryService } from "../../discovery/services/discovery.service";
 import { PortfolioService } from "../../portfolio/services/portfolio.service";
 import { TokensService } from "../../tokens/services/tokens.service";
 import { ChatResponsePayload, SendMessagePayload, PageContext } from "../types/chat.types";
-import { COMMON_SYMBOLS, COMMON_DECIMALS } from "../../../common/constants/token.constants";
+import { COMMON_SYMBOLS } from "../../../common/constants/token.constants";
 import { RagService } from "./rag.service";
-import { SYSTEM_PROMPT } from "../../../config/ai-prompt.config";
+import { EXECUTOR_SERVICE } from "../../../infra/executor/constants/executor.token";
+import type { ExecutorService } from "../../../infra/executor/interfaces/executor-service.interface";
+import * as fs from "fs";
+import * as path from "path";
 import type { Cluster } from "../../../common/cluster/cluster.types";
+
+const SYSTEM_PROMPT = fs.readFileSync(path.join(process.cwd(), "prompts/system.prompt.md"), "utf-8");
 
 const STATIC_ROUTES = ["/", "/token/[tokenAddress]", "/portfolio", "/multi-chart", "/wallet-tracker", "/notifications"];
 
@@ -311,61 +315,76 @@ export class ChatService {
         private readonly portfolioService: PortfolioService,
         private readonly openaiService: OpenAIService,
         private readonly ragService: RagService,
+        @Inject(EXECUTOR_SERVICE)
+        private readonly executorService: ExecutorService,
         @InjectRepository(ChatSessionEntity)
         private readonly sessionRepo: Repository<ChatSessionEntity>,
         @InjectRepository(ChatMessageEntity)
         private readonly messageRepo: Repository<ChatMessageEntity>,
         @InjectRepository(Wallet)
-        private readonly walletRepo: Repository<Wallet>,
-        private readonly configService: ConfigService
+        private readonly walletRepo: Repository<Wallet>
     ) {}
 
+    private mapToCompletionMessage(message: ChatMessageEntity): ChatCompletionMessageParam {
+        if (message.role === "tool") {
+            return {
+                role: "tool" as const,
+                content: message.content,
+                tool_call_id: message.toolCallId || "",
+                name: message.toolName
+            } as unknown as ChatCompletionMessageParam;
+        }
+
+        if (message.role === "assistant") {
+            const data = message.data as { toolCalls?: unknown[] } | null | undefined;
+            const toolCalls = data?.toolCalls;
+            return {
+                role: "assistant" as const,
+                content: message.content || null,
+                ...(toolCalls && toolCalls.length > 0 ? { tool_calls: toolCalls } : {})
+            } as unknown as ChatCompletionMessageParam;
+        }
+
+        return {
+            role: message.role as "user" | "system",
+            content: message.content
+        } as ChatCompletionMessageParam;
+    }
+
     /**
-     * Fetch price impact from Jupiter Quote API for a given swap pair.
-     * Returns the raw decimal fraction (e.g. 0.05 for 5%), or null if the quote fails.
+     * Fetch price impact for a given swap pair via the ExecutorService interface.
+     *
+     * Delegates to whichever executor is configured (solsight-executor or Jupiter).
+     * Both return `priceImpactPct` as a decimal-fraction string, e.g. "0.05" = 5%.
+     *
+     * Returns the raw decimal fraction, or null if the quote cannot be obtained.
      * Never throws — errors are swallowed so prepare_swap continues regardless.
      */
-    // TODO(Nam): use native executor service instead of Jupiter call
     private async fetchPriceImpact(cluster: Cluster, inputMint: string, outputMint: string, amount: number): Promise<number | null> {
         try {
-            if (cluster === "devnet") return null;
             if (!inputMint || !outputMint || amount <= 0) return null;
-            let inputDecimals = COMMON_DECIMALS[inputMint]; // TODO(Nam): token meta fetch always go through tokensService
-            if (inputDecimals === undefined) {
-                const meta = await this.tokensService.getTokenMetadata(cluster, inputMint);
-                inputDecimals = meta?.decimals ?? 6;
-            }
+
+            // Resolve input token decimals via tokensService.
+            const meta = await this.tokensService.getTokenMetadata(cluster, inputMint);
+            const inputDecimals = meta?.decimals ?? 6;
 
             const amountBaseUnits = Math.round(amount * Math.pow(10, inputDecimals));
             if (amountBaseUnits <= 0) return null;
 
-            const params = new URLSearchParams({
+            const quote = await this.executorService.getQuote(cluster, {
                 inputMint,
                 outputMint,
                 amount: String(amountBaseUnits),
                 swapMode: "ExactIn",
-                slippageBps: "50"
+                slippageBps: 50
             });
 
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 5000);
-
-            try {
-                // TODO(Nam): replace by jupiter service call, not direct API fetch
-                // Better: use native executor service to quote, it also provide price impact
-                const quoteUrl = this.configService.get<string>("jupiter.quoteApiUrl") || "https://api.jup.ag/swap/v1/quote";
-                const response = await fetch(`${quoteUrl}?${params.toString()}`, {
-                    signal: controller.signal
-                });
-                if (!response.ok) return null;
-                const data = (await response.json()) as Record<string, unknown>;
-                const raw = data.priceImpactPct;
-                const pct = typeof raw === "number" ? raw : typeof raw === "string" ? Number(raw) : null;
-                return pct !== null && Number.isFinite(pct) ? pct : null;
-            } finally {
-                clearTimeout(timeoutId);
-            }
+            // priceImpactPct is a decimal-fraction string from both Jupiter and
+            // solsight-executor, e.g. "0.05" means 5% impact.
+            const pct = Number(quote.priceImpactPct);
+            return Number.isFinite(pct) ? pct : null;
         } catch {
+            // Best-effort: never block the swap flow on a failed quote.
             return null;
         }
     }
@@ -558,22 +577,7 @@ export class ChatService {
             }
         }
 
-        messages.push(
-            ...recentMessages.map((message): ChatCompletionMessageParam => {
-                if (message.role === "tool") {
-                    return {
-                        role: "tool" as const,
-                        content: message.content,
-                        tool_call_id: message.toolCallId || ""
-                    };
-                }
-
-                return {
-                    role: message.role,
-                    content: message.content
-                };
-            })
-        );
+        messages.push(...recentMessages.map((message) => this.mapToCompletionMessage(message)));
 
         this.logger.debug(`LLM request: messages=${messages.length}`, ChatService.name);
 
@@ -615,7 +619,10 @@ export class ChatService {
                     this.messageRepo.create({
                         sessionId,
                         role: "assistant",
-                        content: assistantMessage.content || ""
+                        content: assistantMessage.content || "",
+                        data: {
+                            toolCalls: assistantMessage.tool_calls
+                        }
                     })
                 );
 
@@ -704,20 +711,7 @@ export class ChatService {
                       }
                   ]
                 : []),
-            ...recentMessages.map((message): ChatCompletionMessageParam => {
-                if (message.role === "tool") {
-                    return {
-                        role: "tool" as const,
-                        content: message.content,
-                        tool_call_id: message.toolCallId || ""
-                    };
-                }
-
-                return {
-                    role: message.role,
-                    content: message.content
-                };
-            })
+            ...recentMessages.map((message) => this.mapToCompletionMessage(message))
         ];
 
         this.logger.debug(`LLM stream request: messages=${messages.length}`, ChatService.name);
@@ -729,7 +723,12 @@ export class ChatService {
         }, LLM_TIMEOUT_MS);
 
         let finalContent = "";
-        const toolCallMap: Record<string, { function: { name: string; arguments: string } }> = {};
+        const toolCallsAccumulator: {
+            id?: string;
+            type?: string;
+            function: { name: string; arguments: string };
+            extra_content?: unknown;
+        }[] = [];
 
         try {
             const stream = await this.openaiService.createCompletion(
@@ -755,23 +754,51 @@ export class ChatService {
                 }
                 if (delta.tool_calls) {
                     for (const toolCall of delta.tool_calls) {
-                        const id = toolCall.id;
-                        if (id) {
-                            if (!toolCallMap[id]) toolCallMap[id] = { function: { name: toolCall.function?.name || "", arguments: "" } };
-                            if (toolCall.function?.name) toolCallMap[id].function.name = toolCall.function.name;
-                            if (toolCall.function?.arguments) toolCallMap[id].function.arguments += toolCall.function.arguments;
+                        const index = toolCall.index;
+                        if (index === undefined) continue;
+
+                        if (!toolCallsAccumulator[index]) {
+                            toolCallsAccumulator[index] = {
+                                function: { name: "", arguments: "" }
+                            };
+                        }
+
+                        const acc = toolCallsAccumulator[index];
+                        if (toolCall.id) acc.id = toolCall.id;
+                        if (toolCall.type) acc.type = toolCall.type;
+                        if (toolCall.function?.name) acc.function.name = toolCall.function.name;
+                        if (toolCall.function?.arguments) acc.function.arguments += toolCall.function.arguments;
+                        const extraContent = (toolCall as unknown as Record<string, unknown>).extra_content;
+                        if (extraContent !== undefined) {
+                            acc.extra_content = extraContent;
                         }
                     }
                 }
                 if (choice.finish_reason === "tool_calls") {
+                    const toolCalls = toolCallsAccumulator
+                        .filter((tc) => tc.id)
+                        .map((tc) => ({
+                            id: tc.id!,
+                            type: tc.type || "function",
+                            function: {
+                                name: tc.function.name,
+                                arguments: tc.function.arguments
+                            },
+                            ...(tc.extra_content ? { extra_content: tc.extra_content } : {})
+                        }));
+
                     await this.messageRepo.save(
                         this.messageRepo.create({
                             sessionId,
                             role: "assistant",
-                            content: ""
+                            content: "",
+                            data: {
+                                toolCalls
+                            }
                         })
                     );
-                    for (const [toolCallId, toolCall] of Object.entries(toolCallMap)) {
+
+                    for (const toolCall of toolCalls) {
                         const toolName = toolCall.function.name;
                         let args: Record<string, unknown> = {};
                         try {
@@ -788,7 +815,7 @@ export class ChatService {
                                 sessionId,
                                 role: "tool",
                                 content: result,
-                                toolCallId,
+                                toolCallId: toolCall.id,
                                 toolName
                             })
                         );
@@ -1018,7 +1045,16 @@ export class ChatService {
     }
 
     private inferTypedResponseFromTools(messages: ChatMessageEntity[]): ChatResponsePayload | null {
-        const recentToolMessages = [...messages]
+        const lastMessage = messages[messages.length - 1];
+        if (!lastMessage || lastMessage.role !== "tool") {
+            return null;
+        }
+
+        // Only look at messages from the current turn (since the last "user" message)
+        const lastUserIndex = [...messages].reverse().findIndex((m) => m.role === "user");
+        const currentTurnMessages = lastUserIndex !== -1 ? messages.slice(messages.length - lastUserIndex) : messages;
+
+        const recentToolMessages = currentTurnMessages
             .reverse()
             .filter((message) => message.role === "tool")
             .slice(0, 5);

@@ -28,6 +28,7 @@ import { KoraModule } from "./infra/kora/kora.module";
 import { JitoModule } from "./infra/jito/jito.module";
 import { AdminAnalyticsModule } from "./modules/admin-analytics/admin-analytics.module";
 import { StakingModule } from "./modules/staking/staking.module";
+import { EventsModule } from "./events/events.module";
 
 @Module({
     imports: [
@@ -68,7 +69,8 @@ import { StakingModule } from "./modules/staking/staking.module";
         KoraModule,
         JitoModule,
         AdminAnalyticsModule,
-        StakingModule
+        StakingModule,
+        EventsModule
     ],
     controllers: [],
     providers: []

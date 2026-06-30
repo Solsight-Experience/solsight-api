@@ -1,138 +1,138 @@
 [
     {
-        "content": "Solsight là nền tảng giao dịch phi tập trung (DEX) trên hệ sinh thái Solana, cho phép người dùng dễ dàng giao dịch, kiểm tra và phân tích dữ liệu trực tiếp từ blockchain mà không cần qua bất kỳ bên trung gian nào.",
-        "metadata": { "topic": "platform", "lang": "vi" }
+        "content": "Solsight is a decentralized exchange (DEX) platform on the Solana ecosystem, allowing users to easily trade, inspect, and analyze data directly from the blockchain without any intermediaries.",
+        "metadata": { "topic": "platform", "lang": "en" }
     },
     {
-        "content": "Solsight được xây dựng trên Solana — một blockchain nổi bật với khả năng xử lý hàng chục nghìn giao dịch mỗi giây, phí giao dịch cực thấp (khoảng $0.00025/giao dịch) và khả năng mở rộng mạnh mẽ.",
-        "metadata": { "topic": "platform", "lang": "vi" }
+        "content": "Solsight is built on Solana — a prominent blockchain known for its ability to process tens of thousands of transactions per second, extremely low transaction fees (around $0.00025 per transaction), and robust scalability.",
+        "metadata": { "topic": "platform", "lang": "en" }
     },
     {
-        "content": "Solsight giải quyết vấn đề của tài chính truyền thống: giao dịch không còn phải qua nhiều khâu trung gian tốn thời gian và chi phí. Trên Solsight, mọi giao dịch được xử lý trực tiếp, gần như tức thì, minh bạch và bất biến trên blockchain.",
-        "metadata": { "topic": "platform", "lang": "vi" }
+        "content": "Solsight solves the issues of traditional finance: transactions no longer need to go through multiple time-consuming and costly intermediaries. On Solsight, all transactions are processed directly, almost instantly, transparently, and immutably on the blockchain.",
+        "metadata": { "topic": "platform", "lang": "en" }
     },
     {
-        "content": "Các tính năng chính của Solsight: theo dõi portfolio, khám phá token trending, thực hiện swap token, theo dõi ví, cảnh báo giá, multi-chart so sánh token, và trợ lý AI hỗ trợ phân tích.",
-        "metadata": { "topic": "features", "lang": "vi" }
+        "content": "Key features of Solsight include: portfolio tracking, discovery of trending tokens, token swapping, wallet tracking, price alerts, multi-chart token comparison, and an AI assistant to support analysis.",
+        "metadata": { "topic": "features", "lang": "en" }
     },
     {
-        "content": "Solsight cho phép người dùng thêm nhiều ví cá nhân, xem tổng quan tài sản, phân tích lịch sử giao dịch, và trực tiếp mua bán token ngay trong ứng dụng.",
-        "metadata": { "topic": "features", "lang": "vi" }
+        "content": "Solsight allows users to add multiple personal wallets, view asset overviews, analyze transaction history, and buy/sell tokens directly within the application.",
+        "metadata": { "topic": "features", "lang": "en" }
     },
     {
-        "content": "Dữ liệu trên Solsight được lấy trực tiếp từ blockchain, đảm bảo tính toàn vẹn, không thể bị chỉnh sửa và không phụ thuộc vào bên trung gian. Người dùng luôn thấy dữ liệu thực tế nhất.",
-        "metadata": { "topic": "platform", "lang": "vi" }
+        "content": "Data on Solsight is fetched directly from the blockchain, ensuring integrity, immutability, and independence from any intermediaries. Users always see the most accurate and real-time data.",
+        "metadata": { "topic": "platform", "lang": "en" }
     },
     {
-        "content": "Đối tượng phục vụ của Solsight: nhà đầu tư cá nhân muốn quản lý tài sản crypto, dự án DeFi cần công cụ phân tích, và các tổ chức muốn xác minh dữ liệu minh bạch trên blockchain.",
-        "metadata": { "topic": "platform", "lang": "vi" }
+        "content": "Solsight's target audience includes: individual investors wanting to manage crypto assets, DeFi projects requiring analytical tools, and organizations wishing to verify transparent blockchain data.",
+        "metadata": { "topic": "platform", "lang": "en" }
     },
     {
-        "content": "Solsight Insurance Fund là tính năng staking: người dùng gửi SOL vào quỹ bảo hiểm để kiếm yield. SOL được staking qua Jito stake pool, mang lại APY cạnh tranh từ phần thưởng staking Solana.",
-        "metadata": { "topic": "staking", "lang": "vi" }
+        "content": "The Solsight Insurance Fund is a staking feature: users deposit SOL into the insurance fund to earn yield. The SOL is staked via the Jito stake pool, providing a competitive APY from Solana staking rewards.",
+        "metadata": { "topic": "staking", "lang": "en" }
     },
     {
-        "content": "Quy trình stake SOL trên Solsight: vào trang Portfolio → tab Staking → nhập số SOL muốn stake → xác nhận giao dịch trong ví. SOL của bạn sẽ được gửi vào Insurance Fund và bắt đầu sinh lời.",
-        "metadata": { "topic": "staking", "lang": "vi" }
+        "content": "Process to stake SOL on Solsight: go to the Portfolio page → Staking tab → enter the amount of SOL to stake → confirm the transaction in your wallet. Your SOL will be deposited into the Insurance Fund and start earning yield.",
+        "metadata": { "topic": "staking", "lang": "en" }
     },
     {
-        "content": "Quy trình unstake SOL trên Solsight gồm 2 bước: 1) Yêu cầu rút (Request Unstake) để bắt đầu thời gian chờ cooldown. 2) Sau khi hết cooldown, thực hiện Complete Unstake để nhận lại SOL về ví.",
-        "metadata": { "topic": "staking", "lang": "vi" }
+        "content": "Process to unstake SOL on Solsight consists of 2 steps: 1) Request Unstake to initiate the cooldown period. 2) Once the cooldown expires, execute Complete Unstake to receive the SOL back to your wallet.",
+        "metadata": { "topic": "staking", "lang": "en" }
     },
     {
-        "content": "Thời gian cooldown khi unstake từ Solsight Insurance Fund là khoảng 10 ngày. Trong thời gian này, số SOL đang chờ rút vẫn tiếp tục sinh lời cho đến khi hoàn tất rút.",
-        "metadata": { "topic": "staking", "lang": "vi" }
+        "content": "The cooldown period when unstaking from the Solsight Insurance Fund is approximately 10 days. During this period, the SOL pending withdrawal continues to earn yield until the process is completed.",
+        "metadata": { "topic": "staking", "lang": "en" }
     },
     {
-        "content": "Các loại hoạt động trong lịch sử giao dịch Portfolio: SWAP (hoán đổi token trên DEX), STAKE (nạp SOL vào Insurance Fund), UNSTAKE (rút SOL từ Insurance Fund), TRANSFER_IN (nhận SOL/token), TRANSFER_OUT (gửi SOL/token).",
-        "metadata": { "topic": "portfolio", "lang": "vi" }
+        "content": "Types of activities in the Portfolio transaction history: SWAP (token exchange on DEX), STAKE (deposit SOL into the Insurance Fund), UNSTAKE (withdraw SOL from the Insurance Fund), TRANSFER_IN (receive SOL/token), TRANSFER_OUT (send SOL/token).",
+        "metadata": { "topic": "portfolio", "lang": "en" }
     },
     {
-        "content": "Tính năng Multi-Chart trên Solsight cho phép so sánh biểu đồ giá của nhiều token cùng lúc, giúp nhà đầu tư dễ dàng đối chiếu hiệu suất và đưa ra quyết định đầu tư.",
-        "metadata": { "topic": "features", "lang": "vi" }
+        "content": "The Multi-Chart feature on Solsight allows users to compare price charts of multiple tokens simultaneously, helping investors easily cross-reference performance and make investment decisions.",
+        "metadata": { "topic": "features", "lang": "en" }
     },
     {
-        "content": "Tính năng Wallet Tracker trên Solsight cho phép theo dõi bất kỳ ví Solana nào, xem lịch sử giao dịch và tài sản của ví đó theo thời gian thực.",
-        "metadata": { "topic": "features", "lang": "vi" }
+        "content": "The Wallet Tracker feature on Solsight allows users to track any Solana wallet, viewing its transaction history and assets in real-time.",
+        "metadata": { "topic": "features", "lang": "en" }
     },
     {
-        "content": "Tính năng cảnh báo giá (Notifications) trên Solsight: người dùng có thể đặt ngưỡng giá cho token, hệ thống sẽ gửi thông báo ngay khi giá chạm mức đặt.",
-        "metadata": { "topic": "features", "lang": "vi" }
+        "content": "The price alert feature (Notifications) on Solsight: users can set price thresholds for tokens, and the system will send notifications as soon as the price hits the target level.",
+        "metadata": { "topic": "features", "lang": "en" }
     },
     {
-        "content": "Solsight AI là trợ lý thông minh tích hợp sẵn, có thể trả lời câu hỏi về portfolio, token, giao dịch, và hướng dẫn người dùng điều hướng các tính năng trên nền tảng.",
-        "metadata": { "topic": "ai", "lang": "vi" }
+        "content": "Solsight AI is a built-in smart assistant that can answer questions about portfolios, tokens, transactions, and guide users on how to navigate features across the platform.",
+        "metadata": { "topic": "ai", "lang": "en" }
     },
     {
-        "content": "Để swap token trên Solsight: vào trang token muốn mua → chọn Swap → nhập số lượng → xác nhận giao dịch trong ví. Tính năng swap là do Solsight tự xây dựng, không phải tích hợp từ Jupiter hay Raydium.",
-        "metadata": { "topic": "features", "lang": "vi" }
+        "content": "To swap tokens on Solsight: go to the page of the token you want to buy → select Swap → enter the amount → confirm the transaction in your wallet. The swap feature is custom-built by Solsight, not integrated from Jupiter or Raydium.",
+        "metadata": { "topic": "features", "lang": "en" }
     },
     {
-        "content": "Trang Discovery (/) trên Solsight hiển thị các token đang trending, token mới niêm yết, và các token hot trên Solana theo thời gian thực.",
-        "metadata": { "topic": "navigation", "lang": "vi" }
+        "content": "The Discovery page (/) on Solsight displays trending tokens, newly listed tokens, and hot tokens on Solana in real-time.",
+        "metadata": { "topic": "navigation", "lang": "en" }
     },
     {
-        "content": "Trang Portfolio (/portfolio) trên Solsight hiển thị tổng giá trị tài sản, phân bổ danh mục, lịch sử giao dịch, và hiệu suất đầu tư của tất cả ví đã kết nối.",
-        "metadata": { "topic": "navigation", "lang": "vi" }
+        "content": "The Portfolio page (/portfolio) on Solsight displays total asset value, portfolio allocation, transaction history, and investment performance of all connected wallets.",
+        "metadata": { "topic": "navigation", "lang": "en" }
     },
     {
-        "content": "Solana là blockchain hiệu năng cao với khoảng 65,000 giao dịch/giây, thời gian xác nhận dưới 1 giây, phí giao dịch rất thấp. Đây là lý do Solsight chọn Solana làm nền tảng.",
-        "metadata": { "topic": "solana", "lang": "vi" }
+        "content": "Solana is a high-performance blockchain with approximately 65,000 transactions per second, sub-second confirmation times, and very low transaction fees. This is why Solsight selected Solana as its foundation.",
+        "metadata": { "topic": "solana", "lang": "en" }
     },
     {
-        "content": "SOL là đồng tiền gốc của Solana, dùng để thanh toán phí giao dịch và tham gia staking. Mọi hoạt động trên Solsight đều cần một lượng nhỏ SOL để trả phí gas.",
-        "metadata": { "topic": "solana", "lang": "vi" }
+        "content": "SOL is the native currency of Solana, used to pay transaction fees and participate in staking. All activities on Solsight require a small amount of SOL to cover gas fees.",
+        "metadata": { "topic": "solana", "lang": "en" }
     },
     {
-        "content": "Liquid staking (staking thanh khoản) cho phép bạn stake SOL và vẫn nhận được token đại diện (LST) để tiếp tục sử dụng trong DeFi, thay vì bị khóa hoàn toàn như staking thông thường.",
-        "metadata": { "topic": "staking", "lang": "vi" }
+        "content": "Liquid staking allows you to stake SOL and still receive a liquid staking token (LST) to use in DeFi, instead of having it completely locked like traditional staking.",
+        "metadata": { "topic": "staking", "lang": "en" }
     },
     {
-        "content": "jitoSOL là token đại diện cho SOL đang được stake qua Jito. Giá trị của jitoSOL tăng dần theo thời gian so với SOL do phần thưởng staking tích lũy liên tục.",
-        "metadata": { "topic": "staking", "lang": "vi" }
+        "content": "jitoSOL is the token representing SOL staked via Jito. The value of jitoSOL increases over time relative to SOL due to continuously accumulating staking rewards.",
+        "metadata": { "topic": "staking", "lang": "en" }
     },
     {
-        "content": "DEX (Decentralized Exchange) là sàn giao dịch phi tập trung, cho phép swap token trực tiếp từ ví mà không cần tạo tài khoản hay qua sàn tập trung. Các DEX lớn trên Solana: Jupiter, Raydium, Orca, Meteora.",
-        "metadata": { "topic": "defi", "lang": "vi" }
+        "content": "A DEX (Decentralized Exchange) is a decentralized trading platform that allows token swaps directly from a wallet without creating an account or using a centralized exchange. Major DEXs on Solana include Jupiter, Raydium, Orca, and Meteora.",
+        "metadata": { "topic": "defi", "lang": "en" }
     },
     {
-        "content": "Jupiter là DEX aggregator hàng đầu trên Solana, tự động tìm route swap tốt nhất qua nhiều liquidity pool.",
-        "metadata": { "topic": "defi", "lang": "vi" }
+        "content": "Jupiter is the leading DEX aggregator on Solana, automatically finding the best swap routes across multiple liquidity pools.",
+        "metadata": { "topic": "defi", "lang": "en" }
     },
     {
-        "content": "PnL (Profit and Loss - Lời/Lỗ): là chênh lệch giữa giá trị hiện tại và giá vốn ban đầu. Realized PnL là lời/lỗ từ các giao dịch đã đóng. Unrealized PnL là lời/lỗ trên các vị thế đang nắm giữ.",
-        "metadata": { "topic": "trading", "lang": "vi" }
+        "content": "PnL (Profit and Loss): the difference between the current value and the initial cost basis. Realized PnL is the profit/loss from closed positions. Unrealized PnL is the profit/loss on active positions.",
+        "metadata": { "topic": "trading", "lang": "en" }
     },
     {
-        "content": "ROI (Return on Investment): tỉ suất sinh lời = (lợi nhuận / vốn bỏ ra) × 100%. Win rate: tỉ lệ giao dịch có lời = (số lệnh lời / tổng số lệnh) × 100%.",
-        "metadata": { "topic": "trading", "lang": "vi" }
+        "content": "ROI (Return on Investment): return rate = (profit / capital invested) × 100%. Win rate: percentage of profitable trades = (number of winning trades / total number of trades) × 100%.",
+        "metadata": { "topic": "trading", "lang": "en" }
     },
     {
-        "content": "Market cap (vốn hóa thị trường) = giá token × số lượng token đang lưu hành. FDV (Fully Diluted Valuation) = giá × tổng cung tối đa. Chênh lệch lớn giữa market cap và FDV thường là dấu hiệu rủi ro unlock token.",
-        "metadata": { "topic": "tokens", "lang": "vi" }
+        "content": "Market cap (market capitalization) = token price × circulating supply. FDV (Fully Diluted Valuation) = price × maximum supply. A large gap between market cap and FDV is often a warning sign of token unlock risks.",
+        "metadata": { "topic": "tokens", "lang": "en" }
     },
     {
-        "content": "Slippage là chênh lệch giữa giá kỳ vọng và giá thực tế khi swap. Nguyên nhân: thanh khoản thấp hoặc lệnh quá lớn. Nên đặt slippage tolerance 0.5–1% cho hầu hết giao dịch thông thường.",
-        "metadata": { "topic": "defi", "lang": "vi" }
+        "content": "Slippage is the difference between the expected price and the actual price of a swap. Causes: low liquidity or excessively large orders. It is recommended to set a slippage tolerance of 0.5–1% for most standard transactions.",
+        "metadata": { "topic": "defi", "lang": "en" }
     },
     {
-        "content": "Ví Solana (wallet) là nơi lưu trữ tài sản crypto của bạn. Các ví phổ biến tương thích với Solsight: Phantom, Solflare, Backpack. Bạn cần kết nối ví để sử dụng đầy đủ tính năng của Solsight.",
-        "metadata": { "topic": "wallet", "lang": "vi" }
+        "content": "A Solana wallet stores your crypto assets. Popular wallets compatible with Solsight include Phantom, Solflare, and Backpack. You must connect your wallet to use all of Solsight's features.",
+        "metadata": { "topic": "wallet", "lang": "en" }
     },
     {
-        "content": "Solsight hướng tới phục vụ cộng đồng Web3 Việt Nam và toàn cầu, góp phần thúc đẩy ứng dụng công nghệ blockchain vào đời sống và nền kinh tế số thông qua một nền tảng DeFi minh bạch, dễ tiếp cận.",
-        "metadata": { "topic": "platform", "lang": "vi" }
+        "content": "Solsight aims to serve the Vietnamese and global Web3 community, contributing to the adoption of blockchain technology in daily life and the digital economy through a transparent, accessible DeFi platform.",
+        "metadata": { "topic": "platform", "lang": "en" }
     },
     {
-        "content": "Tính năng Swap trên Solsight là do đội ngũ Solsight tự phát triển, không phải tích hợp từ bên thứ ba như Jupiter hay Raydium. Người dùng swap token trực tiếp trên nền tảng Solsight.",
-        "metadata": { "topic": "features", "lang": "vi" }
+        "content": "The Swap feature on Solsight is custom-developed by the Solsight team, not integrated from a third party like Jupiter or Raydium. Users swap tokens directly on the Solsight platform.",
+        "metadata": { "topic": "features", "lang": "en" }
     },
     {
-        "content": "Tính năng Staking (Insurance Fund) trên Solsight là smart contract do đội ngũ Solsight tự xây dựng và triển khai trên Solana. Đây không phải tích hợp từ protocol staking bên ngoài.",
-        "metadata": { "topic": "staking", "lang": "vi" }
+        "content": "The Staking (Insurance Fund) feature on Solsight is a smart contract custom-built and deployed on Solana by the Solsight team. It is not integrated from an external staking protocol.",
+        "metadata": { "topic": "staking", "lang": "en" }
     },
     {
-        "content": "Solsight được sáng lập bởi 6 thành viên: Lê Nguyễn Hồng Ngọc, Võ Văn Nam, Nguyễn Đặng Minh Lân, Hoàng Thanh Thảo Nguyên, Nguyễn Ngọc Đăng, và Thái Đình Ngân.",
-        "metadata": { "topic": "team", "lang": "vi" }
+        "content": "Solsight was founded by 6 members: Le Nguyen Hong Ngoc, Vo Van Nam, Nguyen Dang Minh Lan, Hoang Thanh Thao Nguyen, Nguyen Ngoc Dang, and Thai Dinh Ngan.",
+        "metadata": { "topic": "team", "lang": "en" }
     }
 ]

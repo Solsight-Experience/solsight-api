@@ -1,6 +1,8 @@
 import { TokenOverviewResponseDto } from "../dtos/token.response.dto";
+import { TimeFrame } from "../../discovery/dtos/get-trending.dto";
 export type TokenFilterConditionDto = {
     search_query?: string;
+    time_frame?: TimeFrame;
     metrics: {
         age_min_minutes: number;
         age_max_minutes: number;
