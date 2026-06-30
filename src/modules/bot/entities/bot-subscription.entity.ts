@@ -4,7 +4,7 @@ import { User } from "../../users/entities/user.entity";
 @Entity("telegram_subscriptions")
 @Index(["userId"], { unique: true })
 @Index(["verificationToken"])
-export class TelegramSubscription {
+export class BotSubscription {
     @PrimaryGeneratedColumn("uuid")
     id: string;
 

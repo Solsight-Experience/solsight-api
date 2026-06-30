@@ -1,27 +1,31 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import axios from "axios";
-import { TelegramUpdate, TelegramGetUpdatesResponse } from "../types/telegram-api.types";
+import axios, { AxiosInstance } from "axios";
+import { TelegramUpdate, TelegramGetUpdatesResponse } from "./telegram-api.types";
 
 @Injectable()
 export class TelegramApiService {
     private readonly logger = new Logger(TelegramApiService.name);
-    private readonly baseUrl: string;
-    private readonly token: string;
+    private readonly apiClient: AxiosInstance;
     private offset = 0;
 
     constructor(config: ConfigService) {
-        this.token = config.get<string>("telegram.botToken") ?? "";
-        this.baseUrl = `https://api.telegram.org/bot${this.token}`;
+        const token = config.get<string>("telegram.botToken") ?? "";
+        this.apiClient = axios.create({
+            baseURL: `https://api.telegram.org/bot${token}`,
+            timeout: 10000,
+            headers: { "Content-Type": "application/json" }
+        });
     }
 
     get hasToken(): boolean {
-        return !!this.token;
+        const baseURL = this.apiClient.defaults.baseURL ?? "";
+        return baseURL !== "https://api.telegram.org/bot";
     }
 
     async sendMessage(chatId: string, text: string): Promise<void> {
         try {
-            await axios.post(`${this.baseUrl}/sendMessage`, { chat_id: chatId, text }, { timeout: 5000 });
+            await this.apiClient.post("/sendMessage", { chat_id: chatId, text });
         } catch (err) {
             this.logger.error(`Failed to send Telegram message to chat ${chatId}`, err);
         }
@@ -29,7 +33,7 @@ export class TelegramApiService {
 
     async getUpdate(timeoutSec = 25): Promise<TelegramUpdate | null> {
         try {
-            const { data } = await axios.get<TelegramGetUpdatesResponse>(`${this.baseUrl}/getUpdates`, {
+            const { data } = await this.apiClient.get<TelegramGetUpdatesResponse>("/getUpdates", {
                 params: { timeout: timeoutSec, offset: this.offset },
                 timeout: (timeoutSec + 5) * 1000
             });

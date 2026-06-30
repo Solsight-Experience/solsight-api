@@ -1,15 +1,15 @@
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from "@nestjs/common";
-import { TelegramApiService } from "./telegram-api.service";
-import { TelegramSubscriptionService } from "./telegram-subscription.service";
+import { TelegramApiService } from "../../../infra/telegram/telegram-api.service";
+import { BotService } from "./bot.service";
 
 @Injectable()
-export class TelegramPollerService implements OnModuleInit, OnModuleDestroy {
-    private readonly logger = new Logger(TelegramPollerService.name);
+export class BotPollerService implements OnModuleInit, OnModuleDestroy {
+    private readonly logger = new Logger(BotPollerService.name);
     private running = false;
 
     constructor(
         private readonly telegramApi: TelegramApiService,
-        private readonly subscriptionService: TelegramSubscriptionService
+        private readonly botService: BotService
     ) {}
 
     onModuleInit(): void {
@@ -32,14 +32,14 @@ export class TelegramPollerService implements OnModuleInit, OnModuleDestroy {
                 if (!update) continue;
 
                 const token = update.text.trim().toUpperCase();
-                const sub = await this.subscriptionService.findPendingByToken(token);
+                const sub = await this.botService.findPendingByToken(token);
                 if (sub) {
-                    await this.subscriptionService.markVerified(sub.id, update.chatId);
-                    await this.telegramApi.sendMessage(update.chatId, "✅ Connected! You will now receive wallet tracker alerts here.");
-                    this.logger.log(`Telegram verified: userId=${sub.userId} chatId=${update.chatId}`);
+                    await this.botService.markVerified(sub.id, update.chatId);
+                    await this.botService.sendVerificationConfirmation(update.chatId);
+                    this.logger.log(`Bot verified: userId=${sub.userId} chatId=${update.chatId}`);
                 }
             } catch (err) {
-                this.logger.error("Telegram poll loop error", err);
+                this.logger.error("Bot poll loop error", err);
                 await new Promise((r) => setTimeout(r, 3000));
             }
         }

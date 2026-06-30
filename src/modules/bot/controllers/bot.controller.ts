@@ -1,17 +1,17 @@
 import { Controller, Get, Post, Delete, UseGuards } from "@nestjs/common";
 import { JwtAuthGuard } from "../../auth/guards/jwt-auth.guard";
-import { TelegramSubscriptionService } from "../services/telegram-subscription.service";
-import { TelegramSubscriptionStatusDto, GenerateTelegramTokenResponseDto } from "../dtos/telegram-subscription.dto";
+import { BotService } from "../services/bot.service";
+import { BotSubscriptionStatusDto, GenerateBotTokenResponseDto } from "../dtos/bot-subscription.dto";
 import { CurrentUser, CurrentUserPayload } from "../../../common/decorators/current-user.decorator";
 
 @Controller("telegram")
 @UseGuards(JwtAuthGuard)
-export class TelegramController {
-    constructor(private readonly subscriptionService: TelegramSubscriptionService) {}
+export class BotController {
+    constructor(private readonly botService: BotService) {}
 
     @Get("subscription")
-    async getSubscription(@CurrentUser() user: CurrentUserPayload): Promise<TelegramSubscriptionStatusDto> {
-        const sub = await this.subscriptionService.getSubscription(user.id);
+    async getSubscription(@CurrentUser() user: CurrentUserPayload): Promise<BotSubscriptionStatusDto> {
+        const sub = await this.botService.getSubscription(user.id);
         return {
             isVerified: sub?.isVerified ?? false,
             verificationToken: sub?.verificationToken ?? undefined,
@@ -21,13 +21,13 @@ export class TelegramController {
     }
 
     @Get("subscription/status")
-    async getStatus(@CurrentUser() user: CurrentUserPayload): Promise<TelegramSubscriptionStatusDto> {
+    async getStatus(@CurrentUser() user: CurrentUserPayload): Promise<BotSubscriptionStatusDto> {
         return this.getSubscription(user);
     }
 
     @Post("subscription/token")
-    async generateToken(@CurrentUser() user: CurrentUserPayload): Promise<GenerateTelegramTokenResponseDto> {
-        const sub = await this.subscriptionService.generateToken(user.id);
+    async generateToken(@CurrentUser() user: CurrentUserPayload): Promise<GenerateBotTokenResponseDto> {
+        const sub = await this.botService.generateToken(user.id);
         return {
             verificationToken: sub.verificationToken!,
             tokenExpiresAt: sub.tokenExpiresAt!.toISOString(),
@@ -37,7 +37,7 @@ export class TelegramController {
 
     @Delete("subscription")
     async disconnect(@CurrentUser() user: CurrentUserPayload): Promise<{ success: boolean }> {
-        await this.subscriptionService.disconnect(user.id);
+        await this.botService.disconnect(user.id);
         return { success: true };
     }
 }

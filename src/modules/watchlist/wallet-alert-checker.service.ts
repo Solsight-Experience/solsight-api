@@ -5,7 +5,7 @@ import { WalletAlert, WalletAlertType, WalletAlertCondition } from "./entities/w
 import { NotificationsService } from "../notifications/services/notifications.service";
 import { NotificationEventType } from "../notifications/entities/notification.entity";
 import { HeliusResolver } from "../../infra/solana/helius.resolver";
-import { TelegramSubscriptionService } from "../telegram/services/telegram-subscription.service";
+import { BotService } from "../bot/services/bot.service";
 import { EmailSubscriptionService } from "../email/services/email-subscription.service";
 import { TokensService } from "../tokens/services/tokens.service";
 import { COMMON_TOKEN_MINT } from "../tokens/constants/token.constant";
@@ -23,7 +23,7 @@ export class WalletAlertCheckerService implements OnModuleInit {
         private readonly notificationsService: NotificationsService,
         private readonly tokenService: TokensService,
         private readonly heliusResolver: HeliusResolver,
-        private readonly telegramSubscriptionService: TelegramSubscriptionService,
+        private readonly botService: BotService,
         private readonly emailSubscriptionService: EmailSubscriptionService
     ) {}
 
@@ -433,7 +433,7 @@ export class WalletAlertCheckerService implements OnModuleInit {
             }
         });
 
-        await this.telegramSubscriptionService.sendAlertMessage(alert.userId, alertText);
+        await this.botService.sendMessage(alert.userId, alertText);
         await this.emailSubscriptionService.sendWalletAlertEmail(alert.userId, title, title, emailHtml, alertText);
     }
 }

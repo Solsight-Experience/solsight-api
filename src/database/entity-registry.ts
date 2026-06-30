@@ -9,7 +9,7 @@ import { User } from "../modules/users/entities/user.entity";
 import { Wallet } from "../modules/wallets/entities/wallet.entity";
 import { EmailSubscription } from "../modules/email/entities/email-subscription.entity";
 import { Notification } from "../modules/notifications/entities/notification.entity";
-import { TelegramSubscription } from "../modules/telegram/entities/telegram-subscription.entity";
+import { BotSubscription } from "../modules/bot/entities/bot-subscription.entity";
 import { WalletAlert } from "../modules/watchlist/entities/wallet-alert.entity";
 import { WatchedWallet } from "../modules/watchlist/entities/watched-wallet.entity";
 
@@ -25,7 +25,7 @@ export type AppEntity =
     | Wallet
     | EmailSubscription
     | Notification
-    | TelegramSubscription
+    | BotSubscription
     | WalletAlert
     | WatchedWallet;
 
@@ -41,7 +41,7 @@ export const ENTITIES = [
     Wallet,
     EmailSubscription,
     Notification,
-    TelegramSubscription,
+    BotSubscription,
     WalletAlert,
     WatchedWallet
 ];

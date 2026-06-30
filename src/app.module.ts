@@ -21,7 +21,7 @@ import { ChatModule } from "./modules/chat/chat.module";
 import { NotificationsModule } from "./modules/notifications/notifications.module";
 import { IndexerModule } from "./modules/indexer/indexer.module";
 import { WatchlistModule } from "./modules/watchlist/watchlist.module";
-import { TelegramModule } from "./modules/telegram/telegram.module";
+import { BotModule } from "./modules/bot/bot.module";
 import { EmailModule } from "./modules/email/email.module";
 import { SwapModule } from "./modules/swap/swap.module";
 import { KoraModule } from "./infra/kora/kora.module";
@@ -63,7 +63,7 @@ import { EventsModule } from "./events/events.module";
         NotificationsModule,
         IndexerModule,
         WatchlistModule,
-        TelegramModule,
+        BotModule,
         EmailModule,
         SwapModule,
         KoraModule,
