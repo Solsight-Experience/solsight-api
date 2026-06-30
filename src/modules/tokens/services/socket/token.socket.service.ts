@@ -1,8 +1,6 @@
 import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
-import { ConfigService } from "@nestjs/config";
 import { TokenSocketGateway } from "./token.socket.gateway";
 import { ROOM_RULES, RoomDomain, RoomInterval, OhlcInterval, parseRoomIntervalMs } from "./room/room.constants";
-import { PubSubService } from "../../../../redis/services/pubsub.service";
 import { StatsAggregationService } from "../aggregation/stats-aggregation.service";
 import { OhlcAggregationService } from "../aggregation/ohlc-aggregation.service";
 import { TraderAggregationService } from "../aggregation/trader-aggregation.service";
@@ -10,10 +8,9 @@ import { HolderAggregationService } from "../aggregation/holder-aggregation.serv
 import { SwapEvent, TradeData, transformSwapToTradeForToken, calculateSwapPrices } from "../../types/swap-event.types";
 import { EnrichedHolder } from "../../types/holder-aggregation.types";
 import { TokenSocketData } from "../../types/token-socket.types";
-import { INDEXER_TRADE_CHANNELS } from "../../../../config/configuration";
-import { logError } from "src/common/errors/error-helper";
-import { requireCluster, type Cluster } from "../../../../common/cluster/cluster.types";
+import type { Cluster } from "../../../../common/cluster/cluster.types";
 import { RoomFactory } from "./room/room.factory";
+import { logError } from "src/common/errors/error-helper";
 
 @Injectable()
 export class TokenSocketService implements OnModuleInit {
@@ -23,20 +20,15 @@ export class TokenSocketService implements OnModuleInit {
     private readonly previousHolders = new Map<string, Map<string, EnrichedHolder>>();
 
     constructor(
-        private readonly configService: ConfigService,
         private readonly gateway: TokenSocketGateway,
-        private readonly pubSubService: PubSubService,
         private readonly statsAggregation: StatsAggregationService,
         private readonly ohlcAggregation: OhlcAggregationService,
         private readonly traderAggregation: TraderAggregationService,
         private readonly holderAggregation: HolderAggregationService
     ) {}
 
-    async onModuleInit() {
+    onModuleInit(): void {
         this.logger.log("Token socket service initialized");
-
-        // Subscribe to Redis trades channel
-        await this.subscribeToTrades();
 
         // Start schedulers for periodic data emission
         for (const domain of Object.keys(ROOM_RULES) as RoomDomain[]) {
@@ -46,21 +38,7 @@ export class TokenSocketService implements OnModuleInit {
         }
     }
 
-    private async subscribeToTrades(): Promise<void> {
-        for (const channel of INDEXER_TRADE_CHANNELS) {
-            const network = requireCluster(channel.split(":").pop(), `Redis trade channel ${channel}`);
-            this.logger.log(`Subscribing to Redis channel: ${channel}`);
-
-            await this.pubSubService.subscribe<SwapEvent>(channel, (swap) => {
-                void this.processSwapEvent({ ...swap, network }).catch((error) => {
-                    logError(this.logger, "Error processing swap event", error);
-                });
-            });
-        }
-    }
-
-    private async processSwapEvent(swap: SwapEvent): Promise<void> {
-        swap.timestamp = Math.floor(Date.now() / 1000);
+    async processSwapEvent(swap: SwapEvent): Promise<void> {
         const hasPriceUsd = swap.price_usd != null && swap.price_usd > 0;
 
         // trader/holder aggregation tracks token quantities and cost basis —

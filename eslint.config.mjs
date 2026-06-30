@@ -6,7 +6,8 @@ import globals from "globals";
 import tseslint from "typescript-eslint";
 
 export default defineConfig(
-    globalIgnores(["eslint.config.mjs", "node_modules/", "dist/", "coverage/", "logs/", "test/"]),
+    // Only test spec files are excluded from ESLint; production sources still lint normally.
+    globalIgnores(["eslint.config.mjs", "node_modules/", "dist/", "coverage/", "logs/", "test/", "**/*.spec.ts", "**/*.e2e-spec.ts"]),
     eslint.configs.recommended,
     ...tseslint.configs.recommendedTypeChecked,
     eslintPluginPrettierRecommended,
@@ -52,10 +53,30 @@ export default defineConfig(
         }
     },
     {
-        files: ["src/**/*.{service,controller,gateway,strategy,repository,client,interceptor,guard}.ts"],
+        files: ["src/**/*.ts"],
+        ignores: ["src/modules/tokens/services/token-price.service.ts", "src/redis/services/redis.service.ts"],
         rules: {
             "no-restricted-syntax": [
                 "error",
+                {
+                    selector:
+                        "MemberExpression[object.type='MemberExpression'][object.object.name='RedisService'][object.property.name='KEYS'][property.name='TOKEN_PRICE_LATEST']",
+                    message: "TOKEN_PRICE_LATEST is owned by TokenPriceService; route all latest-price access through that service."
+                }
+            ]
+        }
+    },
+    {
+        files: ["src/**/*.{service,controller,gateway,strategy,repository,client,interceptor,guard}.ts"],
+        ignores: ["src/modules/tokens/services/token-price.service.ts", "src/redis/services/redis.service.ts"],
+        rules: {
+            "no-restricted-syntax": [
+                "error",
+                {
+                    selector:
+                        "MemberExpression[object.type='MemberExpression'][object.object.name='RedisService'][object.property.name='KEYS'][property.name='TOKEN_PRICE_LATEST']",
+                    message: "TOKEN_PRICE_LATEST is owned by TokenPriceService; route all latest-price access through that service."
+                },
                 {
                     selector: "Program > TSInterfaceDeclaration",
                     message: "Move declared interfaces to a dedicated types file."

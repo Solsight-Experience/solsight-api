@@ -1,6 +1,7 @@
 import { Holder } from "../entities/holder.entity";
 import { HolderData } from "./swap-event.types";
 import type { Cluster } from "../../../common/cluster/cluster.types";
+import type { TokenPriceSource } from "./token-price.types";
 
 export type HolderUpsertRow = Pick<
     Holder,
@@ -58,7 +59,7 @@ export interface PriceUpdateEvent {
     price_usd: number;
     price_native: number;
     slot: number;
-    source: string;
+    source: TokenPriceSource;
 }
 
 export interface EnrichedHolder extends HolderData {
