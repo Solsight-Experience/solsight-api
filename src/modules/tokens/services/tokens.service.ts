@@ -1,8 +1,9 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { Between, FindOptionsOrder, FindOptionsOrderValue, FindOptionsWhere, ILike, In, LessThanOrEqual, MoreThanOrEqual, Repository } from "typeorm";
+import { Between, Brackets, FindOptionsOrder, FindOptionsOrderValue, FindOptionsWhere, ILike, In, LessThanOrEqual, MoreThanOrEqual, Repository } from "typeorm";
 import { Token } from "../entities/token.entity";
 import { OhlcCandle } from "../entities/ohlc-candle.entity";
+import { Holder } from "../entities/holder.entity";
 import { TokenResponseDto, TokenDetailsResponseDto, TokenMetadata } from "../dtos/token.response.dto";
 import { SolanaService } from "../../../infra/solana/solana.service";
 import { JupiterService } from "../../../infra/jupiter/jupiter.service";
@@ -11,19 +12,15 @@ import { TokenFilterConditionDto, TokenFilterResponseDto } from "../dtos/token.f
 import { mapJupiterTokenToEntity, mapTokenEntityToResponseDto, mapTokenEntityToOverviewDto } from "../mapper/token.mapper";
 import { ChartQueryDto, ChartResponseDto } from "../dtos/token.chart.dto";
 import { OhlcAggregationService } from "./aggregation/ohlc-aggregation.service";
-import { StatsAggregationService } from "./aggregation/stats-aggregation.service";
 import { OhlcInterval } from "./socket/room/room.constants";
 import { RedisService } from "../../../redis/services/redis.service";
 import { TradeData } from "../types/swap-event.types";
-import { COMMON_TOKEN_MINT } from "../constants/token.constant";
-import { SolPriceResponseDto } from "../dtos/sol-price.response.dto";
-import { ClusterProvider } from "../../../common/cluster/cluster.provider";
-
-const TOKEN_META_KEY = (network: string, address: string) => `token:meta:${network}:${address}`;
-const TOKEN_META_TTL = 24 * 60 * 60;
-const PRICE_TTL_S = 60 * 60;
-const STALE_THRESHOLD_S = 5 * 60;
-const FRESH_MIN_TTL_S = PRICE_TTL_S - STALE_THRESHOLD_S;
+import type { Cluster } from "../../../common/cluster/cluster.types";
+import { HolderAggregationService } from "./aggregation/holder-aggregation.service";
+import type { HoldersResponseDto } from "../dtos/holder.response.dto";
+import { Transaction, TransactionType } from "../../transactions/entities/transaction.entity";
+import { TimeFrame } from "../../discovery/dtos/get-trending.dto";
+import { StatsAggregationService } from "./aggregation/stats-aggregation.service";
 
 @Injectable()
 export class TokensService {
@@ -34,53 +31,30 @@ export class TokensService {
         private readonly tokenRepository: Repository<Token>,
         @InjectRepository(OhlcCandle)
         private readonly ohlcCandleRepository: Repository<OhlcCandle>,
-        private readonly clusterProvider: ClusterProvider,
+        @InjectRepository(Holder)
+        private readonly holderRepository: Repository<Holder>,
+        @InjectRepository(Transaction)
+        private readonly transactionRepository: Repository<Transaction>,
         private readonly solanaService: SolanaService,
         private readonly jupiterService: JupiterService,
         private readonly coinGeckoService: CoinGeckoService,
         private readonly ohlcAggregationService: OhlcAggregationService,
-        private readonly statsAggregationService: StatsAggregationService,
-        private readonly redisService: RedisService
+        private readonly holderAggregationService: HolderAggregationService,
+        private readonly redisService: RedisService,
+        private readonly statsAggregationService: StatsAggregationService
     ) {}
 
-    private get network(): string {
-        return this.clusterProvider.cluster;
-    }
-
-    async getSolPrice(): Promise<SolPriceResponseDto> {
-        const priceKey = `price:${COMMON_TOKEN_MINT.SOL}:latest`;
-        const cached = await this.redisService.hgetall(priceKey);
-
-        if (cached?.price_usd) {
-            const priceUsd = parseFloat(cached.price_usd);
-            if (priceUsd > 0) {
-                const ttl = await this.redisService.ttl(priceKey);
-                const isStale = ttl >= 0 && ttl < FRESH_MIN_TTL_S;
-                if (!isStale) {
-                    return { price_usd: priceUsd, source: "redis" };
-                }
-                this.logger.debug(`Redis SOL price stale (ttl=${ttl}s), falling back to CoinGecko`);
-            }
-        }
-
-        try {
-            const prices = await this.coinGeckoService.getSimplePrice(["solana"]);
-            const priceUsd = (prices as Record<string, { usd?: number }>)["solana"]?.usd ?? 0;
-            return { price_usd: priceUsd, source: "coingecko" };
-        } catch (error) {
-            this.logger.error("Failed to fetch SOL price from CoinGecko", error);
-            return { price_usd: 0, source: "coingecko" };
-        }
-    }
-
-    private async cacheTokenMetadata(token: {
-        address: string;
-        symbol: string;
-        name: string;
-        logoUri?: string | null;
-        decimals: number;
-        coingeckoId?: string | null;
-    }): Promise<void> {
+    private async cacheTokenMetadata(
+        token: {
+            address: string;
+            symbol: string;
+            name: string;
+            logoUri?: string | null;
+            decimals: number;
+            coingeckoId?: string | null;
+        },
+        cluster: Cluster
+    ): Promise<void> {
         const meta: TokenMetadata = {
             address: token.address,
             symbol: token.symbol,
@@ -89,11 +63,11 @@ export class TokensService {
             decimals: token.decimals,
             coingeckoId: token.coingeckoId ?? null
         };
-        await this.redisService.set(TOKEN_META_KEY(this.network, token.address), JSON.stringify(meta), TOKEN_META_TTL);
+        await this.redisService.set(RedisService.KEYS.TOKEN_METADATA(cluster, token.address), JSON.stringify(meta), RedisService.TTL.TOKEN_METADATA);
     }
 
-    async getTokenMetadata(address: string): Promise<TokenMetadata | null> {
-        const cached = await this.redisService.get<string>(TOKEN_META_KEY(this.network, address));
+    async getTokenMetadata(cluster: Cluster, address: string): Promise<TokenMetadata | null> {
+        const cached = await this.redisService.get<string>(RedisService.KEYS.TOKEN_METADATA(cluster, address));
         if (cached) {
             try {
                 return JSON.parse(cached) as TokenMetadata;
@@ -103,7 +77,7 @@ export class TokensService {
         }
 
         const token = await this.tokenRepository.findOne({
-            where: { address, network: this.network },
+            where: { address, network: cluster },
             select: ["address", "symbol", "name", "logoUri", "decimals", "coingeckoId"]
         });
 
@@ -117,35 +91,35 @@ export class TokensService {
             decimals: token.decimals,
             coingeckoId: token.coingeckoId ?? null
         };
-        await this.redisService.set(TOKEN_META_KEY(this.network, address), JSON.stringify(meta), TOKEN_META_TTL);
+        await this.redisService.set(RedisService.KEYS.TOKEN_METADATA(cluster, address), JSON.stringify(meta), RedisService.TTL.TOKEN_METADATA);
         return meta;
     }
 
-    async findOne(address: string): Promise<TokenResponseDto | null> {
-        let token = await this.tokenRepository.findOneBy({ address, network: this.network });
+    async findOne(cluster: Cluster, address: string): Promise<TokenResponseDto | null> {
+        let token = await this.tokenRepository.findOneBy({ address, network: cluster });
 
         if (!token) {
-            const tokenData = await this.resolveTokenData(address);
+            const tokenData = await this.resolveTokenData(cluster, address);
             if (!tokenData) {
                 return null;
             }
 
-            await this.updateToken(address, tokenData);
-            token = await this.tokenRepository.findOneBy({ address, network: this.network });
+            await this.updateToken(cluster, address, tokenData);
+            token = await this.tokenRepository.findOneBy({ address, network: cluster });
         }
 
         if (!token) {
             return null;
         }
 
-        await this.cacheTokenMetadata(token);
+        await this.cacheTokenMetadata(token, cluster);
 
-        return mapTokenEntityToResponseDto(token, this.network);
+        return mapTokenEntityToResponseDto(token, cluster);
     }
 
-    private async resolveTokenData(address: string): Promise<Partial<Token> | null> {
-        const mintDecimals = await this.solanaService.getMintDecimals(address);
-        const jupiterToken = await this.jupiterService.searchToken(address);
+    private async resolveTokenData(cluster: Cluster, address: string): Promise<Partial<Token> | null> {
+        const mintDecimals = await this.solanaService.getMintDecimals(cluster, address);
+        const jupiterToken = cluster === "mainnet" ? await this.jupiterService.searchToken(cluster, address) : null;
 
         if (!jupiterToken && mintDecimals === null) {
             return null;
@@ -164,7 +138,7 @@ export class TokensService {
         tokenData.decimals = mintDecimals ?? tokenData.decimals;
 
         if (jupiterToken) {
-            const coingeckoId = await this.coinGeckoService.findCoinGeckoId(jupiterToken.symbol, jupiterToken.name);
+            const coingeckoId = await this.coinGeckoService.findCoinGeckoId(cluster, jupiterToken.symbol, jupiterToken.name);
             if (coingeckoId) {
                 tokenData.coingeckoId = coingeckoId;
             }
@@ -173,69 +147,13 @@ export class TokensService {
         return tokenData;
     }
 
-    /**
-     * Batch-fetch USD price + 24h change for the given token addresses.
-     *
-     * Source priority per token:
-     *   1. Redis hash `price:{mint}:latest` (populated by indexer swap aggregation)
-     *   2. `tokens.price` / `tokens.priceChange24h` columns (CoinGecko-seeded fallback)
-     *
-     * Tokens with no price data resolve to `{ priceUsd: 0, priceChange24h: 0 }`.
-     * Returns a map keyed by mint address so callers can do their own joins.
-     */
-    async getPrices(addresses: string[]): Promise<Map<string, { priceUsd: number; priceChange24h: number }>> {
-        const result = new Map<string, { priceUsd: number; priceChange24h: number }>();
-        if (addresses.length === 0) return result;
-
-        const needFallback: string[] = [];
-
-        await Promise.all(
-            addresses.map(async (addr) => {
-                try {
-                    const cached = await this.redisService.hgetall(`price:${addr}:latest`);
-                    if (cached?.price_usd) {
-                        const priceUsd = parseFloat(cached.price_usd);
-                        if (Number.isFinite(priceUsd) && priceUsd > 0) {
-                            result.set(addr, { priceUsd, priceChange24h: 0 });
-                            return;
-                        }
-                    }
-                } catch (error) {
-                    this.logger.debug(`Redis price lookup failed for ${addr}: ${(error as Error).message}`);
-                }
-                needFallback.push(addr);
-            })
-        );
-
-        if (needFallback.length > 0) {
-            const tokens = await this.tokenRepository.find({
-                where: { address: In(needFallback), network: this.network },
-                select: ["address", "price", "priceChange24h"]
-            });
-
-            for (const t of tokens) {
-                const priceUsd = Number(t.price) || 0;
-                const priceChange24h = Number(t.priceChange24h) || 0;
-                result.set(t.address, { priceUsd, priceChange24h });
-            }
-        }
-
-        for (const addr of addresses) {
-            if (!result.has(addr)) {
-                result.set(addr, { priceUsd: 0, priceChange24h: 0 });
-            }
-        }
-
-        return result;
-    }
-
-    async findMany(addresses: string[]): Promise<Map<string, TokenMetadata>> {
+    async findMany(cluster: Cluster, addresses: string[]): Promise<Map<string, TokenMetadata>> {
         const result = new Map<string, TokenMetadata>();
         if (addresses.length === 0) return result;
 
         const uncached: string[] = [];
         for (const addr of addresses) {
-            const cached = await this.redisService.get<string>(TOKEN_META_KEY(this.network, addr));
+            const cached = await this.redisService.get<string>(RedisService.KEYS.TOKEN_METADATA(cluster, addr));
             if (cached) {
                 try {
                     result.set(addr, JSON.parse(cached) as TokenMetadata);
@@ -250,7 +168,7 @@ export class TokensService {
         if (uncached.length === 0) return result;
 
         const tokens = await this.tokenRepository.find({
-            where: { address: In(uncached), network: this.network },
+            where: { address: In(uncached), network: cluster },
             select: ["address", "symbol", "name", "logoUri", "decimals", "coingeckoId"]
         });
 
@@ -264,15 +182,15 @@ export class TokensService {
                 coingeckoId: t.coingeckoId ?? null
             };
             result.set(t.address, meta);
-            this.cacheTokenMetadata(t).catch(() => {});
+            this.cacheTokenMetadata(t, cluster).catch(() => {});
         }
 
         const missing = uncached.filter((a) => !result.has(a));
         for (const addr of missing) {
             try {
-                await this.findOne(addr);
+                await this.findOne(cluster, addr);
                 const token = await this.tokenRepository.findOne({
-                    where: { address: addr, network: this.network },
+                    where: { address: addr, network: cluster },
                     select: ["address", "symbol", "name", "logoUri", "decimals", "coingeckoId"]
                 });
                 if (token) {
@@ -293,37 +211,76 @@ export class TokensService {
         return result;
     }
 
-    async search(query: string, limit: number = 10): Promise<TokenDetailsResponseDto[]> {
+    async search(cluster: Cluster, query: string, limit: number = 10): Promise<TokenDetailsResponseDto[]> {
         const tokens = await this.tokenRepository.find({
             where: [
-                { name: ILike(`%${query}%`), network: this.network },
-                { symbol: ILike(`%${query}%`), network: this.network },
-                { address: ILike(`%${query}%`), network: this.network }
+                { name: ILike(`%${query}%`), network: cluster },
+                { symbol: ILike(`%${query}%`), network: cluster },
+                { address: ILike(`%${query}%`), network: cluster }
             ],
             take: limit
         });
 
-        return tokens.map((token) => mapTokenEntityToResponseDto(token, this.network));
+        return tokens.map((token) => mapTokenEntityToResponseDto(token, cluster));
+    }
+
+    private resolvePriceChangeColumn(time_frame: TimeFrame): keyof Token {
+        if (time_frame === TimeFrame.SEVEN_DAYS) return "priceChange7d";
+        if (
+            time_frame === TimeFrame.ONE_HOUR ||
+            time_frame === TimeFrame.FIVE_MINUTES ||
+            time_frame === TimeFrame.FIFTEEN_MINUTES ||
+            time_frame === TimeFrame.THIRTY_MINUTES ||
+            time_frame === TimeFrame.SIX_HOURS
+        )
+            return "priceChange1h";
+        return "priceChange24h";
+    }
+
+    private filterTimeFrameToMs(tf: TimeFrame): number {
+        const map: Record<TimeFrame, number> = {
+            [TimeFrame.FIVE_MINUTES]: 5 * 60 * 1000,
+            [TimeFrame.FIFTEEN_MINUTES]: 15 * 60 * 1000,
+            [TimeFrame.THIRTY_MINUTES]: 30 * 60 * 1000,
+            [TimeFrame.ONE_HOUR]: 60 * 60 * 1000,
+            [TimeFrame.SIX_HOURS]: 6 * 60 * 60 * 1000,
+            [TimeFrame.TWENTY_FOUR_HOURS]: 24 * 60 * 60 * 1000,
+            [TimeFrame.SEVEN_DAYS]: 7 * 24 * 60 * 60 * 1000
+        };
+        return map[tf];
     }
 
     async filter(
+        cluster: Cluster,
         filter: TokenFilterConditionDto,
         limit: number = 10,
         sort_by: string,
         sort_order?: "asc" | "desc",
         offset?: number
     ): Promise<TokenFilterResponseDto> {
+        const time_frame = filter?.time_frame ?? TimeFrame.TWENTY_FOUR_HOURS;
+        const priceChangeColumn = this.resolvePriceChangeColumn(time_frame);
         const orderValue: FindOptionsOrderValue = sort_order?.toUpperCase() === "ASC" ? "ASC" : "DESC";
-        const SortByMap = {
+
+        const SortByMap: Record<string, string> = {
             market_cap: "marketCap",
             volume_24h: "volume24h",
             txns_24h: "txns24hTotal",
             holders: "holdersCount",
             age: "ageSeconds",
-            price_change_24h: "priceChange24h"
-        } as const;
-        const column = SortByMap[sort_by as keyof typeof SortByMap];
-        const whereConditions: FindOptionsWhere<Token> = { network: this.network };
+            price_change_24h: priceChangeColumn
+        };
+
+        const needsAggregation = time_frame !== TimeFrame.TWENTY_FOUR_HOURS;
+        const hasVolumeFilter = filter?.metrics && (filter.metrics.volume_24h_min || filter.metrics.volume_24h_max);
+        const hasTxnsFilter = filter?.metrics && (filter.metrics.txns_24h_min || filter.metrics.txns_24h_max);
+
+        if (needsAggregation && (hasVolumeFilter || hasTxnsFilter)) {
+            return this.filterWithAggregation(cluster, filter, limit, sort_by, sort_order, offset, time_frame, priceChangeColumn, SortByMap);
+        }
+
+        const column = SortByMap[sort_by];
+        const whereConditions: FindOptionsWhere<Token> = { network: cluster };
 
         // Treat 0 as "not set" — 0 is the default unset value from the filter form.
         const rangeOp = (min: number | null | undefined, max: number | null | undefined) => {
@@ -346,7 +303,7 @@ export class TokensService {
             whereConditions.volume24h = rangeOp(m.volume_24h_min, m.volume_24h_max);
             whereConditions.txns24hTotal = rangeOp(m.txns_24h_min, m.txns_24h_max);
             whereConditions.holdersCount = rangeOp(m.holders_min, m.holders_max);
-            whereConditions.priceChange24h = rangeOp(m.price_change_24h_min, m.price_change_24h_max);
+            (whereConditions as Record<string, unknown>)[priceChangeColumn] = rangeOp(m.price_change_24h_min, m.price_change_24h_max);
         }
 
         if (filter?.holder_filters) {
@@ -383,11 +340,134 @@ export class TokensService {
             where
         });
 
-        const responseTokens = tokens.map((token) => mapTokenEntityToOverviewDto(token, this.network));
+        const responseTokens = tokens.map((token) => mapTokenEntityToOverviewDto(token, cluster));
 
         return {
             tokens: responseTokens,
             total: responseTokens.length,
+            filter_applied: filter
+        };
+    }
+
+    private async filterWithAggregation(
+        cluster: Cluster,
+        filter: TokenFilterConditionDto,
+        limit: number,
+        sort_by: string,
+        sort_order: string | undefined,
+        offset: number | undefined,
+        time_frame: TimeFrame,
+        priceChangeColumn: keyof Token,
+        SortByMap: Record<string, string>
+    ): Promise<TokenFilterResponseDto> {
+        const fromMs = Date.now() - this.filterTimeFrameToMs(time_frame);
+        const ohlcInterval = time_frame === TimeFrame.FIVE_MINUTES ? "1m" : "5m";
+        const orderValue = sort_order?.toUpperCase() === "ASC" ? "ASC" : "DESC";
+
+        const qb = this.tokenRepository
+            .createQueryBuilder("token")
+            .leftJoinAndSelect("token.category", "category")
+            .where("token.network = :network", { network: cluster });
+
+        qb.leftJoin(
+            (sub) =>
+                sub
+                    .select("c.tokenMint", "mint")
+                    .addSelect("COALESCE(SUM(c.volume), 0)", "agg_vol")
+                    .from(OhlcCandle, "c")
+                    .where("c.interval = :ohlcInterval")
+                    .andWhere("c.timestamp >= :fromMs")
+                    .andWhere("c.network = :ohlcNetwork")
+                    .groupBy("c.tokenMint"),
+            "ohlc_stats",
+            "ohlc_stats.mint = token.address"
+        )
+            .setParameter("ohlcInterval", ohlcInterval)
+            .setParameter("fromMs", fromMs)
+            .setParameter("ohlcNetwork", cluster);
+
+        qb.leftJoin(
+            (sub) =>
+                sub
+                    .select("t.tokenMint", "mint")
+                    .addSelect("COUNT(*)", "agg_cnt")
+                    .from(Transaction, "t")
+                    .where("t.blockTime >= :txFrom")
+                    .andWhere("t.type = :swapType")
+                    .groupBy("t.tokenMint"),
+            "tx_stats",
+            "tx_stats.mint = token.address"
+        )
+            .setParameter("txFrom", new Date(fromMs))
+            .setParameter("swapType", TransactionType.SWAP);
+
+        if (filter?.metrics) {
+            const m = filter.metrics;
+            const applyRange = (expr: string, min: number | null | undefined, max: number | null | undefined, tag: string) => {
+                const lo = min != null && min !== 0 ? min : null;
+                const hi = max != null && max !== 0 ? max : null;
+                if (lo !== null && hi !== null) qb.andWhere(`${expr} BETWEEN :${tag}Lo AND :${tag}Hi`, { [`${tag}Lo`]: lo, [`${tag}Hi`]: hi });
+                else if (lo !== null) qb.andWhere(`${expr} >= :${tag}Lo`, { [`${tag}Lo`]: lo });
+                else if (hi !== null) qb.andWhere(`${expr} <= :${tag}Hi`, { [`${tag}Hi`]: hi });
+            };
+
+            const ageMin = m.age_min_minutes != null ? m.age_min_minutes * 60 : null;
+            const ageMax = m.age_max_minutes != null ? m.age_max_minutes * 60 : null;
+            applyRange("token.ageSeconds", ageMin, ageMax, "age");
+            applyRange("token.liquidity", m.liquidity_min, m.liquidity_max, "liq");
+            applyRange("token.marketCap", m.market_cap_min, m.market_cap_max, "mc");
+            applyRange(`token.${priceChangeColumn}`, m.price_change_24h_min, m.price_change_24h_max, "pc");
+            applyRange("token.holdersCount", m.holders_min, m.holders_max, "holders");
+            applyRange("COALESCE(ohlc_stats.agg_vol, 0)", m.volume_24h_min, m.volume_24h_max, "vol");
+            applyRange("CAST(COALESCE(tx_stats.agg_cnt, 0) AS bigint)", m.txns_24h_min, m.txns_24h_max, "txns");
+        }
+
+        if (filter?.holder_filters) {
+            const h = filter.holder_filters;
+            if (h.top_10_max_percent != null) qb.andWhere("token.top10Percent <= :top10", { top10: h.top_10_max_percent });
+            if (h.insider_max_percent != null) qb.andWhere("token.insiderPercent <= :insider", { insider: h.insider_max_percent });
+        }
+
+        if (filter?.audit_filters) {
+            const a = filter.audit_filters;
+            if (a.mint_authority_disabled) qb.andWhere("token.mintAuthorityDisabled = true");
+            if (a.freeze_authority_disabled) qb.andWhere("token.freezeAuthorityDisabled = true");
+            if (a.lp_burnt) qb.andWhere("token.lpBurnt = true");
+            if (a.has_social_links) qb.andWhere("token.hasSocialLinks = true");
+        }
+
+        if (filter?.categories?.length > 0) {
+            qb.andWhere("category.slug IN (:...cats)", { cats: filter.categories });
+        }
+
+        if (filter?.search_query) {
+            qb.andWhere(
+                new Brackets((bqb) => {
+                    bqb.where("token.name ILIKE :sq", { sq: `%${filter.search_query}%` })
+                        .orWhere("token.symbol ILIKE :sq")
+                        .orWhere("token.address ILIKE :sq");
+                })
+            );
+        }
+
+        if (sort_by === "volume_24h") {
+            qb.orderBy("ohlc_stats.agg_vol", orderValue, "NULLS LAST");
+        } else if (sort_by === "txns_24h") {
+            qb.orderBy("tx_stats.agg_cnt", orderValue, "NULLS LAST");
+        } else {
+            const col = SortByMap[sort_by];
+            if (col) qb.orderBy(`token.${col}`, orderValue);
+        }
+
+        const total = await qb.getCount();
+        const tokens = await qb
+            .limit(limit)
+            .offset(offset ?? 0)
+            .getMany();
+
+        return {
+            tokens: tokens.map((t) => mapTokenEntityToOverviewDto(t, cluster)),
+            total,
             filter_applied: filter
         };
     }
@@ -410,13 +490,14 @@ export class TokensService {
 
     private readonly REALTIME_INTERVALS: OhlcInterval[] = ["10s", "1m", "5m"];
 
-    async getChartData(address: string, query: ChartQueryDto): Promise<ChartResponseDto> {
+    async getChartData(cluster: Cluster, address: string, query: ChartQueryDto): Promise<ChartResponseDto> {
         const { interval, limit = 500 } = query;
         const limitNum = Number(limit);
+        const { from, to } = this.resolveChartWindow(interval, limitNum, query.from, query.to);
 
         if (this.REALTIME_INTERVALS.includes(interval as OhlcInterval)) {
-            const raw = await this.ohlcAggregationService.getHistoricalOhlc(address, interval as OhlcInterval, limitNum);
-            const points = raw.map((p) => ({
+            const raw = await this.ohlcAggregationService.getHistoricalOhlc(cluster, address, interval as OhlcInterval, limitNum, from, to);
+            const redisPoints = raw.map((p) => ({
                 timestamp: p.timestamp,
                 open: p.open,
                 high: p.high,
@@ -424,18 +505,33 @@ export class TokensService {
                 close: p.close,
                 volume: p.volume ?? 0
             }));
+
+            const persistedPoints = this.mapCandles(
+                await this.ohlcCandleRepository.find({
+                    where: { tokenMint: address, network: cluster, interval, timestamp: Between(from, to) },
+                    order: { timestamp: "ASC" }
+                })
+            );
+            const pointsByTimestamp = new Map<number, (typeof redisPoints)[number]>();
+            for (const point of persistedPoints) {
+                pointsByTimestamp.set(point.timestamp, point);
+            }
+            for (const point of redisPoints) {
+                pointsByTimestamp.set(point.timestamp, point);
+            }
+            const points = Array.from(pointsByTimestamp.values())
+                .sort((a, b) => a.timestamp - b.timestamp)
+                .slice(-limitNum);
             for (let i = 1; i < points.length; i++) {
                 points[i].open = points[i - 1].close;
             }
             return { interval, points };
         }
 
-        const days = this.calcDays(interval, limitNum);
-        const to = Date.now();
-        const from = to - days * 86_400_000;
+        const days = this.resolveCoinGeckoDays(from, to, interval, limitNum);
 
         const cached = await this.ohlcCandleRepository.find({
-            where: { tokenMint: address, network: this.network, interval, timestamp: Between(from, to) },
+            where: { tokenMint: address, network: cluster, interval, timestamp: Between(from, to) },
             order: { timestamp: "ASC" }
         });
 
@@ -443,20 +539,24 @@ export class TokensService {
             return { interval, points: this.mapCandles(cached.slice(-limitNum)) };
         }
 
-        const token = await this.tokenRepository.findOne({ where: { address, network: this.network }, select: ["coingeckoId"] });
+        if (cluster === "devnet") {
+            return { interval, points: this.mapCandles(cached) };
+        }
+
+        const token = await this.tokenRepository.findOne({ where: { address, network: cluster }, select: ["coingeckoId"] });
         if (!token?.coingeckoId) {
             return { interval, points: this.mapCandles(cached) };
         }
 
         try {
-            const raw = await this.coinGeckoService.getOhlc(token.coingeckoId, "usd", days);
+            const raw = await this.coinGeckoService.getOhlc(cluster, token.coingeckoId, "usd", days);
             if (raw.length === 0) {
                 return { interval, points: this.mapCandles(cached) };
             }
 
             const candles = raw.map(([timestamp, open, high, low, close]) => ({
                 tokenMint: address,
-                network: this.network,
+                network: cluster,
                 interval,
                 timestamp,
                 open,
@@ -468,7 +568,7 @@ export class TokensService {
             await this.ohlcCandleRepository.createQueryBuilder().insert().into(OhlcCandle).values(candles).orIgnore().execute();
 
             const fresh = await this.ohlcCandleRepository.find({
-                where: { tokenMint: address, network: this.network, interval, timestamp: Between(from, to) },
+                where: { tokenMint: address, network: cluster, interval, timestamp: Between(from, to) },
                 order: { timestamp: "ASC" }
             });
             return { interval, points: this.mapCandles(fresh.slice(-limitNum)) };
@@ -495,13 +595,102 @@ export class TokensService {
         return points;
     }
 
-    async getTrades(address: string, limit = 50): Promise<{ trades: TradeData[]; total: number }> {
-        return this.statsAggregationService.getTrades(address, limit);
+    private resolveChartWindow(interval: string, limit: number, from?: number, to?: number): { from: number; to: number } {
+        const end = Number.isFinite(Number(to)) ? Number(to) : Date.now();
+        const start = Number.isFinite(Number(from)) ? Number(from) : end - this.calcDays(interval, limit) * 86_400_000;
+        return { from: Math.min(start, end), to: Math.max(start, end) };
     }
 
-    async updateToken(address: string, data: Partial<Token>) {
-        const token = await this.tokenRepository.upsert({ address, network: this.network, ...data }, ["address", "network"]);
-        await this.redisService.del(TOKEN_META_KEY(this.network, address));
+    private resolveCoinGeckoDays(from: number, to: number, interval: string, limit: number): number {
+        const requestedDays = Math.max(1, Math.ceil((to - from) / 86_400_000));
+        const fallbackDays = this.calcDays(interval, limit);
+        const raw = Math.max(requestedDays, fallbackDays);
+        const validDays = [1, 7, 14, 30, 90, 180, 365];
+        return validDays.find((d) => d >= raw) ?? 365;
+    }
+
+    async getTrades(cluster: Cluster, address: string, limit = 50): Promise<{ trades: TradeData[]; total: number }> {
+        const redisTrades = await this.statsAggregationService.getTrades(cluster, address, limit);
+        if (redisTrades.trades.length > 0) {
+            return redisTrades;
+        }
+
+        const [rows, total] = await this.transactionRepository.findAndCount({
+            where: [
+                { tokenMint: address, network: cluster, type: TransactionType.SWAP },
+                { tokenMintOut: address, network: cluster, type: TransactionType.SWAP }
+            ],
+            order: { blockTime: "DESC" },
+            take: limit
+        });
+
+        const trades: TradeData[] = rows.map((tx) => {
+            const isBuy = tx.tokenMintOut === address;
+            return {
+                tx_hash: tx.signature,
+                timestamp: tx.blockTime ? Math.floor(tx.blockTime.getTime() / 1000) : 0,
+                type: isBuy ? "BUY" : "SELL",
+                amount_token: isBuy ? Number(tx.amountOut ?? 0) : Number(tx.amount),
+                amount_sol: isBuy ? Number(tx.amount) : Number(tx.amountOut ?? 0),
+                price: Number(tx.metadata?.price_native ?? 0),
+                price_usd: Number(tx.metadata?.price_usd ?? 0),
+                market_cap: 0,
+                trader_address: tx.signerAddress ?? "",
+                tx_url: `https://solscan.io/tx/${tx.signature}`
+            };
+        });
+
+        return { trades, total };
+    }
+
+    async getHolders(cluster: Cluster, address: string, limit = 50): Promise<HoldersResponseDto> {
+        const responseLimit = this.normalizeHoldersLimit(limit);
+        const summaryLimit = Math.max(responseLimit, 20);
+        const [holders, total] = await this.holderRepository.findAndCount({
+            where: { tokenMint: address, network: cluster },
+            order: { balance: "DESC" },
+            take: summaryLimit
+        });
+
+        const enrichedHolders = await this.holderAggregationService.enrichHolders(
+            address,
+            cluster,
+            holders.map((holder) => ({
+                wallet: holder.wallet,
+                balance: holder.balance,
+                lastActiveTs: holder.lastActiveTs,
+                totalBoughtUsd: holder.totalBoughtUsd,
+                totalSoldUsd: holder.totalSoldUsd,
+                buyTxCount: holder.buyTxCount,
+                sellTxCount: holder.sellTxCount
+            }))
+        );
+
+        return {
+            holders: enrichedHolders.slice(0, responseLimit),
+            total,
+            summary: {
+                total_holders: total,
+                top_10_holding_percent: this.sumHoldingPercent(enrichedHolders, 10),
+                top_20_holding_percent: this.sumHoldingPercent(enrichedHolders, 20)
+            }
+        };
+    }
+
+    async updateToken(cluster: Cluster, address: string, data: Partial<Token>) {
+        const token = await this.tokenRepository.upsert({ address, network: cluster, ...data }, ["address", "network"]);
+        await this.redisService.del(RedisService.KEYS.TOKEN_METADATA(cluster, address));
         return token;
+    }
+
+    private normalizeHoldersLimit(limit: number): number {
+        const parsedLimit = Number(limit);
+        if (!Number.isFinite(parsedLimit) || parsedLimit <= 0) return 50;
+
+        return Math.min(Math.trunc(parsedLimit), 500);
+    }
+
+    private sumHoldingPercent(holders: HoldersResponseDto["holders"], count: number): number {
+        return holders.slice(0, count).reduce((sum, holder) => sum + holder.balance_percent, 0);
     }
 }

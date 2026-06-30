@@ -1,4 +1,5 @@
 import { SearchResult } from "../../../infra/vectorstore/vectorstore.types";
+import type { Cluster } from "../../../common/cluster/cluster.types";
 
 export interface ChatMessageDto {
     role: "user" | "assistant" | "tool";
@@ -19,6 +20,7 @@ export interface PageContext {
 }
 
 export interface SendMessagePayload {
+    cluster: Cluster;
     message: string;
     sessionId: string;
     userId?: string;

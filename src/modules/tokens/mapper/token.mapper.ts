@@ -60,6 +60,7 @@ export function mapJupiterTokenToEntity(data: JupiterTokenMintInformation): Part
         mintAuthorityDisabled: audit?.mintAuthorityDisabled ?? false,
         freezeAuthorityDisabled: audit?.freezeAuthorityDisabled ?? false,
         top10Percent: audit?.topHoldersPercentage ?? 0,
+        insiderPercent: audit?.devBalancePercentage ?? 0,
         hasSocialLinks: !!(data.twitter || data.telegram || data.discord),
 
         // Risk assessment based on organic score
@@ -196,7 +197,12 @@ export function mapTokenEntityToOverviewDto(token: Token, network: string): Toke
             mint_authority_disabled: token.mintAuthorityDisabled ?? null,
             freeze_authority_disabled: token.freezeAuthorityDisabled ?? null,
             lp_burnt: token.lpBurnt ?? null,
-            has_social_links: token.hasSocialLinks ?? null
+            has_social_links: token.hasSocialLinks ?? null,
+            holders_count: token.holdersCount ?? null,
+            unique_wallets_24h: token.uniqueWallets24h ?? null,
+            top_10_holders_percent: token.top10Percent ?? null,
+            insider_percent: token.insiderPercent ?? null,
+            risk_score: token.riskScore ?? null
         },
 
         price_sparkline: token.priceSparkline ?? []

@@ -1,5 +1,3 @@
-import { WalletIcon } from "../../wallets/entities/wallet.entity";
-
 export interface LoginDto {
     email: string;
     password: string;
@@ -42,10 +40,4 @@ export interface CookieRequest {
     cookies: {
         auth_token?: string;
     };
-}
-
-export interface VerifyWalletInput {
-    walletAddress: string;
-    signature: string;
-    walletIcon?: WalletIcon;
 }

@@ -80,6 +80,11 @@ export type TokenOverviewResponseDto = {
         freeze_authority_disabled: boolean | null;
         lp_burnt: boolean | null;
         has_social_links: boolean | null;
+        holders_count: number | null;
+        unique_wallets_24h: number | null;
+        top_10_holders_percent: number | null;
+        insider_percent: number | null;
+        risk_score: number | null;
     };
     price_sparkline: number[];
 };

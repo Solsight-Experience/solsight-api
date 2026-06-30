@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
+import { Injectable, Logger, OnModuleInit, ServiceUnavailableException } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { In, Repository } from "typeorm";
 import { Token } from "../entities/token.entity";
@@ -6,8 +6,8 @@ import { ConfigService } from "@nestjs/config";
 import * as fs from "fs";
 import * as path from "path";
 import * as readline from "readline";
-import { ClusterProvider } from "../../../common/cluster/cluster.provider";
 import { JupiterSeedToken } from "../types/token-seeder.types";
+import type { Cluster } from "../../../common/cluster/cluster.types";
 
 @Injectable()
 export class TokenSeederService implements OnModuleInit {
@@ -16,13 +16,8 @@ export class TokenSeederService implements OnModuleInit {
     constructor(
         private readonly configService: ConfigService,
         @InjectRepository(Token)
-        private readonly tokenRepository: Repository<Token>,
-        private readonly clusterProvider: ClusterProvider
+        private readonly tokenRepository: Repository<Token>
     ) {}
-
-    private get network(): string {
-        return this.clusterProvider.cluster;
-    }
 
     onModuleInit(): void {
         this.logger.log("Initializing TokenSeederService...");
@@ -32,7 +27,8 @@ export class TokenSeederService implements OnModuleInit {
         return error.message;
     }
 
-    async syncProvisionedTokens(force = false, limit?: number) {
+    async syncProvisionedTokens(cluster: Cluster, force = false, limit?: number) {
+        this.assertMainnet(cluster);
         try {
             const filePath = path.join(process.cwd(), "src/modules/tokens/services/token-seed/provisioned_tokens.txt");
             if (!fs.existsSync(filePath)) {
@@ -52,7 +48,7 @@ export class TokenSeederService implements OnModuleInit {
             let totalInserted = 0;
 
             const jupBaseUrl = `${this.configService.get<string>("jupiter.apiUrl")}/tokens/v2/search?query=`;
-            const network = this.network;
+            const network = cluster;
 
             const processBatch = async (addresses: string[]) => {
                 let newAddresses: string[];
@@ -245,7 +241,8 @@ export class TokenSeederService implements OnModuleInit {
         }
     }
 
-    async syncDbTokens(fromRow?: number, toRow?: number) {
+    async syncDbTokens(cluster: Cluster, fromRow?: number, toRow?: number) {
+        this.assertMainnet(cluster);
         try {
             const rangeLabel = fromRow != null || toRow != null ? ` (rows ${fromRow ?? 0}–${toRow ?? "end"})` : "";
             this.logger.log(`[DB sync] Starting metadata refresh for all DB tokens${rangeLabel}...`);
@@ -256,7 +253,7 @@ export class TokenSeederService implements OnModuleInit {
             const DELAY_MS = 2100;
             const MAX_RETRIES = 3;
             const UPSERT_CHUNK_SIZE = 1500;
-            const network = this.network;
+            const network = cluster;
 
             const jupBaseUrl = `${this.configService.get<string>("jupiter.apiUrl")}/tokens/v2/search?query=`;
 
@@ -427,7 +424,8 @@ export class TokenSeederService implements OnModuleInit {
         }
     }
 
-    async updateTokenOnChainData() {
+    async updateTokenOnChainData(cluster: Cluster) {
+        this.assertMainnet(cluster);
         const importantAddresses = [
             "So11111111111111111111111111111111111111112",
             "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
@@ -435,9 +433,9 @@ export class TokenSeederService implements OnModuleInit {
             "2wpTofQ8SkACrkZWrZDjXPitYa8AwWgX8AfxdeBRRVLX"
         ];
 
-        await this.updateBatchTokens(importantAddresses);
+        await this.updateBatchTokens(cluster, importantAddresses);
 
-        const allTokens = await this.tokenRepository.find({ where: { network: this.network } });
+        const allTokens = await this.tokenRepository.find({ where: { network: cluster } });
         const remainingTokens = allTokens.map((t) => t.address).filter((addr) => !importantAddresses.includes(addr));
 
         const BATCH_SIZE = 60;
@@ -445,7 +443,7 @@ export class TokenSeederService implements OnModuleInit {
 
         for (let i = 0; i < remainingTokens.length; i += BATCH_SIZE) {
             const batch = remainingTokens.slice(i, i + BATCH_SIZE);
-            await this.updateBatchTokens(batch);
+            await this.updateBatchTokens(cluster, batch);
             if (i + BATCH_SIZE < remainingTokens.length) {
                 this.logger.log(`Waiting ${DELAY_MS / 1000}s before next batch...`);
                 await new Promise((resolve) => setTimeout(resolve, DELAY_MS));
@@ -460,7 +458,13 @@ export class TokenSeederService implements OnModuleInit {
         return Number.isFinite(n) ? n : fallback;
     }
 
-    private async updateBatchTokens(addresses: string[]) {
+    private assertMainnet(cluster: Cluster): void {
+        if (cluster !== "mainnet") {
+            throw new ServiceUnavailableException("Jupiter token seeding is unavailable on devnet.");
+        }
+    }
+
+    private async updateBatchTokens(cluster: Cluster, addresses: string[]) {
         if (!addresses.length) return;
 
         try {
@@ -471,7 +475,7 @@ export class TokenSeederService implements OnModuleInit {
 
             const existingTokens = await this.tokenRepository.findBy({
                 address: In(addresses),
-                network: this.network
+                network: cluster
             });
 
             const existingMap = new Map(existingTokens.map((t) => [t.address, t]));

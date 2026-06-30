@@ -1,7 +1,12 @@
 import { IsInt, IsOptional, IsString, Max, Min } from "class-validator";
 import { Type } from "class-transformer";
+import { ClusterQueryDto } from "../../../common/cluster/cluster-query.dto";
 
-export class GetCategoryDto {
+export class GetCategoryDto extends ClusterQueryDto {
+    @IsOptional()
+    @IsString()
+    name?: string;
+
     @IsOptional()
     @IsString()
     sort_by?: string = "market_cap";

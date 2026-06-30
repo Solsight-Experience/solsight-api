@@ -4,14 +4,15 @@ import { Repository } from "typeorm";
 import { PromptBuilderService } from "./prompt-builder.service";
 import { GeminiService } from "../../../infra/gemini/gemini.service";
 import { RedisService } from "../../../redis/services/redis.service";
+import { type RedisKey } from "../../../redis/utils/redisKeys";
 import { Token } from "../entities/token.entity";
-import { ClusterProvider } from "../../../common/cluster/cluster.provider";
+import type { Cluster } from "../../../common/cluster/cluster.types";
 import { TokenContext, TokenSummaryInput, TokenSummaryResult } from "../types/token-summary.types";
+import { logError } from "src/common/errors/error-helper";
 
 @Injectable()
 export class TokenSummaryService {
     private readonly logger = new Logger(TokenSummaryService.name);
-    private readonly CACHE_KEY_PREFIX = "token:summary";
     private readonly DEFAULT_CACHE_TTL = 600;
     private readonly ACTIVE_TOKEN_TTL = 300;
     private readonly INACTIVE_TOKEN_TTL = 900;
@@ -21,18 +22,17 @@ export class TokenSummaryService {
         private readonly geminiService: GeminiService,
         private readonly redisService: RedisService,
         @InjectRepository(Token)
-        private readonly tokenRepository: Repository<Token>,
-        private readonly clusterProvider: ClusterProvider
+        private readonly tokenRepository: Repository<Token>
     ) {}
 
-    async generateSummary(input: TokenSummaryInput): Promise<TokenSummaryResult> {
+    async generateSummary(cluster: Cluster, input: TokenSummaryInput): Promise<TokenSummaryResult> {
         const { address, name, symbol } = input;
 
         if (!this.geminiService.isConfigured()) {
             throw new HttpException("AI service is not configured. Please set OPENAI_API_KEY in environment variables.", HttpStatus.SERVICE_UNAVAILABLE);
         }
 
-        const cached = await this.getCachedSummary(address);
+        const cached = await this.getCachedSummary(cluster, address);
         if (cached) {
             this.logger.log(`Returning cached summary for token: ${address}`);
             return cached;
@@ -41,7 +41,7 @@ export class TokenSummaryService {
         let token: Token | null = null;
         try {
             token = await this.tokenRepository.findOne({
-                where: { address, network: this.clusterProvider.cluster },
+                where: { address, network: cluster },
                 relations: ["category"]
             });
         } catch {
@@ -77,7 +77,7 @@ export class TokenSummaryService {
             const duration = Date.now() - startTime;
             this.logger.log(`AI summary generated in ${duration}ms. Tokens: ${geminiResponse.totalTokenCount || "N/A"}`);
         } catch (error) {
-            this.logger.error("Error generating AI summary", error);
+            logError(this.logger, "Error generating AI summary", error);
             throw new HttpException("Failed to generate AI summary. Please try again later.", HttpStatus.INTERNAL_SERVER_ERROR);
         }
 
@@ -95,14 +95,14 @@ export class TokenSummaryService {
             }
         };
 
-        await this.cacheSummary(address, token, result);
+        await this.cacheSummary(cluster, address, token, result);
 
         return result;
     }
 
-    private async getCachedSummary(address: string): Promise<TokenSummaryResult | null> {
+    private async getCachedSummary(cluster: Cluster, address: string): Promise<TokenSummaryResult | null> {
         try {
-            const cacheKey = this.getCacheKey(address);
+            const cacheKey = this.getCacheKey(cluster, address);
             const cached = await this.redisService.get<TokenSummaryResult>(cacheKey);
 
             if (cached) {
@@ -114,20 +114,20 @@ export class TokenSummaryService {
             }
             return null;
         } catch (error) {
-            this.logger.error("Error getting cached summary", error);
+            logError(this.logger, "Error getting cached summary", error);
             return null;
         }
     }
 
-    private async cacheSummary(address: string, token: Token | null, result: TokenSummaryResult): Promise<void> {
+    private async cacheSummary(cluster: Cluster, address: string, token: Token | null, result: TokenSummaryResult): Promise<void> {
         try {
-            const cacheKey = this.getCacheKey(address);
+            const cacheKey = this.getCacheKey(cluster, address);
             const ttl = token ? this.calculateCacheTTL(token) : this.DEFAULT_CACHE_TTL;
 
             await this.redisService.set(cacheKey, result, ttl);
             this.logger.debug(`Cached summary for ${address} with TTL: ${ttl} seconds`);
         } catch (error) {
-            this.logger.error("Error caching summary", error);
+            logError(this.logger, "Error caching summary", error);
         }
     }
 
@@ -144,7 +144,7 @@ export class TokenSummaryService {
         return this.INACTIVE_TOKEN_TTL;
     }
 
-    private getCacheKey(address: string): string {
-        return `${this.CACHE_KEY_PREFIX}:${this.clusterProvider.cluster}:${address}`;
+    private getCacheKey(cluster: Cluster, address: string): RedisKey {
+        return RedisService.KEYS.TOKEN_SUMMARY(cluster, address);
     }
 }

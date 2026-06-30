@@ -1,5 +1,6 @@
 import { IsEnum, IsInt, IsOptional, Max, Min } from "class-validator";
 import { Type } from "class-transformer";
+import { ClusterQueryDto } from "../../../common/cluster/cluster-query.dto";
 
 export enum GainersLosersType {
     GAINERS = "gainers",
@@ -13,7 +14,7 @@ export enum GainersLosersTimeFrame {
     SEVEN_DAYS = "7d"
 }
 
-export class GetGainersLosersDto {
+export class GetGainersLosersDto extends ClusterQueryDto {
     @IsOptional()
     @IsEnum(GainersLosersTimeFrame)
     time_frame?: GainersLosersTimeFrame = GainersLosersTimeFrame.TWENTY_FOUR_HOURS;

@@ -178,8 +178,16 @@ export class BaseSolanaRpcService implements SolanaRpcService {
     ): Promise<Array<{ pubkey: PublicKey; account: AccountInfo<Buffer | ParsedAccountData> }>> {
         return this.connection.getParsedProgramAccounts(programId, configOrCommitment);
     }
-    confirmTransaction(strategy: TransactionConfirmationStrategy, commitment?: Commitment): Promise<RpcResponseAndContext<SignatureResult>> {
-        return this.connection.confirmTransaction(strategy, commitment);
+    confirmTransaction(strategy: TransactionConfirmationStrategy, commitment?: Commitment): Promise<RpcResponseAndContext<SignatureResult>>;
+    confirmTransaction(signature: TransactionSignature, commitment?: Commitment): Promise<RpcResponseAndContext<SignatureResult>>;
+    confirmTransaction(
+        strategyOrSignature: TransactionConfirmationStrategy | TransactionSignature,
+        commitment?: Commitment
+    ): Promise<RpcResponseAndContext<SignatureResult>> {
+        if (typeof strategyOrSignature === "string") {
+            return this.connection.confirmTransaction(strategyOrSignature, commitment);
+        }
+        return this.connection.confirmTransaction(strategyOrSignature, commitment);
     }
     getClusterNodes(): Promise<Array<ContactInfo>> {
         return this.connection.getClusterNodes();

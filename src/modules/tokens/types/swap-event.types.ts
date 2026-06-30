@@ -1,15 +1,11 @@
-export type TradeDirection = "BUY" | "SELL";
+import type { Cluster } from "../../../common/cluster/cluster.types";
 
-const STABLECOIN_SYMBOLS = new Set(["USDC", "USDT"]);
+export type TradeDirection = "BUY" | "SELL";
 
 const MAX_PRICE_USD = 1_000_000_000; // 1 billion USD — cap for out-of-range detection
 
 export function isValidPrice(price: number): boolean {
     return isFinite(price) && price > 0 && price < MAX_PRICE_USD;
-}
-
-export function isStablecoin(token: TokenInfo): boolean {
-    return STABLECOIN_SYMBOLS.has(token.symbol);
 }
 
 export interface SwapPriceResult {
@@ -23,22 +19,8 @@ export function calculateSwapPrices(swap: SwapEvent): SwapPriceResult {
     const priceNative = swap.price_native;
     const priceUsd = swap.price_usd ?? 0;
 
-    let priceUsdTokenIn: number;
-    let priceUsdTokenOut: number;
-
-    if (isStablecoin(swap.token_in)) {
-        priceUsdTokenOut = priceUsd;
-        priceUsdTokenIn = priceUsd * priceNative;
-    } else if (isStablecoin(swap.token_out)) {
-        priceUsdTokenIn = priceUsd;
-        priceUsdTokenOut = priceNative > 0 ? priceUsd / priceNative : 0;
-    } else if (swap.token_in.is_quote) {
-        priceUsdTokenOut = priceUsd;
-        priceUsdTokenIn = priceUsd * priceNative;
-    } else {
-        priceUsdTokenIn = priceUsd;
-        priceUsdTokenOut = priceNative > 0 ? priceUsd / priceNative : 0;
-    }
+    const priceUsdTokenOut = priceUsd;
+    const priceUsdTokenIn = priceNative > 0 ? priceNative * priceUsd : 0;
 
     return {
         priceUsdTokenIn,
@@ -58,6 +40,7 @@ export interface TokenInfo {
 }
 
 export interface SwapEvent {
+    network: Cluster;
     event_id: string;
     event_type: string;
     timestamp: number;

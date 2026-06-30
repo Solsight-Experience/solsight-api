@@ -1,8 +1,8 @@
 import { Injectable, Logger } from "@nestjs/common";
-import { AddressLookupTableAccount, LAMPORTS_PER_SOL, PublicKey, RecentPrioritizationFees } from "@solana/web3.js";
+import { AddressLookupTableAccount, Commitment, LAMPORTS_PER_SOL, PublicKey, RecentPrioritizationFees } from "@solana/web3.js";
 import { TOKEN_PROGRAM_ID, getAssociatedTokenAddress } from "@solana/spl-token";
 import { HeliusResolver } from "./helius.resolver";
-import { ClusterProvider } from "../../common/cluster/cluster.provider";
+import type { Cluster } from "../../common/cluster/cluster.types";
 import { SubmitAndConfirmOptions } from "./constants/types";
 import { ParsedTokenAccount } from "./solana.types";
 
@@ -10,18 +10,11 @@ import { ParsedTokenAccount } from "./solana.types";
 export class SolanaService {
     private readonly logger = new Logger(SolanaService.name);
 
-    constructor(
-        private readonly heliusResolver: HeliusResolver,
-        private readonly clusterProvider: ClusterProvider
-    ) {}
+    constructor(private readonly heliusResolver: HeliusResolver) {}
 
-    getNetwork(): string {
-        return this.clusterProvider.cluster;
-    }
-
-    async getBalance(publicKey: PublicKey): Promise<number> {
+    async getBalance(cluster: Cluster, publicKey: PublicKey): Promise<number> {
         try {
-            const balance = await this.heliusResolver.get().getBalance(publicKey);
+            const balance = await this.heliusResolver.forCluster(cluster).getBalance(publicKey);
             return balance / LAMPORTS_PER_SOL;
         } catch (error) {
             this.logger.error(`Failed to get balance for ${publicKey.toString()}`, error);
@@ -29,10 +22,10 @@ export class SolanaService {
         }
     }
 
-    async getTokenBalance(walletAddress: PublicKey, mintAddress: PublicKey): Promise<number> {
+    async getTokenBalance(cluster: Cluster, walletAddress: PublicKey, mintAddress: PublicKey): Promise<number> {
         try {
             const tokenAccount = await getAssociatedTokenAddress(mintAddress, walletAddress);
-            const tokenBalance = await this.heliusResolver.get().getTokenAccountBalance(tokenAccount);
+            const tokenBalance = await this.heliusResolver.forCluster(cluster).getTokenAccountBalance(tokenAccount);
             return tokenBalance.value.uiAmount || 0;
         } catch (error) {
             this.logger.error(`Failed to get token balance`, error);
@@ -40,9 +33,9 @@ export class SolanaService {
         }
     }
 
-    async getParsedTokenAccountsByOwner(owner: PublicKey): Promise<ParsedTokenAccount[]> {
+    async getParsedTokenAccountsByOwner(cluster: Cluster, owner: PublicKey): Promise<ParsedTokenAccount[]> {
         try {
-            const result = await this.heliusResolver.get().getParsedTokenAccountsByOwner(owner, {
+            const result = await this.heliusResolver.forCluster(cluster).getParsedTokenAccountsByOwner(owner, {
                 programId: TOKEN_PROGRAM_ID
             });
             return result.value as ParsedTokenAccount[];
@@ -52,9 +45,9 @@ export class SolanaService {
         }
     }
 
-    async getMintDecimals(mintAddress: string): Promise<number | null> {
+    async getMintDecimals(cluster: Cluster, mintAddress: string): Promise<number | null> {
         try {
-            const result = await this.heliusResolver.get().getParsedAccountInfo(new PublicKey(mintAddress));
+            const result = await this.heliusResolver.forCluster(cluster).getParsedAccountInfo(new PublicKey(mintAddress));
             const data = result.value?.data;
 
             if (!data || typeof data === "string" || !("parsed" in data)) {
@@ -69,9 +62,9 @@ export class SolanaService {
         }
     }
 
-    async getTransactionHistory(publicKey: PublicKey, limit = 10, before?: string, until?: string) {
+    async getTransactionHistory(cluster: Cluster, publicKey: PublicKey, limit = 10, before?: string, until?: string) {
         try {
-            const rpc = this.heliusResolver.get();
+            const rpc = this.heliusResolver.forCluster(cluster);
             const options = { limit, before, until };
             const signatures = await rpc.getSignaturesForAddress(publicKey, options);
             const transactions = await Promise.all(
@@ -103,8 +96,8 @@ export class SolanaService {
         }
     }
 
-    async submitAndConfirm(signedTransactionBase64: string, options: SubmitAndConfirmOptions = {}): Promise<{ signature: string }> {
-        const rpc = this.heliusResolver.get();
+    async submitAndConfirm(cluster: Cluster, signedTransactionBase64: string, options: SubmitAndConfirmOptions = {}): Promise<{ signature: string }> {
+        const rpc = this.heliusResolver.forCluster(cluster);
         const txBuffer = Buffer.from(signedTransactionBase64, "base64");
         const commitment = options.commitment ?? "confirmed";
         const latestBlockhash = await rpc.getLatestBlockhash(commitment);
@@ -125,15 +118,19 @@ export class SolanaService {
         return { signature };
     }
 
-    async getRecentPrioritizationFees(): Promise<RecentPrioritizationFees[]> {
-        return this.heliusResolver.get().getRecentPrioritizationFees();
+    async confirmSignature(cluster: Cluster, signature: string, commitment: Commitment = "confirmed"): Promise<void> {
+        await this.heliusResolver.forCluster(cluster).confirmTransaction(signature, commitment);
     }
 
-    async resolveAddressLookupTables(accountKeys: PublicKey[]): Promise<AddressLookupTableAccount[]> {
+    async getRecentPrioritizationFees(cluster: Cluster): Promise<RecentPrioritizationFees[]> {
+        return this.heliusResolver.forCluster(cluster).getRecentPrioritizationFees();
+    }
+
+    async resolveAddressLookupTables(cluster: Cluster, accountKeys: PublicKey[]): Promise<AddressLookupTableAccount[]> {
         if (accountKeys.length === 0) {
             return [];
         }
-        const rpc = this.heliusResolver.get();
+        const rpc = this.heliusResolver.forCluster(cluster);
         return Promise.all(
             accountKeys.map(async (key) => {
                 const result = await rpc.getAddressLookupTable(key);

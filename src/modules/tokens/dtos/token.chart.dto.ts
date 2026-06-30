@@ -1,7 +1,8 @@
 import { IsString, IsOptional, IsNumber } from "class-validator";
 import { Type } from "class-transformer";
+import { ClusterQueryDto } from "../../../common/cluster/cluster-query.dto";
 
-export class ChartQueryDto {
+export class ChartQueryDto extends ClusterQueryDto {
     @IsString()
     interval: string;
 
@@ -9,6 +10,16 @@ export class ChartQueryDto {
     @IsNumber()
     @Type(() => Number)
     limit?: number;
+
+    @IsOptional()
+    @IsNumber()
+    @Type(() => Number)
+    from?: number;
+
+    @IsOptional()
+    @IsNumber()
+    @Type(() => Number)
+    to?: number;
 }
 
 export class ChartCandlePointDto {

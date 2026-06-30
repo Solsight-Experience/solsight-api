@@ -1,4 +1,4 @@
-import { Injectable, Logger, Inject } from "@nestjs/common";
+import { Injectable, Logger, Inject, ServiceUnavailableException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { CACHE_MANAGER } from "@nestjs/cache-manager";
 import { Cache } from "cache-manager";
@@ -12,6 +12,7 @@ import {
     CoinGeckoMarketChartRangeResponse
 } from "./types";
 import { JsonValue } from "../../common/types";
+import type { Cluster } from "../../common/cluster/cluster.types";
 
 const CG_TTL = 5 * 60 * 1000; // 5 minutes
 
@@ -55,10 +56,22 @@ export class CoinGeckoService {
         return response.data;
     }
 
+    private assertMainnet(cluster: Cluster, operation: string): void {
+        if (cluster !== "mainnet") {
+            throw new ServiceUnavailableException(`CoinGecko ${operation} is unavailable on devnet.`);
+        }
+    }
+
+    async clearCategoriesCache(cluster: Cluster): Promise<void> {
+        this.assertMainnet(cluster, "category cache refresh");
+        await this.cacheManager.del("cg-categories");
+    }
+
     /**
      * Get trending coins from CoinGecko
      */
-    async getTrendingCoins(): Promise<CoinGeckoTrending | null> {
+    async getTrendingCoins(cluster: Cluster): Promise<CoinGeckoTrending | null> {
+        this.assertMainnet(cluster, "trending coins");
         const cacheKey = "cg-trending";
         const cached = await this.cacheManager.get<CoinGeckoTrending>(cacheKey);
         if (cached) return cached;
@@ -76,7 +89,8 @@ export class CoinGeckoService {
     /**
      * Get market data for specific coins
      */
-    async getCoinsMarketData(coinIds: string[], vsCurrency = "usd"): Promise<CoinGeckoMarketData[]> {
+    async getCoinsMarketData(cluster: Cluster, coinIds: string[], vsCurrency = "usd"): Promise<CoinGeckoMarketData[]> {
+        this.assertMainnet(cluster, "market data");
         const cacheKey = `cg-market-${vsCurrency}-${[...coinIds].sort().join(",")}`;
         const cached = await this.cacheManager.get<CoinGeckoMarketData[]>(cacheKey);
         if (cached) return cached;
@@ -103,7 +117,8 @@ export class CoinGeckoService {
     /**
      * Get categories from CoinGecko
      */
-    async getCategories(): Promise<CoinGeckoCategory[]> {
+    async getCategories(cluster: Cluster): Promise<CoinGeckoCategory[]> {
+        this.assertMainnet(cluster, "categories");
         const cacheKey = "cg-categories";
         const cached = await this.cacheManager.get<CoinGeckoCategory[]>(cacheKey);
         if (cached) return cached;
@@ -122,7 +137,8 @@ export class CoinGeckoService {
     /**
      * Get coins by category from CoinGecko
      */
-    async getCoinsByCategory(categoryId: string, vsCurrency = "usd"): Promise<CoinGeckoMarketData[]> {
+    async getCoinsByCategory(cluster: Cluster, categoryId: string, vsCurrency = "usd"): Promise<CoinGeckoMarketData[]> {
+        this.assertMainnet(cluster, "category market data");
         const cacheKey = `cg-category-${vsCurrency}-${categoryId}`;
         const cached = await this.cacheManager.get<CoinGeckoMarketData[]>(cacheKey);
         if (cached) return cached;
@@ -149,7 +165,8 @@ export class CoinGeckoService {
     /**
      * Get recently added coins (new listings)
      */
-    async getRecentlyAddedCoins(limit = 50, vsCurrency = "usd"): Promise<CoinGeckoMarketData[]> {
+    async getRecentlyAddedCoins(cluster: Cluster, limit = 50, vsCurrency = "usd"): Promise<CoinGeckoMarketData[]> {
+        this.assertMainnet(cluster, "recently added coins");
         const cacheKey = `cg-recent-${vsCurrency}-${limit}`;
         const cached = await this.cacheManager.get<CoinGeckoMarketData[]>(cacheKey);
         if (cached) return cached;
@@ -180,7 +197,8 @@ export class CoinGeckoService {
     /**
      * Get top coins by market cap
      */
-    async getTopCoins(limit = 100, vsCurrency = "usd"): Promise<CoinGeckoMarketData[]> {
+    async getTopCoins(cluster: Cluster, limit = 100, vsCurrency = "usd"): Promise<CoinGeckoMarketData[]> {
+        this.assertMainnet(cluster, "top coins");
         const cacheKey = `cg-top-${vsCurrency}-${limit}`;
         const cached = await this.cacheManager.get<CoinGeckoMarketData[]>(cacheKey);
         if (cached) return cached;
@@ -206,7 +224,8 @@ export class CoinGeckoService {
     /**
      * Get coin details by ID
      */
-    async getCoinDetails(coinId: string): Promise<JsonValue | null> {
+    async getCoinDetails(cluster: Cluster, coinId: string): Promise<JsonValue | null> {
+        this.assertMainnet(cluster, "coin details");
         const cacheKey = `cg-coin-${coinId}`;
         const cached = await this.cacheManager.get<JsonValue>(cacheKey);
         if (cached) return cached;
@@ -233,7 +252,8 @@ export class CoinGeckoService {
      * @param query - Search query (coin name or symbol)
      * @returns Search results containing coins, exchanges, categories, and nfts
      */
-    async searchCoins(query: string): Promise<CoinGeckoSearchResult> {
+    async searchCoins(cluster: Cluster, query: string): Promise<CoinGeckoSearchResult> {
+        this.assertMainnet(cluster, "coin search");
         const cacheKey = `cg-search-${query.toLowerCase().trim()}`;
         const cached = await this.cacheManager.get<CoinGeckoSearchResult>(cacheKey);
         if (cached) return cached;
@@ -255,8 +275,8 @@ export class CoinGeckoService {
      * @param name - Token name (e.g., "Jupiter")
      * @returns CoinGecko coin ID if found, null otherwise
      */
-    async findCoinGeckoId(symbol: string, name: string): Promise<string | null> {
-        const searchResult = await this.searchCoins(symbol);
+    async findCoinGeckoId(cluster: Cluster, symbol: string, name: string): Promise<string | null> {
+        const searchResult = await this.searchCoins(cluster, symbol);
         if (!searchResult.coins || searchResult.coins.length === 0) {
             return null;
         }
@@ -279,9 +299,10 @@ export class CoinGeckoService {
     /**
      * Get price change data for multiple coins
      */
-    async getPriceChangeData(coinIds: string[], vsCurrency = "usd", timeframe = "24h"): Promise<Map<string, number>> {
+    async getPriceChangeData(cluster: Cluster, coinIds: string[], vsCurrency = "usd", timeframe = "24h"): Promise<Map<string, number>> {
+        this.assertMainnet(cluster, "price changes");
         try {
-            const marketData = await this.getCoinsMarketData(coinIds, vsCurrency);
+            const marketData = await this.getCoinsMarketData(cluster, coinIds, vsCurrency);
             const priceChangeMap = new Map<string, number>();
 
             marketData.forEach((coin) => {
@@ -304,6 +325,7 @@ export class CoinGeckoService {
      * @param options - Optional flags to include extra data
      */
     async getSimplePrice(
+        cluster: Cluster,
         ids: string[],
         vsCurrency = "usd",
         options?: {
@@ -314,6 +336,7 @@ export class CoinGeckoService {
             precision?: string;
         }
     ): Promise<CoinGeckoSimplePriceResponse> {
+        this.assertMainnet(cluster, "simple price");
         const sortedIds = [...ids].sort().join(",");
         const cacheKey = `cg-simple-price-${vsCurrency}-${sortedIds}`;
         const cached = await this.cacheManager.get<CoinGeckoSimplePriceResponse>(cacheKey);
@@ -346,7 +369,15 @@ export class CoinGeckoService {
      * @param to - End date in UNIX timestamp (seconds)
      * @param precision - Decimal place for currency price value
      */
-    async getMarketChartRange(coinId: string, vsCurrency = "usd", from: number, to: number, precision?: string): Promise<CoinGeckoMarketChartRangeResponse> {
+    async getMarketChartRange(
+        cluster: Cluster,
+        coinId: string,
+        vsCurrency = "usd",
+        from: number,
+        to: number,
+        precision?: string
+    ): Promise<CoinGeckoMarketChartRangeResponse> {
+        this.assertMainnet(cluster, "market chart");
         const cacheKey = `cg-chart-range-${coinId}-${vsCurrency}-${from}-${to}`;
         const cached = await this.cacheManager.get<CoinGeckoMarketChartRangeResponse>(cacheKey);
         if (cached) return cached;
@@ -379,7 +410,8 @@ export class CoinGeckoService {
      * @param precision - Decimal place for currency price value
      * @returns Array of [timestamp, open, high, low, close] tuples
      */
-    async getOhlc(coinId: string, vsCurrency = "usd", days: number, precision?: string): Promise<number[][]> {
+    async getOhlc(cluster: Cluster, coinId: string, vsCurrency = "usd", days: number, precision?: string): Promise<number[][]> {
+        this.assertMainnet(cluster, "OHLC data");
         const cacheKey = `cg-ohlc-${coinId}-${vsCurrency}-${days}`;
         const cached = await this.cacheManager.get<number[][]>(cacheKey);
         if (cached) return cached;

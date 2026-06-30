@@ -4,6 +4,7 @@ import { Socket } from "socket.io";
 import { WebsocketGateway } from "../../../websocket/websocket.gateway";
 import { ChatService } from "../services/chat.service";
 import { SendMessagePayload, ChatErrorPayload, ChatToolProgressPayload } from "../types/chat.types";
+import { requireCluster } from "../../../common/cluster/cluster.types";
 
 @Injectable()
 export class ChatGateway {
@@ -85,9 +86,11 @@ export class ChatGateway {
         this.logger.log(`chat:message received client=${clientKey} session=${payload.sessionId} userId=${userId}`, ChatGateway.name);
 
         try {
+            const cluster = requireCluster(payload.cluster, "chat:message payload cluster");
             const response = await this.chatService.sendMessage(
                 {
                     ...payload,
+                    cluster,
                     userId
                 },
                 (label: string) => {

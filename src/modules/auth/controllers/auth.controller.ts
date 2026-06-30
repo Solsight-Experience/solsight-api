@@ -1,4 +1,5 @@
 import { Controller, Post, Body, UseGuards, Get, Query, Res, HttpException, HttpStatus } from "@nestjs/common";
+import { ForgotPasswordDto, ResetPasswordDto, VerifyResetOtpDto } from "../dtos/password-reset.dto";
 import { VerifySolanaDto } from "../dtos/verify-solana.dto";
 import { AuthService } from "../services/auth.service";
 import { LoginDto, OauthLoginDto, RegisterDto } from "../types/auth.types";
@@ -78,6 +79,21 @@ export class AuthController {
         return this.authService.resendVerificationEmail(email);
     }
 
+    @Post("forgot-password")
+    async forgotPassword(@Body() dto: ForgotPasswordDto) {
+        return this.authService.forgotPassword(dto);
+    }
+
+    @Post("verify-reset-otp")
+    async verifyResetOtp(@Body() dto: VerifyResetOtpDto) {
+        return this.authService.verifyResetOtp(dto);
+    }
+
+    @Post("reset-password")
+    async resetPassword(@Body() dto: ResetPasswordDto) {
+        return this.authService.resetPassword(dto);
+    }
+
     @Get("solana/nonce")
     async getSolanaNonce(@Query("walletAddress") walletAddress: string) {
         return await this.authService.getSolanaNonce(walletAddress);
@@ -86,7 +102,13 @@ export class AuthController {
     @UseGuards(JwtAuthGuard)
     @Post("solana/verify")
     async verifySolanaWallet(@Body() verifySolanaDto: VerifySolanaDto, @CurrentUser() user: CurrentUserPayload) {
-        return await this.authService.verifySolanaWallet(verifySolanaDto.walletAddress, verifySolanaDto.signature, verifySolanaDto.walletIcon, user.id);
+        return await this.authService.verifySolanaWallet(
+            verifySolanaDto.walletAddress,
+            verifySolanaDto.signature,
+            verifySolanaDto.walletIcon,
+            user.id,
+            verifySolanaDto.message
+        );
     }
 
     @Post("solana/login")
@@ -95,7 +117,8 @@ export class AuthController {
             const { user, accessToken } = await this.authService.loginWithSolana(
                 verifySolanaDto.walletAddress,
                 verifySolanaDto.signature,
-                verifySolanaDto.walletIcon
+                verifySolanaDto.walletIcon,
+                verifySolanaDto.message
             );
 
             res.cookie("auth_token", accessToken, {

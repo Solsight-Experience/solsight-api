@@ -8,7 +8,9 @@ import { PublicKey } from "@solana/web3.js";
 import { ParsedTokenAccount } from "../../../infra/solana/solana.types";
 import { WalletsResponse, Position, WalletSummary, Wallet as WalletDto } from "../dtos/wallet.response.dto";
 import { TokensService } from "../../tokens/services/tokens.service";
-import { CoinGeckoService } from "../../../infra/coingecko/coingecko.service";
+import { TokenPriceService } from "src/modules/tokens/services/token-price.service";
+import { COMMON_TOKEN_MINT } from "src/modules/tokens/constants/token.constant";
+import type { Cluster } from "../../../common/cluster/cluster.types";
 
 @Injectable()
 export class WalletsService {
@@ -19,7 +21,7 @@ export class WalletsService {
         private readonly walletRepository: Repository<Wallet>,
         private readonly solanaService: SolanaService,
         private readonly tokensService: TokensService,
-        private readonly coinGeckoService: CoinGeckoService
+        private readonly tokenPriceService: TokenPriceService
     ) {}
 
     async createWithNonce(address: string, nonce: string): Promise<Wallet> {
@@ -39,7 +41,7 @@ export class WalletsService {
         await this.walletRepository.update(walletId, { userId, icon });
     }
 
-    async create(userId: string, createWalletDto: CreateWalletDto): Promise<Wallet> {
+    async create(cluster: Cluster, userId: string, createWalletDto: CreateWalletDto): Promise<Wallet> {
         // Validate Solana address
         if (!this.solanaService.validatePublicKey(createWalletDto.address)) {
             throw new BadRequestException("Invalid Solana wallet address");
@@ -51,21 +53,38 @@ export class WalletsService {
         });
 
         if (existingWallet) {
-            throw new ConflictException("Wallet already exists");
+            if (existingWallet.userId && existingWallet.userId !== userId) {
+                throw new ConflictException("Wallet already exists");
+            }
+
+            this.walletRepository.merge(existingWallet, {
+                name: createWalletDto.name ?? existingWallet.name,
+                icon: createWalletDto.icon ?? existingWallet.icon,
+                publicKey: createWalletDto.publicKey ?? existingWallet.publicKey,
+                derivationPath: createWalletDto.derivationPath ?? existingWallet.derivationPath,
+                type: createWalletDto.type ?? existingWallet.type,
+                isActive: createWalletDto.isActive ?? existingWallet.isActive,
+                userId,
+                isConnected: true
+            });
+
+            const savedWallet = await this.walletRepository.save(existingWallet);
+            await this.updateBalance(cluster, savedWallet.id);
+            return await this.findById(savedWallet.id);
         }
 
         const wallet = this.walletRepository.create({
             ...createWalletDto,
             icon: createWalletDto.icon,
-            userId
+            userId,
+            isConnected: true
         });
 
         const savedWallet = await this.walletRepository.save(wallet);
 
         // Update balance from blockchain
-        await this.updateBalance(savedWallet.id);
-
-        return savedWallet;
+        await this.updateBalance(cluster, savedWallet.id);
+        return await this.findById(savedWallet.id);
     }
 
     async findByUserId(userId: string): Promise<Wallet[]> {
@@ -75,12 +94,12 @@ export class WalletsService {
         });
     }
 
-    async listForUser(userId: string): Promise<WalletsResponse> {
+    async listForUser(cluster: Cluster, userId: string): Promise<WalletsResponse> {
         const wallets = await this.findByUserId(userId);
 
         // Auto-update balances for all user wallets
         try {
-            await Promise.all(wallets.map((wallet) => this.updateBalance(wallet.id)));
+            await Promise.all(wallets.map((wallet) => this.updateBalance(cluster, wallet.id)));
         } catch (error) {
             // Log the error but don't block the response if updates fail
             this.logger.error("Failed to update one or more wallet balances", error);
@@ -89,10 +108,10 @@ export class WalletsService {
         // Refetch wallets to get the potentially updated balances
         const updatedWallets = await this.findByUserId(userId);
 
-        const solPrice = await this.getSolPriceUsd();
+        const solPrice = await this.tokenPriceService.getPrice(cluster, COMMON_TOKEN_MINT.SOL);
 
         // Get detailed wallet info with positions
-        const walletsWithDetails = await Promise.all(updatedWallets.map((w) => this.getWalletDetail(w, solPrice)));
+        const walletsWithDetails = await Promise.all(updatedWallets.map((w) => this.getWalletDetail(cluster, w, solPrice.priceUsd)));
 
         const total_wallets = walletsWithDetails.length;
         const total_balance_sol = walletsWithDetails.reduce((acc, w) => acc + w.balance_sol, 0);
@@ -106,8 +125,8 @@ export class WalletsService {
         };
     }
 
-    private async getWalletDetail(wallet: Wallet, solPrice: number): Promise<WalletDto> {
-        const positions = await this.getWalletPositions(wallet.address);
+    private async getWalletDetail(cluster: Cluster, wallet: Wallet, solPrice: number): Promise<WalletDto> {
+        const positions = await this.getWalletPositions(cluster, wallet.address);
         const summary = this.calculateWalletSummary(positions);
 
         return {
@@ -124,10 +143,10 @@ export class WalletsService {
         };
     }
 
-    private async getWalletPositions(walletAddress: string): Promise<Position[]> {
+    private async getWalletPositions(cluster: Cluster, walletAddress: string): Promise<Position[]> {
         try {
             const publicKey = new PublicKey(walletAddress);
-            const tokenAccounts: ParsedTokenAccount[] = await this.solanaService.getParsedTokenAccountsByOwner(publicKey);
+            const tokenAccounts: ParsedTokenAccount[] = await this.solanaService.getParsedTokenAccountsByOwner(cluster, publicKey);
 
             const holdings: Array<{ mintAddress: string; balance: number }> = [];
             for (const account of tokenAccounts) {
@@ -140,7 +159,7 @@ export class WalletsService {
             if (holdings.length === 0) return [];
 
             const mints = holdings.map((h) => h.mintAddress);
-            const [metadataMap, priceMap] = await Promise.all([this.tokensService.findMany(mints), this.tokensService.getPrices(mints)]);
+            const [metadataMap, priceMap] = await Promise.all([this.tokensService.findMany(cluster, mints), this.tokenPriceService.getPrices(cluster, mints)]);
 
             const positions: Position[] = [];
             for (const { mintAddress, balance } of holdings) {
@@ -214,7 +233,7 @@ export class WalletsService {
             relations: ["user"]
         });
     }
-    async getWalletByAddress(userId: string, address: string): Promise<WalletDto> {
+    async getWalletByAddress(cluster: Cluster, userId: string, address: string): Promise<WalletDto> {
         const wallet = await this.walletRepository.findOne({
             where: { address, userId }
         });
@@ -225,24 +244,24 @@ export class WalletsService {
 
         // Update balance
         try {
-            await this.updateBalance(wallet.id);
+            await this.updateBalance(cluster, wallet.id);
         } catch (error) {
             this.logger.error("Failed to update wallet balance", error);
         }
 
         // Refetch with updated balance
         const updatedWallet = await this.findById(wallet.id);
-        const solPrice = await this.getSolPriceUsd();
+        const solPrice = await this.tokenPriceService.getPrice(cluster, COMMON_TOKEN_MINT.SOL);
 
-        return await this.getWalletDetail(updatedWallet, solPrice);
+        return await this.getWalletDetail(cluster, updatedWallet, solPrice.priceUsd);
     }
 
-    async updateBalance(walletId: string): Promise<Wallet> {
+    async updateBalance(cluster: Cluster, walletId: string): Promise<Wallet> {
         const wallet = await this.findById(walletId);
 
         try {
             const publicKey = new PublicKey(wallet.address);
-            const balance = await this.solanaService.getBalance(publicKey);
+            const balance = await this.solanaService.getBalance(cluster, publicKey);
 
             await this.walletRepository.update({ id: walletId }, { balance });
 
@@ -252,25 +271,25 @@ export class WalletsService {
         }
     }
 
-    async getTokenBalance(walletId: string, mintAddress: string): Promise<number> {
+    async getTokenBalance(cluster: Cluster, walletId: string, mintAddress: string): Promise<number> {
         const wallet = await this.findById(walletId);
 
         try {
             const walletPublicKey = new PublicKey(wallet.address);
             const mintPublicKey = new PublicKey(mintAddress);
 
-            return await this.solanaService.getTokenBalance(walletPublicKey, mintPublicKey);
+            return await this.solanaService.getTokenBalance(cluster, walletPublicKey, mintPublicKey);
         } catch {
             throw new BadRequestException("Failed to get token balance");
         }
     }
 
-    async getTransactionHistory(walletId: string, limit = 10) {
+    async getTransactionHistory(cluster: Cluster, walletId: string, limit = 10) {
         const wallet = await this.findById(walletId);
 
         try {
             const publicKey = new PublicKey(wallet.address);
-            return await this.solanaService.getTransactionHistory(publicKey, limit);
+            return await this.solanaService.getTransactionHistory(cluster, publicKey, limit);
         } catch {
             throw new BadRequestException("Failed to get transaction history");
         }
@@ -327,20 +346,6 @@ export class WalletsService {
 
         await this.walletRepository.update({ id: wallet.id }, { isDefault: true });
         return await this.findById(wallet.id);
-    }
-
-    // Get SOL price in USD from CoinGecko
-    private async getSolPriceUsd(): Promise<number> {
-        try {
-            const marketData = await this.coinGeckoService.getCoinsMarketData(["solana"], "usd");
-            if (marketData && marketData.length > 0) {
-                return marketData[0].current_price;
-            }
-            return 0;
-        } catch (error) {
-            this.logger.error("Failed to get SOL price from CoinGecko", error);
-            return 0;
-        }
     }
 
     async delete(id: string): Promise<void> {

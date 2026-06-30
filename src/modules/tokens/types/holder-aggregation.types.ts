@@ -1,6 +1,38 @@
+import { Holder } from "../entities/holder.entity";
 import { HolderData } from "./swap-event.types";
+import type { Cluster } from "../../../common/cluster/cluster.types";
 
+export type HolderUpsertRow = Pick<
+    Holder,
+    | "tokenMint"
+    | "network"
+    | "wallet"
+    | "balance"
+    | "lastActiveSlot"
+    | "lastActiveTs"
+    | "totalBoughtRaw"
+    | "totalSoldRaw"
+    | "totalBoughtUsd"
+    | "totalSoldUsd"
+    | "buyTxCount"
+    | "sellTxCount"
+    | "updatedAt"
+>;
+
+export type HolderEnrichmentInput = {
+    wallet: string;
+    balance: string | number;
+    lastActiveTs?: string | number;
+    totalBoughtUsd?: string | number;
+    totalSoldUsd?: string | number;
+    buyTxCount?: string | number;
+    sellTxCount?: string | number;
+    redisData?: Record<string, string>;
+};
+
+export type HolderAccountType = "WALLET" | "LP" | "DEV" | "BURN" | "CEX";
 export interface HolderUpdateEvent {
+    network: Cluster;
     mint: string;
     wallet: string;
     balance: number;
@@ -21,6 +53,7 @@ export interface HolderUpdateEvent {
 }
 
 export interface PriceUpdateEvent {
+    network: Cluster;
     mint: string;
     price_usd: number;
     price_native: number;
@@ -37,7 +70,7 @@ export interface EnrichedHolder extends HolderData {
     realized_pnl: number;
     remaining_usd: number;
     funding_label: string | null;
-    account_type: string | null;
+    account_type: HolderAccountType | null;
     buy_tx_count: number;
     sell_tx_count: number;
 }
