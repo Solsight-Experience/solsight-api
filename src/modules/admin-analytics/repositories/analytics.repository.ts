@@ -2,39 +2,47 @@ import { Injectable } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
 import { User } from "../../users/entities/user.entity";
-import { SwapExecution } from "../entities/swap-execution.entity";
 import { Token } from "../../tokens/entities/token.entity";
 import { Transaction, TransactionStatus, TransactionType } from "../../transactions/entities/transaction.entity";
+import { OhlcCandle } from "../../tokens/entities/ohlc-candle.entity";
 import { NormalizedSwap } from "../types/admin.types";
 
 @Injectable()
 export class AnalyticsRepository {
     constructor(
         @InjectRepository(User) private readonly userRepo: Repository<User>,
-        @InjectRepository(SwapExecution) private readonly swapExecutionRepo: Repository<SwapExecution>,
-        @InjectRepository(Transaction) private readonly txRepo: Repository<Transaction>
+        @InjectRepository(Transaction) private readonly txRepo: Repository<Transaction>,
+        @InjectRepository(OhlcCandle) private readonly ohlcRepo: Repository<OhlcCandle>
     ) {}
 
-    // ---------------------------------------------------------------------------
-    // Normalized dual-source fetchers
-    // ---------------------------------------------------------------------------
+    private async buildPriceMap(mints: string[], start: Date, end: Date): Promise<Map<string, { timestamp: number; close: number }[]>> {
+        if (!mints.length) return new Map();
+        const candles = await this.ohlcRepo
+            .createQueryBuilder("c")
+            .select(["c.tokenMint", "c.timestamp", "c.close"])
+            .where("c.tokenMint IN (:...mints)", { mints })
+            .andWhere("c.interval = :interval", { interval: "5m" })
+            .andWhere("c.timestamp >= :start AND c.timestamp <= :end", { start: start.getTime(), end: end.getTime() })
+            .orderBy("c.timestamp", "ASC")
+            .getMany();
 
-    async getSwapExecutionsNormalized(start: Date, end: Date): Promise<NormalizedSwap[]> {
-        const rows = await this.swapExecutionRepo.createQueryBuilder("se").where("se.createdAt >= :start AND se.createdAt <= :end", { start, end }).getMany();
+        const map = new Map<string, { timestamp: number; close: number }[]>();
+        for (const c of candles) {
+            const arr = map.get(c.tokenMint) ?? [];
+            arr.push({ timestamp: Number(c.timestamp), close: Number(c.close) });
+            map.set(c.tokenMint, arr);
+        }
+        return map;
+    }
 
-        return rows.map((r) => ({
-            id: r.id,
-            signature: r.signature,
-            walletAddress: r.walletAddress,
-            userId: r.userId,
-            inputMint: r.inputMint,
-            outputMint: r.outputMint,
-            inAmount: r.inAmount,
-            outAmount: r.outAmount,
-            volumeUsd: r.volumeUsd != null ? parseFloat(String(r.volumeUsd)) : null,
-            createdAt: r.createdAt,
-            source: "swap_executions" as const
-        }));
+    private findClosestPrice(candles: { timestamp: number; close: number }[] | undefined, txTimeMs: number): number | null {
+        if (!candles?.length) return null;
+        let price: number | null = null;
+        for (const c of candles) {
+            if (c.timestamp <= txTimeMs) price = c.close;
+            else break;
+        }
+        return price;
     }
 
     async getTransactionsNormalized(start: Date, end: Date): Promise<NormalizedSwap[]> {
@@ -47,56 +55,41 @@ export class AnalyticsRepository {
             .andWhere("t.createdAt >= :start AND t.createdAt <= :end", { start, end })
             .getMany();
 
-        return rows.map((r) => ({
-            id: r.id,
-            signature: r.signature,
-            walletAddress: r.signerAddress ?? "",
-            userId: null,
-            inputMint: r.tokenMint ?? "",
-            outputMint: r.tokenMintOut ?? "",
-            inAmount: String(r.amount),
-            outAmount: r.amountOut != null ? String(r.amountOut) : "0",
-            volumeUsd: null,
-            createdAt: r.createdAt,
-            source: "transactions" as const
-        }));
+        const uniqueMints = [...new Set(rows.map((r) => r.tokenMint).filter(Boolean) as string[])];
+        const priceMap = await this.buildPriceMap(uniqueMints, start, end);
+
+        return rows.map((r) => {
+            const txTimeMs = (r.blockTime ?? r.createdAt).getTime();
+            const price = this.findClosestPrice(priceMap.get(r.tokenMint ?? ""), txTimeMs);
+            const volumeUsd = price != null ? Number(r.amount) * price : null;
+
+            return {
+                id: r.id,
+                signature: r.signature,
+                walletAddress: r.signerAddress ?? "",
+                userId: null,
+                inputMint: r.tokenMint ?? "",
+                outputMint: r.tokenMintOut ?? "",
+                inAmount: String(r.amount),
+                outAmount: r.amountOut != null ? String(r.amountOut) : "0",
+                volumeUsd,
+                createdAt: r.createdAt,
+                source: "transactions" as const
+            };
+        });
     }
 
-    // Lightweight fetch for pagination: only signature + createdAt from both tables
-    async getSwapSigsPaged(
-        start?: Date,
-        end?: Date,
-        walletAddress?: string,
-        userId?: string,
-        tokenMint?: string
-    ): Promise<{ signature: string; createdAt: Date; source: "swap_executions" | "transactions" }[]> {
-        const seQb = this.swapExecutionRepo.createQueryBuilder("se").select(["se.signature", "se.createdAt"]);
-        if (start) seQb.andWhere("se.createdAt >= :start", { start });
-        if (end) seQb.andWhere("se.createdAt <= :end", { end });
-        if (walletAddress) seQb.andWhere("se.walletAddress ILIKE :wa", { wa: `%${walletAddress}%` });
-        if (userId) seQb.andWhere("se.userId ILIKE :uid", { uid: `%${userId}%` });
-        if (tokenMint) seQb.andWhere("(se.inputMint ILIKE :tm OR se.outputMint ILIKE :tm)", { tm: `%${tokenMint}%` });
-        const seRows = await seQb.getMany();
-
-        const txQb = this.txRepo.createQueryBuilder("t").select(["t.signature", "t.createdAt"]).where("t.type = :type AND t.status = :status", {
+    async getSwapSigsPaged(start?: Date, end?: Date, walletAddress?: string, tokenMint?: string): Promise<{ signature: string; createdAt: Date }[]> {
+        const qb = this.txRepo.createQueryBuilder("t").select(["t.signature", "t.createdAt"]).where("t.type = :type AND t.status = :status", {
             type: TransactionType.SWAP,
             status: TransactionStatus.CONFIRMED
         });
-        if (start) txQb.andWhere("t.createdAt >= :start", { start });
-        if (end) txQb.andWhere("t.createdAt <= :end", { end });
-        if (walletAddress) txQb.andWhere("t.signerAddress ILIKE :wa", { wa: `%${walletAddress}%` });
-        if (tokenMint) txQb.andWhere("(t.tokenMint ILIKE :tm OR t.tokenMintOut ILIKE :tm)", { tm: `%${tokenMint}%` });
-        const txRows = await txQb.getMany();
-
-        return [
-            ...seRows.map((r) => ({ signature: r.signature, createdAt: r.createdAt, source: "swap_executions" as const })),
-            ...txRows.map((r) => ({ signature: r.signature, createdAt: r.createdAt, source: "transactions" as const }))
-        ];
-    }
-
-    async getSwapExecutionsBySignatures(signatures: string[]): Promise<SwapExecution[]> {
-        if (!signatures.length) return [];
-        return this.swapExecutionRepo.createQueryBuilder("se").where("se.signature IN (:...sigs)", { sigs: signatures }).getMany();
+        if (start) qb.andWhere("t.createdAt >= :start", { start });
+        if (end) qb.andWhere("t.createdAt <= :end", { end });
+        if (walletAddress) qb.andWhere("t.signerAddress ILIKE :wa", { wa: `%${walletAddress}%` });
+        if (tokenMint) qb.andWhere("(t.tokenMint ILIKE :tm OR t.tokenMintOut ILIKE :tm)", { tm: `%${tokenMint}%` });
+        const rows = await qb.getMany();
+        return rows.map((r) => ({ signature: r.signature, createdAt: r.createdAt }));
     }
 
     async getTransactionsBySignatures(signatures: string[]): Promise<Transaction[]> {
@@ -140,7 +133,7 @@ export class AnalyticsRepository {
 
     async getTokenMetadata(mints: string[]): Promise<Map<string, { symbol: string | null; name: string | null; logoUri: string | null }>> {
         if (!mints.length) return new Map();
-        const rows = await this.swapExecutionRepo.manager
+        const rows = await this.txRepo.manager
             .getRepository(Token)
             .createQueryBuilder("t")
             .select(["t.address", "t.symbol", "t.name", "t.logoUri"])

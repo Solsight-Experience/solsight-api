@@ -10,7 +10,7 @@
  */
 
 // ---------------------------------------------------------------------------
-// Internal: normalized swap record merged from swap_executions + transactions
+// Internal: normalized swap record from transactions table
 // ---------------------------------------------------------------------------
 
 export interface NormalizedSwap {
@@ -24,7 +24,7 @@ export interface NormalizedSwap {
     outAmount: string;
     volumeUsd: number | null;
     createdAt: Date;
-    source: "swap_executions" | "transactions";
+    source: "transactions";
 }
 
 // ---------------------------------------------------------------------------

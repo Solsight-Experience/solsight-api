@@ -1,7 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { AnalyticsRepository } from "../repositories/analytics.repository";
 import type { AnalyticsQueryDto } from "../dtos/analytics-query.dto";
-import type { NormalizedSwap } from "../types/admin.types";
 
 function parseDateRange(dto: AnalyticsQueryDto): { startDate: Date; endDate: Date } {
     const endDate = dto.endDate ? new Date(dto.endDate) : new Date();
@@ -21,28 +20,18 @@ function toDateStr(d: Date): string {
 export class AdminAnalyticsService {
     constructor(private readonly analyticsRepo: AnalyticsRepository) {}
 
-    // Merge two normalized arrays, dedup by signature (swap_executions wins — has volumeUsd)
-    private mergeSwaps(fromSE: NormalizedSwap[], fromTx: NormalizedSwap[]): NormalizedSwap[] {
-        const map = new Map<string, NormalizedSwap>();
-        for (const tx of fromTx) map.set(tx.signature, tx);
-        for (const se of fromSE) map.set(se.signature, se);
-        return Array.from(map.values());
-    }
-
     async getOverview(dto: AnalyticsQueryDto) {
         const { startDate, endDate } = parseDateRange(dto);
 
-        const [totalUsers, newUsersInRange, seSwaps, txSwaps] = await Promise.all([
+        const [totalUsers, newUsersInRange, swaps] = await Promise.all([
             this.analyticsRepo.getTotalUsers(),
             this.analyticsRepo.getNewUsersCount(startDate, endDate),
-            this.analyticsRepo.getSwapExecutionsNormalized(startDate, endDate),
             this.analyticsRepo.getTransactionsNormalized(startDate, endDate)
         ]);
 
-        const merged = this.mergeSwaps(seSwaps, txSwaps);
-        const totalSwaps = merged.length;
-        const totalVolumeUsd = merged.reduce((sum, s) => sum + (s.volumeUsd ?? 0), 0);
-        const activeWalletsInRange = new Set(merged.map((s) => s.walletAddress).filter(Boolean)).size;
+        const totalSwaps = swaps.length;
+        const totalVolumeUsd = swaps.reduce((sum, s) => sum + (s.volumeUsd ?? 0), 0);
+        const activeWalletsInRange = new Set(swaps.map((s) => s.walletAddress).filter(Boolean)).size;
 
         return { totalUsers, newUsersInRange, totalSwaps, totalVolumeUsd, activeWalletsInRange };
     }
@@ -55,15 +44,10 @@ export class AdminAnalyticsService {
     async getSwapsOverTime(dto: AnalyticsQueryDto) {
         const { startDate, endDate } = parseDateRange(dto);
 
-        const [seSwaps, txSwaps] = await Promise.all([
-            this.analyticsRepo.getSwapExecutionsNormalized(startDate, endDate),
-            this.analyticsRepo.getTransactionsNormalized(startDate, endDate)
-        ]);
-
-        const merged = this.mergeSwaps(seSwaps, txSwaps);
+        const swaps = await this.analyticsRepo.getTransactionsNormalized(startDate, endDate);
         const byDate = new Map<string, { count: number; volumeUsd: number }>();
 
-        for (const s of merged) {
+        for (const s of swaps) {
             const d = toDateStr(s.createdAt);
             const existing = byDate.get(d) ?? { count: 0, volumeUsd: 0 };
             byDate.set(d, { count: existing.count + 1, volumeUsd: existing.volumeUsd + (s.volumeUsd ?? 0) });
@@ -78,15 +62,10 @@ export class AdminAnalyticsService {
         const { startDate, endDate } = parseDateRange(dto);
         const limit = dto.limit ?? 10;
 
-        const [seSwaps, txSwaps] = await Promise.all([
-            this.analyticsRepo.getSwapExecutionsNormalized(startDate, endDate),
-            this.analyticsRepo.getTransactionsNormalized(startDate, endDate)
-        ]);
-
-        const merged = this.mergeSwaps(seSwaps, txSwaps);
+        const swaps = await this.analyticsRepo.getTransactionsNormalized(startDate, endDate);
         const byPair = new Map<string, { inputMint: string; outputMint: string; swapCount: number; volumeUsd: number }>();
 
-        for (const s of merged) {
+        for (const s of swaps) {
             if (!s.outputMint) continue;
             const key = `${s.inputMint}:${s.outputMint}`;
             const existing = byPair.get(key) ?? { inputMint: s.inputMint, outputMint: s.outputMint, swapCount: 0, volumeUsd: 0 };
@@ -119,15 +98,10 @@ export class AdminAnalyticsService {
         const { startDate, endDate } = parseDateRange(dto);
         const limit = dto.limit ?? 10;
 
-        const [seSwaps, txSwaps] = await Promise.all([
-            this.analyticsRepo.getSwapExecutionsNormalized(startDate, endDate),
-            this.analyticsRepo.getTransactionsNormalized(startDate, endDate)
-        ]);
-
-        const merged = this.mergeSwaps(seSwaps, txSwaps);
+        const swaps = await this.analyticsRepo.getTransactionsNormalized(startDate, endDate);
         const byToken = new Map<string, { mint: string; swapCount: number; volumeUsd: number }>();
 
-        for (const s of merged) {
+        for (const s of swaps) {
             const existing = byToken.get(s.inputMint) ?? { mint: s.inputMint, swapCount: 0, volumeUsd: 0 };
             byToken.set(s.inputMint, { ...existing, swapCount: existing.swapCount + 1, volumeUsd: existing.volumeUsd + (s.volumeUsd ?? 0) });
         }
@@ -143,64 +117,30 @@ export class AdminAnalyticsService {
         const startDate = dto.startDate ? new Date(dto.startDate) : undefined;
         const endDate = dto.endDate ? new Date(dto.endDate) : undefined;
 
-        // Get all matching signatures from both tables (lightweight)
-        const allSigs = await this.analyticsRepo.getSwapSigsPaged(startDate, endDate, dto.walletAddress, dto.userId, dto.tokenMint);
+        const allSigs = await this.analyticsRepo.getSwapSigsPaged(startDate, endDate, dto.walletAddress, dto.tokenMint);
 
-        // Deduplicate by signature (prefer swap_executions)
-        const sigMap = new Map<string, { createdAt: Date; source: "swap_executions" | "transactions" }>();
-        for (const row of allSigs) {
-            const existing = sigMap.get(row.signature);
-            if (!existing || row.source === "swap_executions") {
-                sigMap.set(row.signature, { createdAt: row.createdAt, source: row.source });
-            }
-        }
-
-        // Sort by createdAt DESC and paginate
-        const sorted = Array.from(sigMap.entries()).sort(([, a], [, b]) => b.createdAt.getTime() - a.createdAt.getTime());
+        const sorted = allSigs.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
         const total = sorted.length;
         const pageSlice = sorted.slice((page - 1) * limit, page * limit);
 
         if (!pageSlice.length) return { swaps: [], total, page, limit };
 
-        // Fetch full records for this page only
-        const seSigs = pageSlice.filter(([, v]) => v.source === "swap_executions").map(([sig]) => sig);
-        const txSigs = pageSlice.filter(([, v]) => v.source === "transactions").map(([sig]) => sig);
+        const records = await this.analyticsRepo.getTransactionsBySignatures(pageSlice.map((r) => r.signature));
 
-        const [seRecords, txRecords] = await Promise.all([
-            this.analyticsRepo.getSwapExecutionsBySignatures(seSigs),
-            this.analyticsRepo.getTransactionsBySignatures(txSigs)
-        ]);
-
-        // Normalize fetched records and re-sort to preserve createdAt DESC order
-        const seNorm: NormalizedSwap[] = seRecords.map((r) => ({
-            id: r.id,
-            signature: r.signature,
-            walletAddress: r.walletAddress,
-            userId: r.userId,
-            inputMint: r.inputMint,
-            outputMint: r.outputMint,
-            inAmount: r.inAmount,
-            outAmount: r.outAmount,
-            volumeUsd: r.volumeUsd != null ? parseFloat(String(r.volumeUsd)) : null,
-            createdAt: r.createdAt,
-            source: "swap_executions" as const
-        }));
-        const txNorm: NormalizedSwap[] = txRecords.map((r) => ({
-            id: r.id,
-            signature: r.signature,
-            walletAddress: r.signerAddress ?? "",
-            userId: null,
-            inputMint: r.tokenMint ?? "",
-            outputMint: r.tokenMintOut ?? "",
-            inAmount: String(r.amount),
-            outAmount: r.amountOut != null ? String(r.amountOut) : "0",
-            volumeUsd: null,
-            createdAt: r.createdAt,
-            source: "transactions" as const
-        }));
-
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
-        const swaps = [...seNorm, ...txNorm].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()).map(({ source: _source, ...rest }) => rest);
+        const swaps = records
+            .map((r) => ({
+                id: r.id,
+                signature: r.signature,
+                walletAddress: r.signerAddress ?? "",
+                userId: null,
+                inputMint: r.tokenMint ?? "",
+                outputMint: r.tokenMintOut ?? "",
+                inAmount: String(r.amount),
+                outAmount: r.amountOut != null ? String(r.amountOut) : "0",
+                volumeUsd: null,
+                createdAt: r.createdAt
+            }))
+            .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
         return { swaps, total, page, limit };
     }
 
@@ -208,15 +148,10 @@ export class AdminAnalyticsService {
         const { startDate, endDate } = parseDateRange(dto);
         const limit = dto.limit ?? 10;
 
-        const [seSwaps, txSwaps] = await Promise.all([
-            this.analyticsRepo.getSwapExecutionsNormalized(startDate, endDate),
-            this.analyticsRepo.getTransactionsNormalized(startDate, endDate)
-        ]);
-
-        const merged = this.mergeSwaps(seSwaps, txSwaps);
+        const swaps = await this.analyticsRepo.getTransactionsNormalized(startDate, endDate);
         const byPair = new Map<string, { inputMint: string; outputMint: string; swapCount: number; volumeUsd: number }>();
 
-        for (const s of merged) {
+        for (const s of swaps) {
             if (!s.outputMint) continue;
             const key = `${s.inputMint}:${s.outputMint}`;
             const existing = byPair.get(key) ?? { inputMint: s.inputMint, outputMint: s.outputMint, swapCount: 0, volumeUsd: 0 };
