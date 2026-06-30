@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 import { ConfigModule, ConfigService } from "@nestjs/config";
 import { JwtModule } from "@nestjs/jwt";
+import { ExecutorModule } from "../../infra/executor/executor.module";
 import { LoggerModule } from "../../common/logger/logger.module";
 import { OpenAIModule } from "../../infra/openai/openai.module";
 import { VectorStoreModule } from "../../infra/vectorstore/vectorstore.module";
@@ -36,7 +37,8 @@ import { RagDocument } from "./entities/rag-document.entity";
         LoggerModule,
         WebsocketModule,
         OpenAIModule,
-        VectorStoreModule
+        VectorStoreModule,
+        ExecutorModule
     ],
     providers: [ChatService, RagService, ChatGateway],
     controllers: [ChatController],
