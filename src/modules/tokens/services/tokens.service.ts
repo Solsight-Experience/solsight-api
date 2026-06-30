@@ -624,8 +624,11 @@ export class TokensService {
             take: limit
         });
 
+        const totalSupply = await this.statsAggregationService.getTotalSupply(cluster, address);
+
         const trades: TradeData[] = rows.map((tx) => {
             const isBuy = tx.tokenMintOut === address;
+            const priceUsd = Number(tx.metadata?.price_usd ?? 0);
             return {
                 tx_hash: tx.signature,
                 timestamp: tx.blockTime ? Math.floor(tx.blockTime.getTime() / 1000) : 0,
@@ -633,8 +636,8 @@ export class TokensService {
                 amount_token: isBuy ? Number(tx.amountOut ?? 0) : Number(tx.amount),
                 amount_sol: isBuy ? Number(tx.amount) : Number(tx.amountOut ?? 0),
                 price: Number(tx.metadata?.price_native ?? 0),
-                price_usd: Number(tx.metadata?.price_usd ?? 0),
-                market_cap: 0,
+                price_usd: priceUsd,
+                market_cap: priceUsd * totalSupply,
                 trader_address: tx.signerAddress ?? "",
                 tx_url: `https://solscan.io/tx/${tx.signature}`
             };
