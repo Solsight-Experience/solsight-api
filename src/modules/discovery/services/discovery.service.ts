@@ -10,11 +10,9 @@ import { GetTrendingDto, SortByTrending, TimeFrame } from "../dtos/get-trending.
 import { GetNewListingsDto } from "../dtos/get-new-listings.dto";
 import { GetGainersLosersDto, GainersLosersType, GainersLosersTimeFrame } from "../dtos/get-gainers-losers.dto";
 import { GetCategoryDto } from "../dtos/get-category.dto";
-import { JupiterService } from "../../../infra/jupiter/jupiter.service";
 import { CoinGeckoService } from "../../../infra/coingecko/coingecko.service";
 import { TokenOverview, CategoryOverview, PaginatedCategoriesResponse } from "../dtos/discovery.response.dto";
 import { RedisService } from "../../../redis";
-import { JupiterTokenV2 } from "../../../infra/jupiter/types";
 import type { Cluster } from "../../../common/cluster/cluster.types";
 
 const TRENDING_TTL = 60;
@@ -27,17 +25,12 @@ export class DiscoveryService implements OnModuleInit {
     private readonly logger = new Logger(DiscoveryService.name);
 
     constructor(
-        private readonly jupiterService: JupiterService,
         private readonly coingeckoService: CoinGeckoService,
         private readonly redisService: RedisService,
         @InjectRepository(Token)
         private readonly tokenRepository: Repository<Token>,
         @InjectRepository(Category)
-        private readonly categoryRepository: Repository<Category>,
-        @InjectRepository(OhlcCandle)
-        private readonly ohlcCandleRepository: Repository<OhlcCandle>,
-        @InjectRepository(Transaction)
-        private readonly transactionRepository: Repository<Transaction>
+        private readonly categoryRepository: Repository<Category>
     ) {}
     onModuleInit() {
         this.logger.log("DiscoveryService initialized. Checking if categories need sync...");
@@ -323,7 +316,6 @@ export class DiscoveryService implements OnModuleInit {
         const startWindow = Math.floor(offset / WINDOW_SIZE);
         const endWindow = Math.floor((offset + limit - 1) / WINDOW_SIZE);
 
-        let synced = false;
         const windowData: TokenOverview[][] = [];
 
         for (let w = startWindow; w <= endWindow; w++) {
@@ -331,12 +323,6 @@ export class DiscoveryService implements OnModuleInit {
             let window = await this.redisService.get<TokenOverview[]>(windowKey);
 
             if (!window) {
-                if (!synced) {
-                    if (cluster === "mainnet") {
-                        await this.syncTrendingTokensForCluster(cluster);
-                    }
-                    synced = true;
-                }
                 const tokens = await this.tokenRepository.find({
                     where: { network: cluster },
                     order: this.getTrendingOrderBy(sort_by, time_frame),
@@ -365,82 +351,6 @@ export class DiscoveryService implements OnModuleInit {
             total,
             updated_at: new Date().toISOString()
         };
-    }
-
-    @Cron(CronExpression.EVERY_5_MINUTES)
-    async syncTrendingTokens(): Promise<void> {
-        await this.syncTrendingTokensForCluster("mainnet");
-    }
-
-    private async syncTrendingTokensForCluster(cluster: Cluster): Promise<void> {
-        try {
-            const trendingData = await this.coingeckoService.getTrendingCoins(cluster);
-            if (!trendingData || !trendingData.coins) {
-                this.logger.warn("No trending data from CoinGecko");
-                return;
-            }
-
-            this.logger.log(`Fetched ${trendingData.coins.length} trending coins from CoinGecko`);
-
-            let solanaTokenMap = new Map<string, JupiterTokenV2>();
-            try {
-                const jupiterTokens = await this.jupiterService.getTokenList(cluster);
-                if (jupiterTokens.length > 0) {
-                    solanaTokenMap = new Map(jupiterTokens.map((t) => [t.symbol.toLowerCase(), t]));
-                    this.logger.log(`Loaded ${jupiterTokens.length} tokens from Jupiter`);
-                }
-            } catch {
-                this.logger.warn("Jupiter API unavailable, proceeding without Solana matching");
-            }
-
-            const coinIds = trendingData.coins.slice(0, 20).map((c) => c.item.id);
-            const marketData = await this.coingeckoService.getCoinsMarketData(cluster, coinIds);
-            const marketDataMap = new Map(marketData.map((m) => [m.id, m]));
-
-            const tokensToUpsert: object[] = [];
-            for (const item of trendingData.coins.slice(0, 20)) {
-                const symbol = item.item.symbol.toUpperCase();
-                const market = marketDataMap.get(item.item.id);
-                if (!market) continue;
-
-                const jupiterToken = solanaTokenMap.get(item.item.symbol.toLowerCase());
-                if (!jupiterToken) {
-                    this.logger.debug(`Skipping ${symbol} - not found on Solana`);
-                    continue;
-                }
-
-                tokensToUpsert.push({
-                    symbol,
-                    name: item.item.name,
-                    address: jupiterToken.id,
-                    network: cluster,
-                    price: market.current_price || 0,
-                    priceChange1h: market.price_change_percentage_1h_in_currency || 0,
-                    priceChange24h: market.price_change_percentage_24h || 0,
-                    priceChange7d: market.price_change_percentage_7d_in_currency || 0,
-                    marketCap: market.market_cap || 0,
-                    marketCapChange24h: market.market_cap_change_percentage_24h || 0,
-                    volume24h: market.total_volume || 0,
-                    logoUri: item.item.large || market.image,
-                    coingeckoId: item.item.id,
-                    circulatingSupply: market.circulating_supply || 0,
-                    totalSupply: market.total_supply || 0,
-                    maxSupply: market.max_supply || 0,
-                    fdv: market.fully_diluted_valuation || 0
-                });
-            }
-
-            if (tokensToUpsert.length > 0) {
-                await this.tokenRepository.upsert(tokensToUpsert, {
-                    conflictPaths: ["address", "network"],
-                    skipUpdateIfNoValuesChanged: true
-                });
-            }
-
-            this.logger.log(`Synced ${tokensToUpsert.length} trending tokens from CoinGecko`);
-        } catch (error) {
-            this.logger.error("Failed to sync trending tokens", error);
-        }
     }
 
     async getNewListings(cluster: Cluster, dto: GetNewListingsDto) {
@@ -488,75 +398,10 @@ export class DiscoveryService implements OnModuleInit {
 
         const [tokens, total] = await query.getManyAndCount();
 
-        const transformedTokens = tokens.map((token) => this.transformToTokenOverview(token, cluster));
-
         return {
-            tokens: transformedTokens,
+            tokens: tokens.map((token) => this.transformToTokenOverview(token, cluster)),
             total
         };
-    }
-
-    @Cron(CronExpression.EVERY_10_MINUTES)
-    async syncNewListings(): Promise<void> {
-        const cluster: Cluster = "mainnet";
-        try {
-            this.logger.log("Starting new listings sync...");
-
-            const recentCoins = await this.coingeckoService.getRecentlyAddedCoins(cluster, 50);
-            if (!recentCoins || recentCoins.length === 0) {
-                this.logger.warn("No recent coins found from CoinGecko");
-                return;
-            }
-
-            let solanaTokenMap = new Map<string, JupiterTokenV2>();
-            try {
-                const jupiterTokens = await this.jupiterService.getTokenList(cluster);
-                if (jupiterTokens.length > 0) {
-                    solanaTokenMap = new Map(jupiterTokens.map((t) => [t.symbol.toLowerCase(), t]));
-                }
-            } catch {
-                this.logger.warn("Jupiter API unavailable for new listings sync");
-                return;
-            }
-
-            const tokensToUpsert: object[] = [];
-            for (const coin of recentCoins) {
-                const jupiterToken = solanaTokenMap.get(coin.symbol.toLowerCase());
-                if (!jupiterToken) continue;
-
-                tokensToUpsert.push({
-                    address: jupiterToken.id,
-                    network: cluster,
-                    name: coin.name,
-                    symbol: coin.symbol.toUpperCase(),
-                    logoUri: coin.image,
-                    price: coin.current_price,
-                    priceChange1h: coin.price_change_percentage_1h_in_currency || 0,
-                    priceChange24h: coin.price_change_percentage_24h || 0,
-                    priceChange7d: coin.price_change_percentage_7d_in_currency || 0,
-                    marketCap: coin.market_cap,
-                    marketCapChange24h: coin.market_cap_change_percentage_24h || 0,
-                    volume24h: coin.total_volume,
-                    circulatingSupply: coin.circulating_supply,
-                    totalSupply: coin.total_supply,
-                    maxSupply: coin.max_supply,
-                    coingeckoId: coin.id,
-                    ageSeconds: 3600,
-                    liquidity: coin.total_volume || 0
-                });
-            }
-
-            if (tokensToUpsert.length > 0) {
-                await this.tokenRepository.upsert(tokensToUpsert, {
-                    conflictPaths: ["address", "network"],
-                    skipUpdateIfNoValuesChanged: true
-                });
-            }
-
-            this.logger.log(`Synced ${tokensToUpsert.length} Solana new listings from CoinGecko`);
-        } catch (error) {
-            this.logger.error("Failed to sync new listings", error);
-        }
     }
 
     async getCategories(_cluster: Cluster, dto: GetCategoryDto): Promise<PaginatedCategoriesResponse> {
@@ -703,7 +548,7 @@ export class DiscoveryService implements OnModuleInit {
         }
     }
 
-    async getCategoryDetail(cluster: Cluster, categorySlug: string, _dto: GetCategoryDto) {
+    async getCategoryDetail(_cluster: Cluster, categorySlug: string, _dto: GetCategoryDto) {
         const cacheKey = RedisService.KEYS.DISCOVERY_CATEGORY_DETAIL(categorySlug);
 
         const cached = await this.redisService.get(cacheKey);
@@ -717,75 +562,9 @@ export class DiscoveryService implements OnModuleInit {
             throw new NotFoundException("Category not found");
         }
 
-        if (cluster === "mainnet") {
-            await this.syncCategoryTokens(cluster, categorySlug, category.id);
-        }
-
         const transformedCategory = this.transformToCategory(category);
         await this.redisService.set(cacheKey, transformedCategory, CATEGORY_DETAIL_TTL);
         return transformedCategory;
-    }
-
-    private async syncCategoryTokens(cluster: Cluster, categorySlug: string, categoryId: string): Promise<void> {
-        try {
-            this.logger.log(`Starting token sync for category: ${categorySlug}...`);
-
-            const coins = await this.coingeckoService.getCoinsByCategory(cluster, categorySlug);
-
-            if (!coins || coins.length === 0) {
-                this.logger.warn(`No coins found for category ${categorySlug}`);
-                return;
-            }
-
-            let solanaTokenMap = new Map<string, JupiterTokenV2>();
-            try {
-                const jupiterTokens = await this.jupiterService.getTokenList(cluster);
-                if (jupiterTokens.length > 0) {
-                    solanaTokenMap = new Map(jupiterTokens.map((t) => [t.symbol.toLowerCase(), t]));
-                }
-            } catch {
-                this.logger.warn("Jupiter API unavailable for category sync");
-            }
-
-            let syncedCount = 0;
-            for (const coin of coins) {
-                const jupiterToken = solanaTokenMap.get(coin.symbol.toLowerCase());
-
-                if (!jupiterToken) {
-                    continue;
-                }
-
-                const tokenData = {
-                    address: jupiterToken.id,
-                    network: cluster,
-                    name: coin.name,
-                    symbol: coin.symbol.toUpperCase(),
-                    logoUri: coin.image,
-                    price: coin.current_price,
-                    priceChange1h: coin.price_change_percentage_1h_in_currency || 0,
-                    priceChange24h: coin.price_change_percentage_24h || 0,
-                    priceChange7d: coin.price_change_percentage_7d_in_currency || 0,
-                    marketCap: coin.market_cap,
-                    marketCapChange24h: coin.market_cap_change_percentage_24h || 0,
-                    volume24h: coin.total_volume,
-                    circulatingSupply: coin.circulating_supply,
-                    totalSupply: coin.total_supply,
-                    maxSupply: coin.max_supply,
-                    categoryId: categoryId,
-                    coingeckoId: coin.id
-                };
-
-                await this.tokenRepository.upsert(tokenData, {
-                    conflictPaths: ["address", "network"],
-                    skipUpdateIfNoValuesChanged: true
-                });
-                syncedCount++;
-            }
-
-            this.logger.log(`Synced ${syncedCount} Solana tokens for category ${categorySlug}`);
-        } catch (error) {
-            this.logger.error(`Failed to sync tokens for category ${categorySlug}`, error);
-        }
     }
 
     async getGainersLosers(cluster: Cluster, dto: GetGainersLosersDto) {

@@ -29,6 +29,10 @@ import { GeminiModule } from "../../infra/gemini/gemini.module";
 import { TokenPriceService } from "./services/token-price.service";
 import { TradeFanoutHandler } from "./services/socket/trade-fanout.handler";
 import { HolderResponseHandler } from "./services/socket/holder-response.handler";
+import { TokenSyncEnqueuer } from "./services/sync/token-sync.enqueuer";
+import { TokenSyncService } from "./services/sync/token-sync.service";
+import { CoingeckoEnrichmentService } from "./services/aggregation/coingecko-enrichment.service";
+import { StatsPersistorService } from "./services/aggregation/stats-persistor.service";
 
 @Module({
     imports: [
@@ -57,9 +61,13 @@ import { HolderResponseHandler } from "./services/socket/holder-response.handler
         TokenSeederService,
         TokenPriceService,
         TradeFanoutHandler,
-        HolderResponseHandler
+        HolderResponseHandler,
+        TokenSyncEnqueuer,
+        TokenSyncService,
+        CoingeckoEnrichmentService,
+        StatsPersistorService
     ],
     controllers: [TokensController],
-    exports: [TokensService, HolderTrackingService, TokenPriceService]
+    exports: [TokensService, HolderTrackingService, TokenPriceService, TokenSyncEnqueuer]
 })
 export class TokensModule {}

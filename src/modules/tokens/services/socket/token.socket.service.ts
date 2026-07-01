@@ -11,6 +11,7 @@ import { TokenSocketData } from "../../types/token-socket.types";
 import type { Cluster } from "../../../../common/cluster/cluster.types";
 import { RoomFactory } from "./room/room.factory";
 import { logError } from "src/common/errors/error-helper";
+import { TokenSyncEnqueuer } from "../sync/token-sync.enqueuer";
 
 @Injectable()
 export class TokenSocketService implements OnModuleInit {
@@ -24,7 +25,8 @@ export class TokenSocketService implements OnModuleInit {
         private readonly statsAggregation: StatsAggregationService,
         private readonly ohlcAggregation: OhlcAggregationService,
         private readonly traderAggregation: TraderAggregationService,
-        private readonly holderAggregation: HolderAggregationService
+        private readonly holderAggregation: HolderAggregationService,
+        private readonly tokenSyncEnqueuer: TokenSyncEnqueuer
     ) {}
 
     onModuleInit(): void {
@@ -39,6 +41,10 @@ export class TokenSocketService implements OnModuleInit {
     }
 
     async processSwapEvent(swap: SwapEvent): Promise<void> {
+        // Enqueue both token mints for sync if not yet known (fire-and-forget, idempotent)
+        void this.tokenSyncEnqueuer.enqueueIfUnknown(swap.network, swap.token_in.mint).catch(() => {});
+        void this.tokenSyncEnqueuer.enqueueIfUnknown(swap.network, swap.token_out.mint).catch(() => {});
+
         const hasPriceUsd = swap.price_usd != null && swap.price_usd > 0;
 
         // trader/holder aggregation tracks token quantities and cost basis —

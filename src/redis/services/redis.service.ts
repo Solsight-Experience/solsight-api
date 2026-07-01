@@ -37,6 +37,9 @@ export class RedisService implements OnModuleDestroy {
         VOLUME_24H: (network: string, mint: string) => `volume:${network}:${mint}:24h`,
         TXNS_24H: (network: string, mint: string) => `txns:${network}:${mint}:24h`,
         TRADES_24H: (network: string, mint: string) => `trades:${network}:${mint}`,
+        PENDING_TOKEN_SYNC: (network: string) => `token:pending_sync:${network}`,
+        KNOWN_TOKEN: (network: string, mint: string) => `token:known:${network}:${mint}`,
+        ACTIVE_TOKENS: (network: string) => `tokens:active:${network}`,
         PENDING_REGISTRATION_TOKEN: (token: string) => `auth:pending_registration:${token}`,
         PENDING_REGISTRATION_EMAIL: (email: string) => `auth:pending_registration:email:${email.toLowerCase()}`
     });
@@ -53,6 +56,7 @@ export class RedisService implements OnModuleDestroy {
         VOLUME_24H: 25 * 60 * 60,
         TXNS_24H: 25 * 60 * 60,
         TRADES_24H: 25 * 60 * 60,
+        KNOWN_TOKEN: 24 * 60 * 60,
         PENDING_REGISTRATION_TOKEN: 24 * 60 * 60,
         PENDING_REGISTRATION_EMAIL: 24 * 60 * 60,
         OHLC_BUCKET: (interval: string) => OHLC_INTERVAL_TTLS[interval as keyof typeof OHLC_INTERVAL_TTLS] ?? 60 * 60,
@@ -193,6 +197,69 @@ export class RedisService implements OnModuleDestroy {
             }
             logError(this.logger, `Redis hgetall error for key "${key}"`, error);
             return null;
+        }
+    }
+
+    async sadd(key: RedisKey, ...members: string[]): Promise<number> {
+        if (!this.redis || members.length === 0) return 0;
+        try {
+            return await this.redis.sadd(key, ...members);
+        } catch (error) {
+            logError(this.logger, `Redis sadd error for key "${key}"`, error);
+            return 0;
+        }
+    }
+
+    async spop(key: RedisKey, count: number): Promise<string[]> {
+        if (!this.redis || count <= 0) return [];
+        try {
+            const result = await this.redis.spop(key, count);
+            if (!result) return [];
+            return Array.isArray(result) ? result : [result];
+        } catch (error) {
+            logError(this.logger, `Redis spop error for key "${key}"`, error);
+            return [];
+        }
+    }
+
+    async scard(key: RedisKey): Promise<number> {
+        if (!this.redis) return 0;
+        try {
+            return await this.redis.scard(key);
+        } catch (error) {
+            logError(this.logger, `Redis scard error for key "${key}"`, error);
+            return 0;
+        }
+    }
+
+    async sismember(key: RedisKey, member: string): Promise<boolean> {
+        if (!this.redis) return false;
+        try {
+            const result = await this.redis.sismember(key, member);
+            return result === 1;
+        } catch (error) {
+            logError(this.logger, `Redis sismember error for key "${key}"`, error);
+            return false;
+        }
+    }
+
+    async smembers(key: RedisKey): Promise<string[]> {
+        if (!this.redis) return [];
+        try {
+            return await this.redis.smembers(key);
+        } catch (error) {
+            logError(this.logger, `Redis smembers error for key "${key}"`, error);
+            return [];
+        }
+    }
+
+    async srem(key: RedisKey, ...members: string[]): Promise<number> {
+        if (!this.redis || members.length === 0) return 0;
+        try {
+            return await this.redis.srem(key, ...members);
+        } catch (error) {
+            logError(this.logger, `Redis srem error for key "${key}"`, error);
+            return 0;
         }
     }
 

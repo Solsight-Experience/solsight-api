@@ -6,7 +6,6 @@ import { DiscoveryService } from "../../discovery/services/discovery.service";
 import { PortfolioService } from "../../portfolio/services/portfolio.service";
 import { TokensService } from "../../tokens/services/tokens.service";
 import { ChatResponsePayload, SendMessagePayload, PageContext } from "../types/chat.types";
-import { COMMON_SYMBOLS } from "../../../common/constants/token.constants";
 import { RagService } from "./rag.service";
 import { EXECUTOR_SERVICE } from "../../../infra/executor/constants/executor.token";
 import type { ExecutorService } from "../../../infra/executor/interfaces/executor-service.interface";
@@ -305,6 +304,7 @@ import { Repository } from "typeorm";
 import { ChatSession as ChatSessionEntity } from "../entities/chat-session.entity";
 import { ChatMessage as ChatMessageEntity } from "../entities/chat-message.entity";
 import { Wallet } from "../../wallets/entities/wallet.entity";
+import { COMMON_SYMBOLS } from "src/modules/tokens/constants/token.constant";
 
 @Injectable()
 export class ChatService {

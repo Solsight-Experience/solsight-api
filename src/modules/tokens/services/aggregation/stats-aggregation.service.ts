@@ -28,6 +28,9 @@ export class StatsAggregationService {
 
         this.logger.log(`[SET] out="${tokenOutMint}" price=${prices.priceUsdTokenOut} | in="${tokenInMint}" price=${prices.priceUsdTokenIn}`);
 
+        // Track both mints as active for the stats-persist cron
+        void this.redisService.sadd(RedisService.KEYS.ACTIVE_TOKENS(network), tokenOutMint, tokenInMint).catch(() => {});
+
         // Store price for both tokens
         await this.storePriceData(tokenOutMint, network, prices.priceUsdTokenOut, swap.price_native, swap);
         await this.storePriceData(tokenInMint, network, prices.priceUsdTokenIn, swap.price_native, swap);

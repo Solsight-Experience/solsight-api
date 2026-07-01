@@ -1,6 +1,4 @@
 import { BadRequestException, HttpException, HttpStatus, Inject, Injectable, InternalServerErrorException, Logger } from "@nestjs/common";
-import axios from "axios";
-import { CoinGeckoService } from "../../../infra/coingecko/coingecko.service";
 import { EXECUTOR_SERVICE } from "../../../infra/executor/constants/executor.token";
 import type { ExecutorService, QuoteResponse, SwapResponse } from "../../../infra/executor/interfaces/executor-service.interface";
 import { JitoService } from "../../../infra/jito/jito.service";
@@ -13,7 +11,11 @@ import type { GetSwapInfoDto, SwapInfoResponse } from "../dtos/get-swap-info.dto
 import type { GetSwapTransactionDto } from "../dtos/get-swap-transaction.dto";
 import { CachedFeeFields, CachedGaslessFields } from "../types/swap-cache.types";
 import type { Cluster } from "../../../common/cluster/cluster.types";
-import { getErrorMessage, logError } from "../../../common/errors/error-helper";
+import { TokenPriceService } from "../../tokens/services/token-price.service";
+import { TokensService } from "../../tokens/services/tokens.service";
+import { COMMON_TOKEN_MINT } from "src/modules/tokens/constants/token.constant";
+import { getErrorMessage, logError } from "src/common/errors/error-helper";
+import axios from "axios";
 
 const FEE_FALLBACK_PRIORITY_LAMPORTS = 100_000;
 const TIP_FALLBACK_LAMPORTS = 50_000;
@@ -32,7 +34,8 @@ export class SwapService {
         private readonly koraService: KoraService,
         private readonly jitoService: JitoService,
         private readonly redisService: RedisService,
-        private readonly coinGeckoService: CoinGeckoService
+        private readonly tokenPriceService: TokenPriceService,
+        private readonly tokensService: TokensService
     ) {}
 
     async getQuote(cluster: Cluster, dto: GetQuoteDto): Promise<QuoteResponse> {
@@ -126,8 +129,8 @@ export class SwapService {
     }
 
     async getSolPrice(cluster: Cluster): Promise<{ usd: number }> {
-        const prices = await this.coinGeckoService.getSimplePrice(cluster, ["solana"]);
-        return { usd: (prices as Record<string, { usd?: number }>)["solana"]?.usd ?? 0 };
+        const price = await this.tokenPriceService.getPrice(cluster, COMMON_TOKEN_MINT.SOL);
+        return { usd: price.priceUsd };
     }
 
     private async submitSignedTransaction(cluster: Cluster, signedTransactionBase64: string): Promise<{ signature: string }> {
