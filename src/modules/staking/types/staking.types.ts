@@ -43,7 +43,7 @@ export interface StakeHistoryRecord {
 
 export interface StakingHistoryResponse {
     records: StakeHistoryRecord[];
-    total: number;
+    nextCursor: string | null;
 }
 
 export interface BuiltStakingTransaction {
