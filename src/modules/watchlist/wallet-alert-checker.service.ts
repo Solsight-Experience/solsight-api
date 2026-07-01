@@ -5,12 +5,13 @@ import { WalletAlert, WalletAlertType, WalletAlertCondition } from "./entities/w
 import { NotificationsService } from "../notifications/services/notifications.service";
 import { NotificationEventType } from "../notifications/entities/notification.entity";
 import { HeliusResolver } from "../../infra/solana/helius.resolver";
-import { ZaloSubscriptionService } from "../zalo/services/zalo-subscription.service";
+import { BotService } from "../bot/services/bot.service";
 import { EmailSubscriptionService } from "../email/services/email-subscription.service";
 import { TokensService } from "../tokens/services/tokens.service";
 import { COMMON_TOKEN_MINT } from "../tokens/constants/token.constant";
 import { EnhancedTransaction } from "../../infra/solana/constants/types";
 import { NotificationMetadata, SwapMints, WalletAlertWithWallet } from "./types/wallet-alert-checker.types";
+import { escapeMarkdownV2, markdownV2Link } from "../../infra/telegram/telegram-markdown.util";
 
 @Injectable()
 export class WalletAlertCheckerService implements OnModuleInit {
@@ -23,7 +24,7 @@ export class WalletAlertCheckerService implements OnModuleInit {
         private readonly notificationsService: NotificationsService,
         private readonly tokenService: TokensService,
         private readonly heliusResolver: HeliusResolver,
-        private readonly zaloSubscriptionService: ZaloSubscriptionService,
+        private readonly botService: BotService,
         private readonly emailSubscriptionService: EmailSubscriptionService
     ) {}
 
@@ -32,14 +33,17 @@ export class WalletAlertCheckerService implements OnModuleInit {
         const alerts = await this.walletAlertService.getAllActiveAlerts();
         if (!alerts.length) return;
 
-        const alertsByWallet = new Map<string, WalletAlert[]>();
+        const alertsByKey = new Map<string, WalletAlert[]>();
         for (const alert of alerts) {
-            const list = alertsByWallet.get(alert.walletAddress) ?? [];
+            const network = (alert as WalletAlertWithWallet).watchedWallet?.network ?? "mainnet";
+            const key = `${alert.walletAddress}::${network}`;
+            const list = alertsByKey.get(key) ?? [];
             list.push(alert);
-            alertsByWallet.set(alert.walletAddress, list);
+            alertsByKey.set(key, list);
         }
 
-        for (const [walletAddress, walletAlerts] of alertsByWallet) {
+        for (const [, walletAlerts] of alertsByKey) {
+            const walletAddress = walletAlerts[0].walletAddress;
             try {
                 await this.processWallet(walletAddress, walletAlerts);
             } catch (err) {
@@ -49,27 +53,35 @@ export class WalletAlertCheckerService implements OnModuleInit {
     }
 
     private async processWallet(walletAddress: string, alerts: WalletAlert[]): Promise<void> {
-        const txs = await this.fetchRecentTxs(walletAddress);
-        if (!txs.length) return;
+        const cluster = (alerts[0] as WalletAlertWithWallet).watchedWallet?.network ?? "mainnet";
+        const txs = await this.fetchRecentTxs(walletAddress, cluster);
+        if (!txs.length) {
+            this.logger.debug(`No transactions found for ${walletAddress} (${cluster})`);
+            return;
+        }
 
         const latestSig: string = txs[0].signature;
+        this.logger.debug(`Wallet ${walletAddress} (${cluster}): ${txs.length} txs, latest=${latestSig.slice(0, 8)}...`);
 
         for (const alert of alerts) {
             // First-time initialization: set the cursor without triggering notifications
             if (!alert.lastCheckedSignature) {
+                this.logger.log(`Alert ${alert.id} initialized cursor to ${latestSig.slice(0, 8)}... (${cluster})`);
                 await this.walletAlertService.updateLastChecked(alert.id, latestSig);
                 continue;
             }
 
             const newTxs = this.getNewTransactions(txs, alert.lastCheckedSignature);
-            this.logger.log(`Alert ${alert.id} (${alert.alertType}): ${newTxs.length} new tx(s)`);
+            this.logger.log(
+                `Alert ${alert.id} (${alert.alertType}) [${walletAddress.slice(0, 6)}... ${cluster}]: ${newTxs.length} new tx(s), cursor=${alert.lastCheckedSignature.slice(0, 8)}...`
+            );
             if (!newTxs.length) continue;
 
             for (const tx of newTxs) {
                 this.logger.debug(`Alert ${alert.id} evaluating tx ${tx.signature} type=${tx.type} hasSwapEvent=${!!tx.events?.swap} source=${tx.source}`);
                 if (this.evaluateAlert(alert, tx, walletAddress)) {
                     this.logger.log(`Alert ${alert.id} triggered by tx ${tx.signature} (type: ${tx.type})`);
-                    await this.sendNotification(alert, tx).catch((err) => this.logger.error(`Failed to send notification for alert ${alert.id}`, err));
+                    await this.sendNotification(alert, tx, cluster).catch((err) => this.logger.error(`Failed to send notification for alert ${alert.id}`, err));
                 }
             }
 
@@ -83,10 +95,11 @@ export class WalletAlertCheckerService implements OnModuleInit {
         return idx === -1 ? txs : txs.slice(0, idx);
     }
 
-    private async fetchRecentTxs(walletAddress: string): Promise<EnhancedTransaction[]> {
+    private async fetchRecentTxs(walletAddress: string, cluster: "mainnet" | "devnet"): Promise<EnhancedTransaction[]> {
         try {
-            return await this.heliusResolver.forCluster("mainnet").getEnhancedTransactionsByAddress(walletAddress, { limit: 50 });
-        } catch {
+            return await this.heliusResolver.forCluster(cluster).getEnhancedTransactionsByAddress(walletAddress, { limit: 50 });
+        } catch (err) {
+            this.logger.warn(`fetchRecentTxs failed for ${walletAddress} (${cluster}): ${err instanceof Error ? err.message : String(err)}`);
             return [];
         }
     }
@@ -111,15 +124,20 @@ export class WalletAlertCheckerService implements OnModuleInit {
                     "INVARIANT"
                 ];
                 if (tx.type === "SWAP" || !!tx.events?.swap || DEX_SOURCES.includes(tx.source)) return true;
-                // Structural detection: SOL spent + token received (buy), or token sent + token received (swap)
+                // Structural detection via tokenTransfers
                 const nativeSolOut = (tx.nativeTransfers ?? []).some((t) => t.fromUserAccount === walletAddress && t.amount > 0);
                 const tokenIn = (tx.tokenTransfers ?? []).some((t) => t.toUserAccount === walletAddress);
                 const tokenOut = (tx.tokenTransfers ?? []).some((t) => t.fromUserAccount === walletAddress);
-                if ((nativeSolOut && tokenIn) || (tokenOut && tokenIn)) return true;
-                // Last resort: Jupiter multi-hop routes split into separate txs (each looks like TRANSFER).
-                // Treat any tx where the wallet received a token as a swap trigger, since ANY_SWAP
-                // alerts care about token movements regardless of Helius classification.
-                return tokenIn;
+                if ((nativeSolOut && tokenIn) || (tokenOut && tokenIn) || tokenIn) return true;
+                // Devnet fallback: Helius on devnet returns empty tokenTransfers but populates
+                // accountData.tokenBalanceChanges — detect swap if wallet received a token plus
+                // either sent another token or spent SOL.
+                const walletAccData = (tx.accountData ?? []).find((d) => d.account === walletAddress);
+                const changes = walletAccData?.tokenBalanceChanges ?? [];
+                const hasTokenIn = changes.some((c) => parseFloat(c.rawTokenAmount?.tokenAmount ?? "0") > 0);
+                const hasTokenOut = changes.some((c) => parseFloat(c.rawTokenAmount?.tokenAmount ?? "0") < 0);
+                const solSpent = (walletAccData?.nativeBalanceChange ?? 0) < 0;
+                return hasTokenIn && (hasTokenOut || solSpent);
             }
 
             case WalletAlertType.TOKEN_BALANCE_CHANGE:
@@ -136,16 +154,26 @@ export class WalletAlertCheckerService implements OnModuleInit {
     private checkTokenChange(condition: WalletAlertCondition | undefined, tx: EnhancedTransaction, walletAddress: string): boolean {
         if (!condition?.tokenMint) return false;
 
-        const transfers = tx.tokenTransfers ?? [];
-        const relevant = transfers.filter((t) => t.mint === condition.tokenMint);
-        if (!relevant.length) return false;
-
         let netChange = 0;
-        for (const t of relevant) {
+
+        const transfers = (tx.tokenTransfers ?? []).filter((t) => t.mint === condition.tokenMint);
+        for (const t of transfers) {
             const amount: number = t.tokenAmount ?? 0;
             if (t.toUserAccount === walletAddress) netChange += amount;
             else if (t.fromUserAccount === walletAddress) netChange -= amount;
         }
+
+        // Devnet fallback: use accountData.tokenBalanceChanges when tokenTransfers is missing
+        if (!transfers.length) {
+            const walletAccData = (tx.accountData ?? []).find((d) => d.account === walletAddress);
+            for (const c of walletAccData?.tokenBalanceChanges ?? []) {
+                if (c.mint === condition.tokenMint) {
+                    netChange += parseFloat(c.rawTokenAmount?.tokenAmount ?? "0");
+                }
+            }
+        }
+
+        if (netChange === 0) return false;
 
         const threshold = condition.threshold ?? 0;
         if (Math.abs(netChange) < threshold) return false;
@@ -216,8 +244,45 @@ export class WalletAlertCheckerService implements OnModuleInit {
                     amountOut = solReceived / 1e9;
                 }
             }
+            // Devnet fallback: use accountData.tokenBalanceChanges when tokenTransfers is empty
+            if (!mintIn && !mintOut) {
+                const walletAccData = (tx.accountData ?? []).find((d) => d.account === walletAddress);
+                for (const c of walletAccData?.tokenBalanceChanges ?? []) {
+                    const raw = parseFloat(c.rawTokenAmount?.tokenAmount ?? "0");
+                    if (raw < 0 && !mintIn) {
+                        mintIn = c.mint;
+                        amountIn = Math.abs(raw);
+                    } else if (raw > 0 && !mintOut) {
+                        mintOut = c.mint;
+                        amountOut = raw;
+                    }
+                }
+                if (!mintIn && (walletAccData?.nativeBalanceChange ?? 0) < 0) {
+                    mintIn = COMMON_TOKEN_MINT.SOL;
+                    amountIn = Math.abs(walletAccData!.nativeBalanceChange) / 1e9;
+                }
+            }
         }
         return { mintIn, mintOut, amountIn, amountOut, dex };
+    }
+
+    // alertText lines follow a fixed "WalletTracker:" / "From: label (address)" / "- Key: value" shape;
+    // reformat that into Telegram MarkdownV2 instead of duplicating field-building per alert type.
+    private toTelegramMarkdown(alertText: string, emoji: string): string {
+        const [, fromLine, ...rest] = alertText.split("\n");
+
+        const fromMatch = /^From: (.+) \((.+)\)$/.exec(fromLine ?? "");
+        const walletLine = fromMatch ? `👛 *${escapeMarkdownV2(fromMatch[1])}* \\(\`${escapeMarkdownV2(fromMatch[2])}\`\\)` : escapeMarkdownV2(fromLine ?? "");
+
+        const bodyLines = rest.map((line) => {
+            const fieldMatch = /^- (.+?): (.+)$/.exec(line);
+            if (!fieldMatch) return escapeMarkdownV2(line);
+            const [, label, value] = fieldMatch;
+            if (label === "Tx") return `🔗 ${markdownV2Link("View transaction", value)}`;
+            return `▪️ *${escapeMarkdownV2(label)}:* ${escapeMarkdownV2(value)}`;
+        });
+
+        return [`${emoji} *WalletTracker Alert*`, walletLine, ...bodyLines].join("\n");
     }
 
     private fmt(n: number | undefined): string {
@@ -228,26 +293,27 @@ export class WalletAlertCheckerService implements OnModuleInit {
         return n.toFixed(decimals);
     }
 
-    private async sendNotification(alert: WalletAlert, tx: EnhancedTransaction): Promise<void> {
+    private async sendNotification(alert: WalletAlert, tx: EnhancedTransaction, cluster: "mainnet" | "devnet"): Promise<void> {
         const short = `${alert.walletAddress.slice(0, 6)}...${alert.walletAddress.slice(-4)}`;
         const walletLabel = (alert as WalletAlertWithWallet).watchedWallet?.label ?? short;
-        const txUrl = `https://solscan.io/tx/${tx.signature}`;
+        const txUrl = cluster === "devnet" ? `https://solscan.io/tx/${tx.signature}?cluster=devnet` : `https://solscan.io/tx/${tx.signature}`;
         const walletTrackerUrl = `/wallet-tracker`;
         let type: NotificationEventType;
         let title: string;
         let message: string;
-        let zaloText: string;
+        let alertText: string;
+        let emoji: string;
         let extraMeta: NotificationMetadata = {};
 
-        const zaloHeader = `WalletTracker:\nFrom: ${walletLabel} (${alert.walletAddress})`;
+        const alertHeader = `WalletTracker:\nFrom: ${walletLabel} (${alert.walletAddress})`;
 
         switch (alert.alertType) {
             case WalletAlertType.ANY_SWAP: {
                 const { mintIn, mintOut, amountIn, amountOut, dex } = this.extractSwapMints(tx, alert.walletAddress);
 
                 const [metaIn, metaOut] = await Promise.all([
-                    mintIn ? this.tokenService.findOne("mainnet", mintIn) : Promise.resolve(undefined),
-                    mintOut ? this.tokenService.findOne("mainnet", mintOut) : Promise.resolve(undefined)
+                    mintIn ? this.tokenService.findOne(cluster, mintIn) : Promise.resolve(undefined),
+                    mintOut ? this.tokenService.findOne(cluster, mintOut) : Promise.resolve(undefined)
                 ]);
 
                 const symbolIn = metaIn?.symbol;
@@ -258,6 +324,7 @@ export class WalletAlertCheckerService implements OnModuleInit {
                 const logoOut = metaOut?.logo_uri;
 
                 type = NotificationEventType.SWAP_EXECUTED;
+                emoji = "🔄";
 
                 const pair = symbolIn && symbolOut ? `${symbolIn} → ${symbolOut}` : "Swap";
                 title = pair;
@@ -271,8 +338,8 @@ export class WalletAlertCheckerService implements OnModuleInit {
                     .filter(Boolean)
                     .join(" ");
 
-                zaloText = [
-                    zaloHeader,
+                alertText = [
+                    alertHeader,
                     `- Swap: ${symbolIn ?? "?"} → ${symbolOut ?? "?"}`,
                     amountIn != null && symbolIn ? `- Amount in: ${this.fmt(amountIn)} ${symbolIn}` : null,
                     amountOut != null && symbolOut ? `- Amount out: ${this.fmt(amountOut)} ${symbolOut}` : null,
@@ -301,15 +368,16 @@ export class WalletAlertCheckerService implements OnModuleInit {
             }
             case WalletAlertType.TOKEN_BALANCE_CHANGE: {
                 const mint = alert.condition?.tokenMint;
-                const meta = mint ? await this.tokenService.findOne("mainnet", mint) : undefined;
+                const meta = mint ? await this.tokenService.findOne(cluster, mint) : undefined;
                 const sym = meta?.symbol ?? alert.condition?.tokenSymbol ?? "Token";
                 const cond = alert.condition;
                 type = NotificationEventType.PRICE_ALERT_TRIGGERED;
+                emoji = "📊";
                 title = `${sym} balance changed`;
                 message = `${sym} balance changed · ${walletLabel}`;
 
-                zaloText = [
-                    zaloHeader,
+                alertText = [
+                    alertHeader,
                     `- Token: ${sym}`,
                     cond?.direction && cond.direction !== "any" ? `- Direction: ${cond.direction}` : null,
                     cond?.threshold != null ? `- Threshold: ≥ ${cond.threshold}${cond.thresholdType === "percentage" ? "%" : ""}` : null,
@@ -333,15 +401,16 @@ export class WalletAlertCheckerService implements OnModuleInit {
                 const from: string | undefined = nativeTransfers[0]?.fromUserAccount;
                 const to: string | undefined = nativeTransfers[0]?.toUserAccount;
                 const direction = to === alert.walletAddress ? "Received" : "Sent";
-                const solMeta = await this.tokenService.findOne("mainnet", COMMON_TOKEN_MINT.SOL);
+                const solMeta = await this.tokenService.findOne(cluster, COMMON_TOKEN_MINT.SOL);
                 type = NotificationEventType.TRANSACTION_CONFIRMED;
+                emoji = direction === "Received" ? "📥" : "📤";
                 title = `${direction} ${this.fmt(totalSol)} SOL`;
                 message = `${direction} ${this.fmt(totalSol)} SOL · ${walletLabel}`;
 
                 const counterpart = direction === "Received" ? from : to;
                 const counterShort = counterpart ? `${counterpart.slice(0, 6)}...${counterpart.slice(-4)}` : undefined;
-                zaloText = [
-                    zaloHeader,
+                alertText = [
+                    alertHeader,
                     `- ${direction}: ${this.fmt(totalSol)} SOL`,
                     counterShort ? `- ${direction === "Received" ? "From" : "To"}: ${counterShort}` : null,
                     `- Tx: ${txUrl}`
@@ -364,7 +433,7 @@ export class WalletAlertCheckerService implements OnModuleInit {
                 return;
         }
 
-        const emailHtml = zaloText
+        const emailHtml = alertText
             .split("\n")
             .map((line) =>
                 line.startsWith("- ")
@@ -388,7 +457,7 @@ export class WalletAlertCheckerService implements OnModuleInit {
             }
         });
 
-        await this.zaloSubscriptionService.sendAlertMessage(alert.userId, zaloText);
-        await this.emailSubscriptionService.sendWalletAlertEmail(alert.userId, title, title, emailHtml, zaloText);
+        await this.botService.sendMessage(alert.userId, this.toTelegramMarkdown(alertText, emoji), "MarkdownV2");
+        await this.emailSubscriptionService.sendWalletAlertEmail(alert.userId, title, title, emailHtml, alertText);
     }
 }
