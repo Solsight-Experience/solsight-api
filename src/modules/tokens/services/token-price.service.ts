@@ -109,18 +109,6 @@ export class TokenPriceService {
             return { priceUsd: dbPrice, priceChange24h: Number(token?.priceChange24h) || 0, source: "db" };
         }
 
-        if (token?.coingeckoId && cluster === "mainnet") {
-            try {
-                const prices = await this.coinGeckoService.getSimplePrice(cluster, [token.coingeckoId]);
-                const priceUsd = prices[token.coingeckoId]?.usd || 0;
-                if (priceUsd > 0) {
-                    return { priceUsd, priceChange24h: 0, source: "coingecko" };
-                }
-            } catch (error) {
-                logError(this.logger, `Failed to fetch price from CoinGecko for mint ${mint}`, error);
-            }
-        }
-
         return { priceUsd: 0, priceChange24h: 0, source: "db" };
     }
 
@@ -144,34 +132,13 @@ export class TokenPriceService {
         if (needFallback.length > 0) {
             const tokens = await this.tokenRepository.find({
                 where: { address: In(needFallback), network: cluster },
-                select: ["address", "price", "priceChange24h", "coingeckoId"]
+                select: ["address", "price", "priceChange24h"]
             });
-
-            const cgIdToMint = new Map<string, string>();
-            const cgIds: string[] = [];
 
             for (const t of tokens) {
                 const priceUsd = Number(t.price) || 0;
                 if (priceUsd > 0) {
                     result.set(t.address, { priceUsd, priceChange24h: Number(t.priceChange24h) || 0, source: "db" });
-                } else if (t.coingeckoId && cluster === "mainnet") {
-                    cgIds.push(t.coingeckoId);
-                    cgIdToMint.set(t.coingeckoId, t.address);
-                }
-            }
-
-            if (cgIds.length > 0) {
-                try {
-                    const prices = await this.coinGeckoService.getSimplePrice(cluster, cgIds);
-                    for (const cgId of cgIds) {
-                        const priceUsd = (prices as Record<string, { usd?: number }>)[cgId]?.usd ?? 0;
-                        const mint = cgIdToMint.get(cgId);
-                        if (mint && priceUsd > 0) {
-                            result.set(mint, { priceUsd, priceChange24h: 0, source: "coingecko" });
-                        }
-                    }
-                } catch (error) {
-                    logError(this.logger, `Failed to fetch prices from CoinGecko for mints: ${needFallback.join(", ")}`, error);
                 }
             }
         }
@@ -227,12 +194,36 @@ export class TokenPriceService {
 
         if (!token?.coingeckoId) return new Map();
 
+        // Cache price history per (mint, fromDay, toDay) for 1h to avoid repeated CoinGecko calls
+        const redis = this.redisService.getClient();
+        const cacheKey = `price_history:${cluster}:${mint}:${fromDay}:${toDay}`;
+        if (redis) {
+            try {
+                const raw = await redis.get(cacheKey);
+                if (raw) {
+                    const cached = JSON.parse(raw) as [number, number][];
+                    const priceChart = new Map<number, number>();
+                    for (const [tsMs, price] of cached) {
+                        const dayTs = Math.floor(tsMs / 1000 / 86400) * 86400;
+                        priceChart.set(dayTs, price);
+                    }
+                    return priceChart;
+                }
+            } catch {
+                // cache miss, proceed
+            }
+        }
+
         try {
             const data = await this.coinGeckoService.getMarketChartRange(cluster, token.coingeckoId, "usd", fromDay, toDay);
             const priceChart = new Map<number, number>();
             for (const [tsMs, price] of data.prices) {
                 const dayTs = Math.floor(tsMs / 1000 / 86400) * 86400;
                 priceChart.set(dayTs, price);
+            }
+            // Cache raw pairs for 1 hour
+            if (redis) {
+                await redis.setex(cacheKey, 3600, JSON.stringify(data.prices));
             }
             return priceChart;
         } catch (error) {

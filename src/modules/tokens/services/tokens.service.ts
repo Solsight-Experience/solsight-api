@@ -5,12 +5,9 @@ import { Token } from "../entities/token.entity";
 import { OhlcCandle } from "../entities/ohlc-candle.entity";
 import { Holder } from "../entities/holder.entity";
 import { TokenResponseDto, TokenDetailsResponseDto, TokenMetadata } from "../dtos/token.response.dto";
-import { SolanaService } from "../../../infra/solana/solana.service";
-import { JupiterService } from "../../../infra/jupiter/jupiter.service";
 import { CoinGeckoService } from "../../../infra/coingecko/coingecko.service";
 import { TokenFilterConditionDto, TokenFilterResponseDto } from "../dtos/token.filter.dto";
-import { mapJupiterTokenToEntity, mapTokenEntityToResponseDto, mapTokenEntityToOverviewDto } from "../mapper/token.mapper";
-import { ChartQueryDto, ChartResponseDto } from "../dtos/token.chart.dto";
+import { mapTokenEntityToResponseDto, mapTokenEntityToOverviewDto } from "../mapper/token.mapper";import { ChartQueryDto, ChartResponseDto } from "../dtos/token.chart.dto";
 import { OhlcAggregationService } from "./aggregation/ohlc-aggregation.service";
 import { OhlcInterval } from "./socket/room/room.constants";
 import { RedisService } from "../../../redis/services/redis.service";
@@ -21,6 +18,7 @@ import type { HoldersResponseDto } from "../dtos/holder.response.dto";
 import { Transaction, TransactionType } from "../../transactions/entities/transaction.entity";
 import { TimeFrame } from "../../discovery/dtos/get-trending.dto";
 import { StatsAggregationService } from "./aggregation/stats-aggregation.service";
+import { TokenSyncEnqueuer } from "./sync/token-sync.enqueuer";
 
 @Injectable()
 export class TokensService {
@@ -35,13 +33,12 @@ export class TokensService {
         private readonly holderRepository: Repository<Holder>,
         @InjectRepository(Transaction)
         private readonly transactionRepository: Repository<Transaction>,
-        private readonly solanaService: SolanaService,
-        private readonly jupiterService: JupiterService,
         private readonly coinGeckoService: CoinGeckoService,
         private readonly ohlcAggregationService: OhlcAggregationService,
         private readonly holderAggregationService: HolderAggregationService,
         private readonly redisService: RedisService,
-        private readonly statsAggregationService: StatsAggregationService
+        private readonly statsAggregationService: StatsAggregationService,
+        private readonly tokenSyncEnqueuer: TokenSyncEnqueuer
     ) {}
 
     private async cacheTokenMetadata(
@@ -96,55 +93,17 @@ export class TokensService {
     }
 
     async findOne(cluster: Cluster, address: string): Promise<TokenResponseDto | null> {
-        let token = await this.tokenRepository.findOneBy({ address, network: cluster });
+        const token = await this.tokenRepository.findOneBy({ address, network: cluster });
 
         if (!token) {
-            const tokenData = await this.resolveTokenData(cluster, address);
-            if (!tokenData) {
-                return null;
-            }
-
-            await this.updateToken(cluster, address, tokenData);
-            token = await this.tokenRepository.findOneBy({ address, network: cluster });
-        }
-
-        if (!token) {
+            // Token not yet in DB — enqueue for async sync; client can retry after next worker tick (~60s)
+            void this.tokenSyncEnqueuer.enqueueIfUnknown(cluster, address).catch(() => {});
             return null;
         }
 
         await this.cacheTokenMetadata(token, cluster);
 
         return mapTokenEntityToResponseDto(token, cluster);
-    }
-
-    private async resolveTokenData(cluster: Cluster, address: string): Promise<Partial<Token> | null> {
-        const mintDecimals = await this.solanaService.getMintDecimals(cluster, address);
-        const jupiterToken = cluster === "mainnet" ? await this.jupiterService.searchToken(cluster, address) : null;
-
-        if (!jupiterToken && mintDecimals === null) {
-            return null;
-        }
-
-        const tokenData: Partial<Token> = jupiterToken
-            ? mapJupiterTokenToEntity(jupiterToken)
-            : {
-                  address,
-                  symbol: address.slice(0, 8),
-                  name: address,
-                  logoUri: undefined
-              };
-
-        tokenData.address = address;
-        tokenData.decimals = mintDecimals ?? tokenData.decimals;
-
-        if (jupiterToken) {
-            const coingeckoId = await this.coinGeckoService.findCoinGeckoId(cluster, jupiterToken.symbol, jupiterToken.name);
-            if (coingeckoId) {
-                tokenData.coingeckoId = coingeckoId;
-            }
-        }
-
-        return tokenData;
     }
 
     async findMany(cluster: Cluster, addresses: string[]): Promise<Map<string, TokenMetadata>> {
@@ -187,25 +146,7 @@ export class TokensService {
 
         const missing = uncached.filter((a) => !result.has(a));
         for (const addr of missing) {
-            try {
-                await this.findOne(cluster, addr);
-                const token = await this.tokenRepository.findOne({
-                    where: { address: addr, network: cluster },
-                    select: ["address", "symbol", "name", "logoUri", "decimals", "coingeckoId"]
-                });
-                if (token) {
-                    result.set(addr, {
-                        address: token.address,
-                        symbol: token.symbol,
-                        name: token.name,
-                        logoUri: token.logoUri ?? null,
-                        decimals: token.decimals,
-                        coingeckoId: token.coingeckoId ?? null
-                    });
-                }
-            } catch {
-                // Skip tokens that can't be resolved
-            }
+            void this.tokenSyncEnqueuer.enqueueIfUnknown(cluster, addr).catch(() => {});
         }
 
         return result;
@@ -548,10 +489,31 @@ export class TokensService {
             return { interval, points: this.mapCandles(cached) };
         }
 
+        // Cache CoinGecko OHLC for 1h to avoid repeated calls
+        const redis = this.redisService.getClient();
+        const ohlcCacheKey = `ohlc_backfill:${cluster}:${address}:${interval}:${days}`;
+        if (redis) {
+            try {
+                const rawCached = await redis.get(ohlcCacheKey);
+                if (rawCached) {
+                    const cachedOhlc = JSON.parse(rawCached) as [number, number, number, number, number][];
+                    if (cachedOhlc.length > 0) {
+                        return { interval, points: this.mapCandles(cached) };
+                    }
+                }
+            } catch {
+                // cache miss, proceed
+            }
+        }
+
         try {
             const raw = await this.coinGeckoService.getOhlc(cluster, token.coingeckoId, "usd", days);
             if (raw.length === 0) {
                 return { interval, points: this.mapCandles(cached) };
+            }
+
+            if (redis) {
+                await redis.setex(ohlcCacheKey, 3600, JSON.stringify(raw));
             }
 
             const candles = raw.map(([timestamp, open, high, low, close]) => ({

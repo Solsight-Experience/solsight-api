@@ -12,6 +12,7 @@ import type { EventHandler } from "../../../redis/event-handler";
 import type { RedisChannel } from "../../../redis/utils/redisChannels";
 import { logError } from "src/common/errors/error-helper";
 import { TokenPriceService } from "../../tokens/services/token-price.service";
+import { TokenSyncEnqueuer } from "../../tokens/services/sync/token-sync.enqueuer";
 
 @Injectable()
 export class StreamConsumerService implements EventHandler<SwapEvent> {
@@ -22,7 +23,8 @@ export class StreamConsumerService implements EventHandler<SwapEvent> {
         private readonly priceEventRepository: Repository<MarketPriceEvent>,
         @InjectRepository(Transaction)
         private readonly transactionRepository: Repository<Transaction>,
-        private readonly tokenPriceService: TokenPriceService
+        private readonly tokenPriceService: TokenPriceService,
+        private readonly tokenSyncEnqueuer: TokenSyncEnqueuer
     ) {}
 
     channels(): RedisChannel<SwapEvent>[] {
@@ -44,6 +46,10 @@ export class StreamConsumerService implements EventHandler<SwapEvent> {
     private async handleSwap(swap: SwapEvent): Promise<void> {
         const tokenMint = getTokenMintFromSwap(swap);
         const network = this.eventNetwork(swap);
+
+        // Enqueue both mints for sync if not yet known (fire-and-forget, idempotent)
+        void this.tokenSyncEnqueuer.enqueueIfUnknown(network, swap.token_in.mint).catch(() => {});
+        void this.tokenSyncEnqueuer.enqueueIfUnknown(network, swap.token_out.mint).catch(() => {});
 
         if (swap.price_usd != null && swap.price_usd > 0) {
             await this.tokenPriceService.setPrice({
