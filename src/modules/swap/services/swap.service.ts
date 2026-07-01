@@ -1,6 +1,4 @@
 import { BadRequestException, HttpException, HttpStatus, Inject, Injectable, InternalServerErrorException, Logger } from "@nestjs/common";
-import { InjectRepository } from "@nestjs/typeorm";
-import { Repository } from "typeorm";
 import { EXECUTOR_SERVICE } from "../../../infra/executor/constants/executor.token";
 import type { ExecutorService, QuoteResponse, SwapResponse } from "../../../infra/executor/interfaces/executor-service.interface";
 import { JitoService } from "../../../infra/jito/jito.service";
