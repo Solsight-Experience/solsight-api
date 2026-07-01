@@ -1,11 +1,9 @@
 import { BadRequestException, HttpException, HttpStatus, Inject, Injectable, InternalServerErrorException, Logger } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
-import { CoinGeckoService } from "../../../infra/coingecko/coingecko.service";
 import { EXECUTOR_SERVICE } from "../../../infra/executor/constants/executor.token";
 import type { ExecutorService, QuoteResponse, SwapResponse } from "../../../infra/executor/interfaces/executor-service.interface";
 import { JitoService } from "../../../infra/jito/jito.service";
-import { JupiterService } from "../../../infra/jupiter/jupiter.service";
 import { KoraService } from "../../../infra/kora/kora.service";
 import { SolanaService } from "../../../infra/solana/solana.service";
 import { RedisService } from "../../../redis/services/redis.service";
@@ -16,6 +14,9 @@ import type { GetSwapInfoDto, SwapInfoResponse } from "../dtos/get-swap-info.dto
 import type { GetSwapTransactionDto } from "../dtos/get-swap-transaction.dto";
 import { CachedFeeFields, CachedGaslessFields } from "../types/swap-cache.types";
 import type { Cluster } from "../../../common/cluster/cluster.types";
+import { TokenPriceService } from "../../tokens/services/token-price.service";
+import { TokensService } from "../../tokens/services/tokens.service";
+import { COMMON_TOKEN_MINT } from "src/modules/tokens/constants/token.constant";
 
 const FEE_FALLBACK_PRIORITY_LAMPORTS = 100_000;
 const TIP_FALLBACK_LAMPORTS = 50_000;
@@ -34,8 +35,8 @@ export class SwapService {
         private readonly koraService: KoraService,
         private readonly jitoService: JitoService,
         private readonly redisService: RedisService,
-        private readonly jupiterService: JupiterService,
-        private readonly coinGeckoService: CoinGeckoService,
+        private readonly tokenPriceService: TokenPriceService,
+        private readonly tokensService: TokensService,
         @InjectRepository(SwapExecution)
         private readonly swapExecutionRepo: Repository<SwapExecution>
     ) {}
@@ -132,14 +133,14 @@ export class SwapService {
     }
 
     async getSolPrice(cluster: Cluster): Promise<{ usd: number }> {
-        const prices = await this.coinGeckoService.getSimplePrice(cluster, ["solana"]);
-        return { usd: (prices as Record<string, { usd?: number }>)["solana"]?.usd ?? 0 };
+        const price = await this.tokenPriceService.getPrice(cluster, COMMON_TOKEN_MINT.SOL);
+        return { usd: price.priceUsd };
     }
 
     async getTokenInfo(cluster: Cluster, mint: string): Promise<{ decimals: number } | null> {
-        const token = await this.jupiterService.searchToken(cluster, mint);
-        if (!token) return null;
-        return { decimals: token.decimals };
+        const meta = await this.tokensService.getTokenMetadata(cluster, mint);
+        if (!meta) return null;
+        return { decimals: meta.decimals };
     }
 
     private async submitSignedTransaction(cluster: Cluster, signedTransactionBase64: string): Promise<{ signature: string }> {

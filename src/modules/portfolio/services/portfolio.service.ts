@@ -32,7 +32,6 @@ import { Wallet } from "../../wallets/entities/wallet.entity";
 import { TokenPriceService } from "src/modules/tokens/services/token-price.service";
 
 const DEX_SOURCES = ["JUPITER", "RAYDIUM", "ORCA", "METEORA", "PHOENIX", "OPENBOOK", "SOLFI"];
-const SOL_MINT = "So11111111111111111111111111111111111111112";
 
 @Injectable()
 export class PortfolioService {
@@ -94,7 +93,7 @@ export class PortfolioService {
             toUserAccount: transfer.toUserAccount,
             fromTokenAccount: "",
             toTokenAccount: "",
-            mint: SOL_MINT,
+            mint: COMMON_TOKEN_MINT.SOL,
             tokenAmount: transfer.amount / LAMPORTS_PER_SOL
         };
     }
@@ -380,7 +379,6 @@ export class PortfolioService {
             tokenTransfers: this.getStoredTokenTransfers(row.metadata),
             description: row.memo
         }));
-        const SOL_MINT = "So11111111111111111111111111111111111111112";
         // Fetch historical SOL prices for the chart range
         const historyFrom = filteredTrades.length > 0 ? filteredTrades[0].timestamp : startTimeSec;
         const historyTo = Math.floor(now / 1000);
@@ -403,7 +401,7 @@ export class PortfolioService {
                 const tokenIn = trade.tokenTransfers.find((t) => t.toUserAccount);
                 if (!tokenOut || !tokenIn) continue;
 
-                const isBuy = tokenIn.mint !== SOL_MINT;
+                const isBuy = tokenIn.mint !== COMMON_TOKEN_MINT.SOL;
                 const tokenMint = isBuy ? tokenIn.mint : tokenOut.mint;
                 const solAmount = isBuy ? tokenOut.tokenAmount : tokenIn.tokenAmount;
                 const tokenAmount = isBuy ? tokenIn.tokenAmount : tokenOut.tokenAmount;
@@ -680,9 +678,9 @@ export class PortfolioService {
                 if (swapEvent.nativeInput) {
                     const amount = Number(swapEvent.nativeInput.amount) / LAMPORTS_PER_SOL;
                     token_in = {
-                        address: SOL_MINT,
+                        address: COMMON_TOKEN_MINT.SOL,
                         symbol: "SOL",
-                        logo_uri: (await this.tokenService.getTokenMetadata(cluster, SOL_MINT))?.logoUri ?? "",
+                        logo_uri: (await this.tokenService.getTokenMetadata(cluster, COMMON_TOKEN_MINT.SOL))?.logoUri ?? "",
                         amount,
                         value_usd: amount * solPrice
                     };
@@ -702,9 +700,9 @@ export class PortfolioService {
                 if (swapEvent.nativeOutput) {
                     const amount = Number(swapEvent.nativeOutput.amount) / LAMPORTS_PER_SOL;
                     token_out = {
-                        address: SOL_MINT,
+                        address: COMMON_TOKEN_MINT.SOL,
                         symbol: "SOL",
-                        logo_uri: (await this.tokenService.getTokenMetadata(cluster, SOL_MINT))?.logoUri ?? "",
+                        logo_uri: (await this.tokenService.getTokenMetadata(cluster, COMMON_TOKEN_MINT.SOL))?.logoUri ?? "",
                         amount,
                         value_usd: amount * solPrice
                     };
@@ -811,9 +809,9 @@ export class PortfolioService {
                 } else if (implicitSolOut) {
                     const amt = implicitSolOut.amount / LAMPORTS_PER_SOL;
                     token_in = {
-                        address: SOL_MINT,
+                        address: COMMON_TOKEN_MINT.SOL,
                         symbol: "SOL",
-                        logo_uri: (await this.tokenService.getTokenMetadata(cluster, SOL_MINT))?.logoUri ?? "",
+                        logo_uri: (await this.tokenService.getTokenMetadata(cluster, COMMON_TOKEN_MINT.SOL))?.logoUri ?? "",
                         amount: amt,
                         value_usd: amt * solPrice
                     };
@@ -831,9 +829,9 @@ export class PortfolioService {
                 } else if (implicitSolIn) {
                     const amt = implicitSolIn.amount / LAMPORTS_PER_SOL;
                     token_out = {
-                        address: SOL_MINT,
+                        address: COMMON_TOKEN_MINT.SOL,
                         symbol: "SOL",
-                        logo_uri: (await this.tokenService.getTokenMetadata(cluster, SOL_MINT))?.logoUri ?? "",
+                        logo_uri: (await this.tokenService.getTokenMetadata(cluster, COMMON_TOKEN_MINT.SOL))?.logoUri ?? "",
                         amount: amt,
                         value_usd: amt * solPrice
                     };
@@ -865,9 +863,9 @@ export class PortfolioService {
                     } else if (nativeTransfer) {
                         const amount = nativeTransfer.amount / LAMPORTS_PER_SOL;
                         token = {
-                            address: SOL_MINT,
+                            address: COMMON_TOKEN_MINT.SOL,
                             symbol: "SOL",
-                            logo_uri: (await this.tokenService.getTokenMetadata(cluster, SOL_MINT))?.logoUri ?? "",
+                            logo_uri: (await this.tokenService.getTokenMetadata(cluster, COMMON_TOKEN_MINT.SOL))?.logoUri ?? "",
                             amount,
                             value_usd: amount * solPrice
                         };
@@ -880,9 +878,9 @@ export class PortfolioService {
             if (nativeTransfer) {
                 const amount = nativeTransfer.amount / LAMPORTS_PER_SOL;
                 token = {
-                    address: SOL_MINT,
+                    address: COMMON_TOKEN_MINT.SOL,
                     symbol: "SOL",
-                    logo_uri: (await this.tokenService.getTokenMetadata(cluster, SOL_MINT))?.logoUri ?? "",
+                    logo_uri: (await this.tokenService.getTokenMetadata(cluster, COMMON_TOKEN_MINT.SOL))?.logoUri ?? "",
                     amount,
                     value_usd: amount * solPrice
                 };
@@ -893,9 +891,9 @@ export class PortfolioService {
             if (nativeTransfer) {
                 const amount = nativeTransfer.amount / LAMPORTS_PER_SOL;
                 token = {
-                    address: SOL_MINT,
+                    address: COMMON_TOKEN_MINT.SOL,
                     symbol: "SOL",
-                    logo_uri: (await this.tokenService.getTokenMetadata(cluster, SOL_MINT))?.logoUri ?? "",
+                    logo_uri: (await this.tokenService.getTokenMetadata(cluster, COMMON_TOKEN_MINT.SOL))?.logoUri ?? "",
                     amount,
                     value_usd: amount * solPrice
                 };
@@ -1225,7 +1223,7 @@ export class PortfolioService {
             const symbolMatch = description.match(/for [\d,.]+ (\w+)/);
             const tradeSymbol = symbolMatch ? symbolMatch[1] : "?";
 
-            const isBuy = tokenIn.mint !== "So11111111111111111111111111111111111111112";
+            const isBuy = tokenIn.mint !== COMMON_TOKEN_MINT.SOL;
             const tokenMint = isBuy ? tokenIn.mint : tokenOut.mint;
             const solAmount = isBuy ? tokenOut.tokenAmount : tokenIn.tokenAmount;
             const tokenAmount = isBuy ? tokenIn.tokenAmount : tokenOut.tokenAmount;
@@ -1568,14 +1566,15 @@ export class PortfolioService {
      * to detect unclassified swaps (e.g. Jupiter multi-hop routes that split across txs).
      */
     private async enrichActivitiesWithSwapDetails(cluster: Cluster, activities: PortfolioActivity[], tokenMetaMap: Map<string, TokenMetadata>): Promise<void> {
-        const SOL_MINT_ADDR = "So11111111111111111111111111111111111111112";
-        const getSymbol = (mint: string) => (mint === SOL_MINT_ADDR ? "SOL" : (tokenMetaMap.get(mint)?.symbol ?? mint.slice(0, 8)));
+        const getSymbol = (mint: string) => (mint === COMMON_TOKEN_MINT.SOL ? "SOL" : (tokenMetaMap.get(mint)?.symbol ?? mint.slice(0, 8)));
         const getLogo = (mint: string) =>
-            mint === SOL_MINT_ADDR
+            mint === COMMON_TOKEN_MINT.SOL
                 ? "https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/So11111111111111111111111111111111111111112/logo.png"
                 : (tokenMetaMap.get(mint)?.logoUri ?? "");
 
-        const candidates = activities.map((a, i) => ({ a, i })).filter(({ a }) => a.type === "TRANSFER_OUT" && a.token?.address === SOL_MINT_ADDR && !!a.from);
+        const candidates = activities
+            .map((a, i) => ({ a, i }))
+            .filter(({ a }) => a.type === "TRANSFER_OUT" && a.token?.address === COMMON_TOKEN_MINT.SOL && !!a.from);
 
         if (!candidates.length) return;
 
@@ -1721,7 +1720,6 @@ export class PortfolioService {
             tokenTransfers: this.getStoredTokenTransfers(row.metadata)
         }));
 
-        const SOL_MINT = COMMON_TOKEN_MINT.SOL;
         const historyFrom = filteredTrades.length > 0 ? filteredTrades[0].timestamp : startTimeSec;
         const solPriceChart = await this.tokenPriceService.getPriceHistory(cluster, COMMON_TOKEN_MINT.SOL, historyFrom, Math.floor(now / 1000));
 
@@ -1738,7 +1736,7 @@ export class PortfolioService {
                 const tokenOut = trade.tokenTransfers.find((t) => t.fromUserAccount);
                 const tokenIn = trade.tokenTransfers.find((t) => t.toUserAccount);
                 if (!tokenOut || !tokenIn) continue;
-                const isBuy = tokenIn.mint !== SOL_MINT;
+                const isBuy = tokenIn.mint !== COMMON_TOKEN_MINT.SOL;
                 const tokenMint = isBuy ? tokenIn.mint : tokenOut.mint;
                 const solAmount = isBuy ? tokenOut.tokenAmount : tokenIn.tokenAmount;
                 const tokenAmount = isBuy ? tokenIn.tokenAmount : tokenOut.tokenAmount;

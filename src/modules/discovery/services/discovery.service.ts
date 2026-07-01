@@ -320,7 +320,6 @@ export class DiscoveryService implements OnModuleInit {
         const startWindow = Math.floor(offset / WINDOW_SIZE);
         const endWindow = Math.floor((offset + limit - 1) / WINDOW_SIZE);
 
-        let synced = false;
         const windowData: TokenOverview[][] = [];
 
         for (let w = startWindow; w <= endWindow; w++) {
@@ -328,9 +327,6 @@ export class DiscoveryService implements OnModuleInit {
             let window = await this.redisService.get<TokenOverview[]>(windowKey);
 
             if (!window) {
-                if (!synced) {
-                    synced = true;
-                }
                 const tokens = await this.tokenRepository.find({
                     where: { network: cluster },
                     order: this.getTrendingOrderBy(sort_by, time_frame),
@@ -361,8 +357,7 @@ export class DiscoveryService implements OnModuleInit {
         };
     }
 
-    @Cron(CronExpression.EVERY_DAY_AT_MIDNIGHT)
-    async syncCategories(): Promise<void> {
+    async getNewListings(cluster: Cluster, dto: GetNewListingsDto) {
         const {
             time_frame,
             min_liquidity,
@@ -407,10 +402,8 @@ export class DiscoveryService implements OnModuleInit {
 
         const [tokens, total] = await query.getManyAndCount();
 
-        const transformedTokens = tokens.map((token) => this.transformToTokenOverview(token, cluster));
-
         return {
-            tokens: transformedTokens,
+            tokens: tokens.map((token) => this.transformToTokenOverview(token, cluster)),
             total
         };
     }

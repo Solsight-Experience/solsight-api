@@ -4,13 +4,7 @@ import { Repository } from "typeorm";
 import { Token } from "../../entities/token.entity";
 import { RedisService } from "../../../../redis/services/redis.service";
 import type { Cluster } from "../../../../common/cluster/cluster.types";
-
-// Well-known system mints that are always present; never need syncing.
-const SYSTEM_MINTS = new Set([
-    "So11111111111111111111111111111111111111112", // Wrapped SOL
-    "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", // USDC
-    "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB" // USDT
-]);
+import { COMMON_TOKEN_MINT } from "../../constants/token.constant";
 
 @Injectable()
 export class TokenSyncEnqueuer {
@@ -21,7 +15,8 @@ export class TokenSyncEnqueuer {
     ) {}
 
     async enqueueIfUnknown(cluster: Cluster, mint: string): Promise<void> {
-        if (SYSTEM_MINTS.has(mint)) return;
+        const COMMON_TOKEN_MINT_SET = new Set(Object.values(COMMON_TOKEN_MINT));
+        if (COMMON_TOKEN_MINT_SET.has(mint)) return;
 
         // Fast path: sentinel key present means we already know this token
         const knownKey = RedisService.KEYS.KNOWN_TOKEN(cluster, mint);

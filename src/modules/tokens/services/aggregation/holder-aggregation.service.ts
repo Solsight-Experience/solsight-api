@@ -4,9 +4,9 @@ import { Repository } from "typeorm";
 import { RedisService } from "../../../../redis/services/redis.service";
 import { HolderData, SwapEvent } from "../../types/swap-event.types";
 import { getWalletLabel } from "../../data/wallet-labels";
-import { JupiterService } from "../../../../infra/jupiter/jupiter.service";
 import { EnrichedHolder, HolderUpdateEvent, PriceUpdateEvent, HolderUpsertRow, HolderEnrichmentInput } from "../../types/holder-aggregation.types";
 import { Holder } from "../../entities/holder.entity";
+import { Token } from "../../entities/token.entity";
 import { logError } from "src/common/errors/error-helper";
 import { TokenPriceService } from "../token-price.service";
 import type { Cluster } from "src/common/cluster/cluster.types";
@@ -22,9 +22,10 @@ export class HolderAggregationService implements OnModuleInit, OnModuleDestroy {
     constructor(
         private readonly redisService: RedisService,
         private readonly tokenPriceService: TokenPriceService,
-        private readonly jupiterService: JupiterService,
         @InjectRepository(Holder)
-        private readonly holderRepository: Repository<Holder>
+        private readonly holderRepository: Repository<Holder>,
+        @InjectRepository(Token)
+        private readonly tokenRepository: Repository<Token>
     ) {}
 
     onModuleInit(): void {
@@ -434,17 +435,17 @@ export class HolderAggregationService implements OnModuleInit, OnModuleDestroy {
         let currentPriceUsd = priceData ? this.toNumber(priceData.priceUsd) : 0;
         let totalSupply = totalSupplyStr ? this.toNumber(totalSupplyStr) : 0;
 
-        if ((currentPriceUsd === 0 || totalSupply === 0) && cluster === "mainnet") {
-            this.logger.debug(`Price or supply not found in Redis for ${tokenMint}, fetching from Jupiter`);
-            const tokenInfo = await this.jupiterService.searchToken(cluster, tokenMint);
-            if (tokenInfo) {
-                if (currentPriceUsd === 0 && tokenInfo.usdPrice) {
-                    currentPriceUsd = tokenInfo.usdPrice;
-                    this.logger.log(`Fetched price from Jupiter for ${tokenMint}: $${currentPriceUsd}`);
+        if (currentPriceUsd === 0 || totalSupply === 0) {
+            const token = await this.tokenRepository.findOne({
+                where: { address: tokenMint, network: cluster },
+                select: ["price", "totalSupply"]
+            });
+            if (token) {
+                if (currentPriceUsd === 0 && token.price) {
+                    currentPriceUsd = Number(token.price);
                 }
-                if (totalSupply === 0 && tokenInfo.totalSupply) {
-                    totalSupply = tokenInfo.totalSupply;
-                    this.logger.log(`Fetched total supply from Jupiter for ${tokenMint}: ${totalSupply}`);
+                if (totalSupply === 0 && token.totalSupply) {
+                    totalSupply = Number(token.totalSupply);
                 }
             }
         }
