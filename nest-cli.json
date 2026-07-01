@@ -3,6 +3,14 @@
     "collection": "@nestjs/schematics",
     "sourceRoot": "src",
     "compilerOptions": {
-        "deleteOutDir": true
+        "deleteOutDir": true,
+        "assets": [
+            {
+                "include": "modules/chat/prompts/**/*.md",
+                "outDir": "dist/src",
+                "watchAssets": true
+            }
+        ],
+        "watchAssets": true
     }
 }

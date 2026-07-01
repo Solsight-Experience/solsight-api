@@ -1399,12 +1399,11 @@ export class PortfolioService {
 
     async getOverviewByAddress(cluster: Cluster, walletAddress: string, _timeFrame?: string) {
         const pubkey = new PublicKey(walletAddress);
-        const tokenAccountsPromise: Promise<ParsedTokenAccount[]> = this.solanaService.getParsedTokenAccountsByOwner(cluster, pubkey);
 
         const [solPrice, total_balance_sol, tokenAccounts] = await Promise.all([
             this.tokenPriceService.getPrice(cluster, COMMON_TOKEN_MINT.SOL),
-            this.solanaService.getBalance(cluster, pubkey),
-            tokenAccountsPromise
+            this.solanaService.getBalance(cluster, pubkey).catch(() => 0),
+            this.solanaService.getParsedTokenAccountsByOwner(cluster, pubkey).catch(() => [] as ParsedTokenAccount[])
         ]);
         let total_balance_usd = total_balance_sol * solPrice.priceUsd;
 
@@ -1474,7 +1473,7 @@ export class PortfolioService {
             pnl: { total: 0, realized: 0, unrealized: 0, change_24h: 0, roi_percent: 0 },
             transactions: { total: 0, buys: 0, sells: 0, transfers: 0, last_24h: 0 },
             top_tokens: top_tokens.slice(0, 10),
-            allocation: allocation.filter((a) => a.value_usd > 0).sort((a, b) => b.value_usd - a.value_usd)
+            allocation: allocation.sort((a, b) => b.value_usd - a.value_usd)
         };
     }
 
@@ -1485,12 +1484,11 @@ export class PortfolioService {
         showZeroBalance: boolean = false
     ): Promise<PortfolioPositionsResponseDto> {
         const pubkey = new PublicKey(walletAddress);
-        const tokenAccountsPromise: Promise<ParsedTokenAccount[]> = this.solanaService.getParsedTokenAccountsByOwner(cluster, pubkey);
 
         const [solPrice, totalSolBalance, tokenAccounts] = await Promise.all([
             this.tokenPriceService.getPrice(cluster, COMMON_TOKEN_MINT.SOL),
-            this.solanaService.getBalance(cluster, pubkey),
-            tokenAccountsPromise
+            this.solanaService.getBalance(cluster, pubkey).catch(() => 0),
+            this.solanaService.getParsedTokenAccountsByOwner(cluster, pubkey).catch(() => [] as ParsedTokenAccount[])
         ]);
 
         const aggregatedTokens = new Map<string, AggregatedTokenHolding>();

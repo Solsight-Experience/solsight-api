@@ -95,8 +95,8 @@ export const validationSchema = Joi.object({
     EMBEDDING_API_URL: Joi.string().uri().optional(),
     EMBEDDING_MODEL: Joi.string().optional(),
 
-    // Zalo OA Bot — non-core (alerts only)
-    ZALO_BOT_TOKEN: Joi.string().allow("").optional(),
+    // Telegram Bot — non-core (alerts only)
+    TELEGRAM_BOT_TOKEN: Joi.string().allow("").optional(),
 
     // Email (Resend) — non-core (transactional email)
     RESEND_API_KEY: Joi.string().allow("").optional(),

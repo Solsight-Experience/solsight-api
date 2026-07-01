@@ -26,7 +26,8 @@ export class WalletAlertService {
     }
 
     async create(userId: string, walletAddress: string, dto: CreateWalletAlertDto): Promise<WalletAlert> {
-        const watchedWallet = await this.watchedWalletRepo.findOne({ where: { userId, walletAddress } });
+        const network = dto.network ?? "mainnet";
+        const watchedWallet = await this.watchedWalletRepo.findOne({ where: { userId, walletAddress, network } });
         if (!watchedWallet) throw new NotFoundException("Watched wallet not found");
 
         const alert = this.alertRepo.create({
