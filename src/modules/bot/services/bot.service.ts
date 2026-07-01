@@ -4,6 +4,7 @@ import { Repository, MoreThan } from "typeorm";
 import { randomBytes } from "crypto";
 import { BotSubscription } from "../entities/bot-subscription.entity";
 import { TelegramApiService } from "../../../infra/telegram/telegram-api.service";
+import { TelegramParseMode } from "../../../infra/telegram/telegram-api.types";
 
 @Injectable()
 export class BotService {
@@ -52,11 +53,11 @@ export class BotService {
         });
     }
 
-    async sendMessage(userId: string, text: string): Promise<void> {
+    async sendMessage(userId: string, text: string, parseMode?: TelegramParseMode): Promise<void> {
         if (!this.telegramApi.hasToken) return;
         const sub = await this.repo.findOneBy({ userId, isVerified: true });
         if (!sub?.telegramChatId) return;
-        await this.telegramApi.sendMessage(sub.telegramChatId, text);
+        await this.telegramApi.sendMessage(sub.telegramChatId, text, parseMode);
     }
 
     async sendVerificationConfirmation(chatId: string): Promise<void> {

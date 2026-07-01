@@ -1,7 +1,7 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import axios, { AxiosInstance } from "axios";
-import { TelegramUpdate, TelegramGetUpdatesResponse } from "./telegram-api.types";
+import { TelegramUpdate, TelegramGetUpdatesResponse, TelegramParseMode } from "./telegram-api.types";
 
 @Injectable()
 export class TelegramApiService {
@@ -23,9 +23,9 @@ export class TelegramApiService {
         return baseURL !== "https://api.telegram.org/bot";
     }
 
-    async sendMessage(chatId: string, text: string): Promise<void> {
+    async sendMessage(chatId: string, text: string, parseMode?: TelegramParseMode): Promise<void> {
         try {
-            await this.apiClient.post("/sendMessage", { chat_id: chatId, text });
+            await this.apiClient.post("/sendMessage", { chat_id: chatId, text, parse_mode: parseMode });
         } catch (err) {
             this.logger.error(`Failed to send Telegram message to chat ${chatId}`, err);
         }

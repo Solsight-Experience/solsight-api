@@ -1,3 +1,5 @@
+export type TelegramParseMode = "Markdown" | "MarkdownV2" | "HTML";
+
 export interface TelegramUpdate {
     fromId: string;
     chatId: string;

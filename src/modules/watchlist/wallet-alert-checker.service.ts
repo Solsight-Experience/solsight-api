@@ -11,6 +11,7 @@ import { TokensService } from "../tokens/services/tokens.service";
 import { COMMON_TOKEN_MINT } from "../tokens/constants/token.constant";
 import { EnhancedTransaction } from "../../infra/solana/constants/types";
 import { NotificationMetadata, SwapMints, WalletAlertWithWallet } from "./types/wallet-alert-checker.types";
+import { escapeMarkdownV2, markdownV2Link } from "../../infra/telegram/telegram-markdown.util";
 
 @Injectable()
 export class WalletAlertCheckerService implements OnModuleInit {
@@ -265,6 +266,25 @@ export class WalletAlertCheckerService implements OnModuleInit {
         return { mintIn, mintOut, amountIn, amountOut, dex };
     }
 
+    // alertText lines follow a fixed "WalletTracker:" / "From: label (address)" / "- Key: value" shape;
+    // reformat that into Telegram MarkdownV2 instead of duplicating field-building per alert type.
+    private toTelegramMarkdown(alertText: string, emoji: string): string {
+        const [, fromLine, ...rest] = alertText.split("\n");
+
+        const fromMatch = /^From: (.+) \((.+)\)$/.exec(fromLine ?? "");
+        const walletLine = fromMatch ? `👛 *${escapeMarkdownV2(fromMatch[1])}* \\(\`${escapeMarkdownV2(fromMatch[2])}\`\\)` : escapeMarkdownV2(fromLine ?? "");
+
+        const bodyLines = rest.map((line) => {
+            const fieldMatch = /^- (.+?): (.+)$/.exec(line);
+            if (!fieldMatch) return escapeMarkdownV2(line);
+            const [, label, value] = fieldMatch;
+            if (label === "Tx") return `🔗 ${markdownV2Link("View transaction", value)}`;
+            return `▪️ *${escapeMarkdownV2(label)}:* ${escapeMarkdownV2(value)}`;
+        });
+
+        return [`${emoji} *WalletTracker Alert*`, walletLine, ...bodyLines].join("\n");
+    }
+
     private fmt(n: number | undefined): string {
         if (n == null) return "";
         if (n >= 1000) return n.toLocaleString("en-US", { maximumFractionDigits: 2 });
@@ -282,6 +302,7 @@ export class WalletAlertCheckerService implements OnModuleInit {
         let title: string;
         let message: string;
         let alertText: string;
+        let emoji: string;
         let extraMeta: NotificationMetadata = {};
 
         const alertHeader = `WalletTracker:\nFrom: ${walletLabel} (${alert.walletAddress})`;
@@ -303,6 +324,7 @@ export class WalletAlertCheckerService implements OnModuleInit {
                 const logoOut = metaOut?.logo_uri;
 
                 type = NotificationEventType.SWAP_EXECUTED;
+                emoji = "🔄";
 
                 const pair = symbolIn && symbolOut ? `${symbolIn} → ${symbolOut}` : "Swap";
                 title = pair;
@@ -350,6 +372,7 @@ export class WalletAlertCheckerService implements OnModuleInit {
                 const sym = meta?.symbol ?? alert.condition?.tokenSymbol ?? "Token";
                 const cond = alert.condition;
                 type = NotificationEventType.PRICE_ALERT_TRIGGERED;
+                emoji = "📊";
                 title = `${sym} balance changed`;
                 message = `${sym} balance changed · ${walletLabel}`;
 
@@ -380,6 +403,7 @@ export class WalletAlertCheckerService implements OnModuleInit {
                 const direction = to === alert.walletAddress ? "Received" : "Sent";
                 const solMeta = await this.tokenService.findOne(cluster, COMMON_TOKEN_MINT.SOL);
                 type = NotificationEventType.TRANSACTION_CONFIRMED;
+                emoji = direction === "Received" ? "📥" : "📤";
                 title = `${direction} ${this.fmt(totalSol)} SOL`;
                 message = `${direction} ${this.fmt(totalSol)} SOL · ${walletLabel}`;
 
@@ -433,7 +457,7 @@ export class WalletAlertCheckerService implements OnModuleInit {
             }
         });
 
-        await this.botService.sendMessage(alert.userId, alertText);
+        await this.botService.sendMessage(alert.userId, this.toTelegramMarkdown(alertText, emoji), "MarkdownV2");
         await this.emailSubscriptionService.sendWalletAlertEmail(alert.userId, title, title, emailHtml, alertText);
     }
 }
