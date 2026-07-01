@@ -6,6 +6,7 @@ import type { Cluster } from "../../../../common/cluster/cluster.types";
 import { SwapEvent, TopTrader } from "../../types/swap-event.types";
 import { TraderPosition } from "../../entities/trader-position.entity";
 import { logError } from "src/common/errors/error-helper";
+import { TokenPriceService } from "../token-price.service";
 
 @Injectable()
 export class TraderAggregationService {
@@ -13,6 +14,7 @@ export class TraderAggregationService {
 
     constructor(
         private readonly redisService: RedisService,
+        private readonly tokenPriceService: TokenPriceService,
         @InjectRepository(TraderPosition)
         private readonly traderPositionRepo: Repository<TraderPosition>
     ) {}
@@ -125,8 +127,7 @@ export class TraderAggregationService {
                 return this.getTopTradersFromDb(cluster, tokenMint, limit);
             }
 
-            const priceData = await redis.hgetall(RedisService.KEYS.TOKEN_PRICE_LATEST(cluster, tokenMint));
-            const currentPrice = priceData?.price_usd ? parseFloat(priceData.price_usd) : 0;
+            const currentPrice = (await this.tokenPriceService.getPrice(cluster, tokenMint)).priceUsd;
 
             const traders: TopTrader[] = [];
 
@@ -155,8 +156,7 @@ export class TraderAggregationService {
             const data = await redis.hgetall(traderKey);
 
             if (data && Object.keys(data).length > 0) {
-                const priceData = await redis.hgetall(RedisService.KEYS.TOKEN_PRICE_LATEST(cluster, tokenMint));
-                const currentPrice = priceData?.price_usd ? parseFloat(priceData.price_usd) : 0;
+                const currentPrice = (await this.tokenPriceService.getPrice(cluster, tokenMint)).priceUsd;
                 return this.mapToTopTrader(address, data, currentPrice);
             }
 
@@ -240,11 +240,8 @@ export class TraderAggregationService {
 
     private async resolvePrice(swap: SwapEvent, tokenMint: string): Promise<number> {
         if (swap.price_usd != null && swap.price_usd > 0) return swap.price_usd;
-        const priceData = await this.redisService.hgetall(RedisService.KEYS.TOKEN_PRICE_LATEST(swap.network, tokenMint));
-        if (priceData?.price_usd) {
-            const cached = parseFloat(priceData.price_usd);
-            if (cached > 0) return cached;
-        }
+        const priceData = await this.tokenPriceService.getPrice(swap.network, tokenMint);
+        if (priceData.priceUsd > 0) return priceData.priceUsd;
         return swap.price_native;
     }
 

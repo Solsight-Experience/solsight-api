@@ -2,7 +2,6 @@ import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/commo
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
 import { RedisService } from "../../../../redis/services/redis.service";
-import { PubSubService } from "../../../../redis/services/pubsub.service";
 import { HolderData, SwapEvent } from "../../types/swap-event.types";
 import { getWalletLabel } from "../../data/wallet-labels";
 import { JupiterService } from "../../../../infra/jupiter/jupiter.service";
@@ -10,7 +9,7 @@ import { EnrichedHolder, HolderUpdateEvent, PriceUpdateEvent, HolderUpsertRow, H
 import { Holder } from "../../entities/holder.entity";
 import { logError } from "src/common/errors/error-helper";
 import { TokenPriceService } from "../token-price.service";
-import { CLUSTERS, type Cluster } from "src/common/cluster/cluster.types";
+import type { Cluster } from "src/common/cluster/cluster.types";
 
 const HOLDER_UPSERT_FLUSH_MS = 5_000;
 
@@ -23,32 +22,17 @@ export class HolderAggregationService implements OnModuleInit, OnModuleDestroy {
     constructor(
         private readonly redisService: RedisService,
         private readonly tokenPriceService: TokenPriceService,
-        private readonly pubSubService: PubSubService,
         private readonly jupiterService: JupiterService,
         @InjectRepository(Holder)
         private readonly holderRepository: Repository<Holder>
     ) {}
 
-    async onModuleInit(): Promise<void> {
+    onModuleInit(): void {
         this.flushTimer = setInterval(() => {
             void this.flushHolderUpserts().catch((error) => {
                 logError(this.logger, "Failed to flush holder upsert buffer", error);
             });
         }, HOLDER_UPSERT_FLUSH_MS);
-
-        for (const network of CLUSTERS) {
-            await this.pubSubService.subscribe<HolderUpdateEvent>(`solsight:holder_updates:${network}`, (message) => {
-                void this.onHolderUpdate({ ...message, network }).catch((error) => {
-                    logError(this.logger, "Error processing holder update", error);
-                });
-            });
-
-            await this.pubSubService.subscribe<PriceUpdateEvent>(`solsight:price_updates:${network}`, (message) => {
-                void this.onPriceUpdate({ ...message, network }).catch((error) => {
-                    logError(this.logger, "Error processing price update", error);
-                });
-            });
-        }
     }
 
     async onModuleDestroy(): Promise<void> {
@@ -139,21 +123,26 @@ export class HolderAggregationService implements OnModuleInit, OnModuleDestroy {
     }
 
     async onPriceUpdate(event: PriceUpdateEvent): Promise<void> {
+        const network = event.network;
+
+        const stored = await this.tokenPriceService.setPrice({
+            cluster: network,
+            mint: event.mint,
+            priceUsd: event.price_usd,
+            priceNative: event.price_native,
+            slot: event.slot,
+            source: "indexer-price-update"
+        });
+        if (!stored) return;
+
         const redis = this.redisService.getClient();
         if (!redis) return;
 
-        const network = event.network;
-        const priceKey = RedisService.KEYS.TOKEN_PRICE_LATEST(network, event.mint);
-
         try {
-            await redis.hset(priceKey, {
-                price_usd: event.price_usd,
-                price_native: event.price_native,
-                slot: event.slot,
-                source: event.source
-            });
-            this.logger.log(`Updated price for token: ${event.mint}, price=${event.price_usd}`);
-            await redis.expire(priceKey, RedisService.TTL.TOKEN_PRICE_LATEST);
+            const committedPrice = await this.tokenPriceService.getPrice(network, event.mint);
+            if (committedPrice.priceUsd <= 0) return;
+
+            this.logger.log(`Updated price for token: ${event.mint}, price=${committedPrice.priceUsd}`);
 
             // Recalculate unrealized PnL for top 50 holders
             const rankingKey = RedisService.KEYS.HOLDER_RANKING(network, event.mint);
@@ -167,7 +156,7 @@ export class HolderAggregationService implements OnModuleInit, OnModuleDestroy {
 
                     const balance = parseFloat(data.balance);
                     const costBasis = parseFloat(data.cost_basis);
-                    const unrealizedPnl = balance * event.price_usd - costBasis;
+                    const unrealizedPnl = balance * committedPrice.priceUsd - costBasis;
                     await redis.hset(holderKey, "unrealized_pnl", unrealizedPnl);
                 })
             );

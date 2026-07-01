@@ -51,7 +51,8 @@ export class Token {
     @Column({ type: "decimal", precision: 30, scale: 0, nullable: true })
     maxSupply?: number | null;
 
-    // Price & Market
+    // Reference USD price refreshed by background catalog sync jobs.
+    // Live slot-ordered latest prices are owned by TokenPriceService in Redis.
     @Column({ type: "decimal", precision: 30, scale: 9, default: 0 })
     price: number;
 
