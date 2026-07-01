@@ -1,6 +1,4 @@
 import { BadRequestException, HttpException, HttpStatus, Inject, Injectable, InternalServerErrorException, Logger } from "@nestjs/common";
-import { InjectRepository } from "@nestjs/typeorm";
-import { Repository } from "typeorm";
 import axios from "axios";
 import { CoinGeckoService } from "../../../infra/coingecko/coingecko.service";
 import { EXECUTOR_SERVICE } from "../../../infra/executor/constants/executor.token";
@@ -9,7 +7,6 @@ import { JitoService } from "../../../infra/jito/jito.service";
 import { KoraService } from "../../../infra/kora/kora.service";
 import { SolanaService } from "../../../infra/solana/solana.service";
 import { RedisService } from "../../../redis/services/redis.service";
-import { SwapExecution } from "../../admin-analytics/entities/swap-execution.entity";
 import type { ExecuteSwapDto } from "../dtos/execute-swap.dto";
 import type { GetQuoteDto } from "../dtos/get-quote.dto";
 import type { GetSwapInfoDto, SwapInfoResponse } from "../dtos/get-swap-info.dto";
@@ -35,9 +32,7 @@ export class SwapService {
         private readonly koraService: KoraService,
         private readonly jitoService: JitoService,
         private readonly redisService: RedisService,
-        private readonly coinGeckoService: CoinGeckoService,
-        @InjectRepository(SwapExecution)
-        private readonly swapExecutionRepo: Repository<SwapExecution>
+        private readonly coinGeckoService: CoinGeckoService
     ) {}
 
     async getQuote(cluster: Cluster, dto: GetQuoteDto): Promise<QuoteResponse> {
@@ -90,7 +85,7 @@ export class SwapService {
         }
     }
 
-    async executeSwap(cluster: Cluster, dto: ExecuteSwapDto, userId: string | null = null): Promise<{ signature: string }> {
+    async executeSwap(cluster: Cluster, dto: ExecuteSwapDto): Promise<{ signature: string }> {
         let result: { signature: string };
 
         if (dto.gaslessFeeToken) {
@@ -112,7 +107,6 @@ export class SwapService {
             result = await this.submitSignedTransaction(cluster, dto.signedTransaction);
         }
 
-        this.persistSwapExecution(result.signature, dto, userId);
         return result;
     }
 
@@ -144,25 +138,6 @@ export class SwapService {
             const message = error instanceof Error ? error.message : "Swap execution failed.";
             throw new HttpException(message, HttpStatus.BAD_GATEWAY);
         }
-    }
-
-    private persistSwapExecution(signature: string, dto: ExecuteSwapDto, userId: string | null): void {
-        if (!dto.walletAddress || !dto.inputMint || !dto.outputMint || !dto.inAmount || !dto.outAmount) {
-            return;
-        }
-
-        this.swapExecutionRepo
-            .save({
-                userId,
-                walletAddress: dto.walletAddress,
-                signature,
-                inputMint: dto.inputMint,
-                outputMint: dto.outputMint,
-                inAmount: dto.inAmount,
-                outAmount: dto.outAmount,
-                volumeUsd: dto.volumeUsd ?? null
-            })
-            .catch((err) => this.logger.warn("Failed to persist swap execution", err));
     }
 
     private shortAddr(address: string): string {

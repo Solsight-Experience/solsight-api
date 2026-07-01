@@ -2,7 +2,6 @@ import { Token } from "../modules/tokens/entities/token.entity";
 import { OhlcCandle } from "../modules/tokens/entities/ohlc-candle.entity";
 import { Category } from "../modules/tokens/entities/category.entity";
 import { Transaction } from "../modules/transactions/entities/transaction.entity";
-import { SwapTrade } from "../modules/portfolio/entities/swap-trade.entity";
 import { WalletSnapshot } from "../modules/portfolio/entities/wallet-snapshot.entity";
 import { MarketPriceEvent } from "../modules/indexer/entities/market-price-event.entity";
 import { User } from "../modules/users/entities/user.entity";
@@ -18,7 +17,6 @@ export type AppEntity =
     | OhlcCandle
     | Category
     | Transaction
-    | SwapTrade
     | WalletSnapshot
     | MarketPriceEvent
     | User
@@ -34,7 +32,6 @@ export const ENTITIES = [
     OhlcCandle,
     Category,
     Transaction,
-    SwapTrade,
     WalletSnapshot,
     MarketPriceEvent,
     User,
