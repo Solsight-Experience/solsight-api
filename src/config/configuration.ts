@@ -91,8 +91,8 @@ const configuration = () => ({
         version: process.env.API_VERSION || "v1"
     },
 
-    zalo: {
-        botToken: process.env.ZALO_BOT_TOKEN ?? ""
+    telegram: {
+        botToken: process.env.TELEGRAM_BOT_TOKEN ?? ""
     },
 
     email: {

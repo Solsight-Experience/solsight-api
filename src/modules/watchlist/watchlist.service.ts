@@ -20,8 +20,9 @@ export class WatchlistService {
     }
 
     async add(userId: string, dto: AddWatchedWalletDto): Promise<WatchedWallet> {
+        const network = dto.network ?? "mainnet";
         const existing = await this.watchedWalletRepo.findOne({
-            where: { userId, walletAddress: dto.walletAddress }
+            where: { userId, walletAddress: dto.walletAddress, network }
         });
         if (existing) {
             throw new ConflictException("Wallet already in watchlist");
@@ -29,7 +30,8 @@ export class WatchlistService {
         const entity = this.watchedWalletRepo.create({
             userId,
             walletAddress: dto.walletAddress,
-            label: dto.label
+            label: dto.label,
+            network
         });
         return this.watchedWalletRepo.save(entity);
     }
@@ -45,10 +47,10 @@ export class WatchlistService {
         return this.watchedWalletRepo.save(entity);
     }
 
-    async remove(userId: string, walletAddress: string): Promise<{ success: boolean }> {
-        const entity = await this.watchedWalletRepo.findOne({
-            where: { userId, walletAddress }
-        });
+    async remove(userId: string, walletAddress: string, network?: string): Promise<{ success: boolean }> {
+        const where: Record<string, unknown> = { userId, walletAddress };
+        if (network) where.network = network;
+        const entity = await this.watchedWalletRepo.findOne({ where: where as Parameters<typeof this.watchedWalletRepo.findOne>[0]["where"] });
         if (!entity) {
             throw new NotFoundException("Watched wallet not found");
         }

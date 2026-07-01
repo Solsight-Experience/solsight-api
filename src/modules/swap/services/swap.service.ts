@@ -1,9 +1,9 @@
 import { BadRequestException, HttpException, HttpStatus, Inject, Injectable, InternalServerErrorException, Logger } from "@nestjs/common";
+import axios from "axios";
 import { CoinGeckoService } from "../../../infra/coingecko/coingecko.service";
 import { EXECUTOR_SERVICE } from "../../../infra/executor/constants/executor.token";
 import type { ExecutorService, QuoteResponse, SwapResponse } from "../../../infra/executor/interfaces/executor-service.interface";
 import { JitoService } from "../../../infra/jito/jito.service";
-import { JupiterService } from "../../../infra/jupiter/jupiter.service";
 import { KoraService } from "../../../infra/kora/kora.service";
 import { SolanaService } from "../../../infra/solana/solana.service";
 import { RedisService } from "../../../redis/services/redis.service";
@@ -13,6 +13,7 @@ import type { GetSwapInfoDto, SwapInfoResponse } from "../dtos/get-swap-info.dto
 import type { GetSwapTransactionDto } from "../dtos/get-swap-transaction.dto";
 import { CachedFeeFields, CachedGaslessFields } from "../types/swap-cache.types";
 import type { Cluster } from "../../../common/cluster/cluster.types";
+import { getErrorMessage, logError } from "../../../common/errors/error-helper";
 
 const FEE_FALLBACK_PRIORITY_LAMPORTS = 100_000;
 const TIP_FALLBACK_LAMPORTS = 50_000;
@@ -31,7 +32,6 @@ export class SwapService {
         private readonly koraService: KoraService,
         private readonly jitoService: JitoService,
         private readonly redisService: RedisService,
-        private readonly jupiterService: JupiterService,
         private readonly coinGeckoService: CoinGeckoService
     ) {}
 
@@ -128,12 +128,6 @@ export class SwapService {
     async getSolPrice(cluster: Cluster): Promise<{ usd: number }> {
         const prices = await this.coinGeckoService.getSimplePrice(cluster, ["solana"]);
         return { usd: (prices as Record<string, { usd?: number }>)["solana"]?.usd ?? 0 };
-    }
-
-    async getTokenInfo(cluster: Cluster, mint: string): Promise<{ decimals: number } | null> {
-        const token = await this.jupiterService.searchToken(cluster, mint);
-        if (!token) return null;
-        return { decimals: token.decimals };
     }
 
     private async submitSignedTransaction(cluster: Cluster, signedTransactionBase64: string): Promise<{ signature: string }> {
@@ -246,30 +240,14 @@ export class SwapService {
             return error;
         }
 
-        const axiosError = error as {
-            response?: {
-                status?: number;
-                data?: { errorCode?: string; error?: string; message?: string };
-            };
-        };
+        logError(this.logger, "Swap quote request failed", error);
 
-        const data = axiosError?.response?.data;
-        const upstreamStatus = axiosError?.response?.status;
+        const response = axios.isAxiosError(error) ? error.response : undefined;
+        const data: unknown = response?.data;
+        const isTokenNotTradable = typeof data === "object" && data !== null && (data as Record<string, unknown>)["errorCode"] === "TOKEN_NOT_TRADABLE";
 
-        let message: string;
-        if (data?.errorCode === "TOKEN_NOT_TRADABLE") {
-            message = "This token is not tradable on Jupiter.";
-        } else if (data?.message) {
-            message = String(data.message);
-        } else if (data?.error) {
-            message = String(data.error);
-        } else if (error instanceof Error) {
-            message = error.message;
-        } else {
-            message = "Jupiter API request failed.";
-        }
-
-        const status = upstreamStatus && upstreamStatus >= 400 && upstreamStatus < 600 ? upstreamStatus : HttpStatus.BAD_GATEWAY;
+        const message = isTokenNotTradable ? "This token is not tradable on Jupiter." : getErrorMessage(error);
+        const status = response?.status && response.status >= 400 && response.status < 600 ? response.status : HttpStatus.BAD_GATEWAY;
 
         return new HttpException(message, status);
     }
