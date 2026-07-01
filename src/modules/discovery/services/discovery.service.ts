@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, Logger, OnModuleInit, NotFoundException } from "@nestjs/common";
 import { Cron, CronExpression } from "@nestjs/schedule";
 import { InjectRepository } from "@nestjs/typeorm";
-import { ILike, IsNull, MoreThan, Not, Repository, SelectQueryBuilder } from "typeorm";
+import { IsNull, Not, Repository, SelectQueryBuilder } from "typeorm";
 import { Token } from "../../tokens/entities/token.entity";
 import { Category } from "../../tokens/entities/category.entity";
 import { OhlcCandle } from "../../tokens/entities/ohlc-candle.entity";
@@ -405,22 +405,39 @@ export class DiscoveryService implements OnModuleInit {
     }
 
     async getCategories(_cluster: Cluster, dto: GetCategoryDto): Promise<PaginatedCategoriesResponse> {
-        const { limit = 10, offset = 0, name } = dto;
+        const { limit = 10, offset = 0, name, market_cap_min, market_cap_max, volume_min, volume_max, sort_by = "market_cap", sort_order = "desc" } = dto;
 
-        if (name) {
-            const [categories, total] = await this.categoryRepository.findAndCount({
-                where: {
-                    name: ILike(`%${name}%`),
-                    marketCap: MoreThan(0),
-                    volume24h: MoreThan(0)
-                },
-                order: { marketCap: "DESC" },
-                skip: offset,
-                take: limit
-            });
+        this.validateRange(market_cap_min, market_cap_max, "market_cap");
+        this.validateRange(volume_min, volume_max, "volume");
+
+        const hasFilter = name || market_cap_min !== undefined || market_cap_max !== undefined || volume_min !== undefined || volume_max !== undefined;
+        const hasCustomSort = sort_by !== "market_cap" || sort_order !== "desc";
+
+        if (hasFilter || hasCustomSort) {
+            const SORT_COLUMN_MAP: Record<string, string> = { market_cap: "marketCap", volume_24h: "volume24h", name: "name" };
+
+            const qb = this.categoryRepository
+                .createQueryBuilder("cat")
+                .where("cat.marketCap > 0")
+                .andWhere("cat.volume24h > 0")
+                .andWhere("cat.top3Coins IS NOT NULL AND cat.top3Coins != ''")
+                .andWhere("cat.top3CoinsId IS NOT NULL AND cat.top3CoinsId != ''");
+
+            if (name) qb.andWhere("cat.name ILIKE :name", { name: `%${name}%` });
+            if (market_cap_min !== undefined) qb.andWhere("cat.marketCap >= :mcMin", { mcMin: market_cap_min });
+            if (market_cap_max !== undefined) qb.andWhere("cat.marketCap <= :mcMax", { mcMax: market_cap_max });
+            if (volume_min !== undefined) qb.andWhere("cat.volume24h >= :vMin", { vMin: volume_min });
+            if (volume_max !== undefined) qb.andWhere("cat.volume24h <= :vMax", { vMax: volume_max });
+
+            const col = SORT_COLUMN_MAP[sort_by] ?? "marketCap";
+            qb.orderBy(`cat.${col}`, sort_order === "asc" ? "ASC" : "DESC")
+                .skip(offset)
+                .take(limit);
+
+            const [categories, total] = await qb.getManyAndCount();
 
             return {
-                data: categories.filter((cat) => cat.top3Coins?.length > 0 && cat.top3CoinsId?.length > 0).map((cat) => this.transformToCategory(cat)),
+                data: categories.map((cat) => this.transformToCategory(cat)),
                 total,
                 limit,
                 offset

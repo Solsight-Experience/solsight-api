@@ -1,5 +1,4 @@
 import { Module } from "@nestjs/common";
-import { TypeOrmModule } from "@nestjs/typeorm";
 import { SwapController } from "./controllers/swap.controller";
 import { SwapService } from "./services/swap.service";
 import { ExecutorModule } from "../../infra/executor/executor.module";
