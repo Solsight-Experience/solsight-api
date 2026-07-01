@@ -16,6 +16,8 @@ import type { Cluster } from "../../../common/cluster/cluster.types";
 import { TokenPriceService } from "../../tokens/services/token-price.service";
 import { TokensService } from "../../tokens/services/tokens.service";
 import { COMMON_TOKEN_MINT } from "src/modules/tokens/constants/token.constant";
+import { getErrorMessage, logError } from "src/common/errors/error-helper";
+import axios from "axios";
 
 const FEE_FALLBACK_PRIORITY_LAMPORTS = 100_000;
 const TIP_FALLBACK_LAMPORTS = 50_000;
