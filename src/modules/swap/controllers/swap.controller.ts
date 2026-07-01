@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query, Request, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Param, Post, Query, UseGuards } from "@nestjs/common";
 import { SwapService } from "../services/swap.service";
 import { GetQuoteDto } from "../dtos/get-quote.dto";
 import { GetSwapTransactionDto } from "../dtos/get-swap-transaction.dto";

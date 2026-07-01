@@ -1,6 +1,4 @@
 import { BadRequestException, HttpException, HttpStatus, Injectable, InternalServerErrorException, Logger } from "@nestjs/common";
-import { InjectRepository } from "@nestjs/typeorm";
-import { Repository } from "typeorm";
 import { CircuitBreaker } from "../../../infra/executor/circuit-breaker/circuit-breaker";
 import { GaslessNotSupportedException } from "../../../infra/executor/exceptions/gasless-not-supported.exception";
 import { ExecutorCapability, type ExecutorCapabilities } from "../../../infra/executor/interfaces/executor-capabilities.interface";
@@ -16,7 +14,6 @@ import type { GetSwapTransactionDto } from "../dtos/get-swap-transaction.dto";
 import { CachedFeeFields } from "../types/swap-cache.types";
 import type { Cluster } from "../../../common/cluster/cluster.types";
 import { TokenPriceService } from "../../tokens/services/token-price.service";
-import { TokensService } from "../../tokens/services/tokens.service";
 import { COMMON_TOKEN_MINT } from "src/modules/tokens/constants/token.constant";
 import { getErrorMessage, logError } from "src/common/errors/error-helper";
 import axios from "axios";
@@ -37,8 +34,7 @@ export class SwapService {
         private readonly koraService: KoraService,
         private readonly jitoService: JitoService,
         private readonly redisService: RedisService,
-        private readonly tokenPriceService: TokenPriceService,
-        private readonly tokensService: TokensService
+        private readonly tokenPriceService: TokenPriceService
     ) {}
 
     async getQuote(cluster: Cluster, dto: GetQuoteDto): Promise<QuoteResponse> {
