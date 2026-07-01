@@ -1,6 +1,8 @@
-import { BadRequestException, HttpException, HttpStatus, Inject, Injectable, InternalServerErrorException, Logger } from "@nestjs/common";
-import { EXECUTOR_SERVICE } from "../../../infra/executor/constants/executor.token";
-import type { ExecutorService, QuoteResponse, SwapResponse } from "../../../infra/executor/interfaces/executor-service.interface";
+import { BadRequestException, HttpException, HttpStatus, Injectable, InternalServerErrorException, Logger } from "@nestjs/common";
+import { CircuitBreaker } from "../../../infra/executor/circuit-breaker/circuit-breaker";
+import { GaslessNotSupportedException } from "../../../infra/executor/exceptions/gasless-not-supported.exception";
+import { ExecutorCapability, type ExecutorCapabilities } from "../../../infra/executor/interfaces/executor-capabilities.interface";
+import type { QuoteResponse, SwapResponse } from "../../../infra/executor/interfaces/executor-service.interface";
 import { JitoService } from "../../../infra/jito/jito.service";
 import { KoraService } from "../../../infra/kora/kora.service";
 import { SolanaService } from "../../../infra/solana/solana.service";
@@ -9,10 +11,9 @@ import type { ExecuteSwapDto } from "../dtos/execute-swap.dto";
 import type { GetQuoteDto } from "../dtos/get-quote.dto";
 import type { GetSwapInfoDto, SwapInfoResponse } from "../dtos/get-swap-info.dto";
 import type { GetSwapTransactionDto } from "../dtos/get-swap-transaction.dto";
-import { CachedFeeFields, CachedGaslessFields } from "../types/swap-cache.types";
+import { CachedFeeFields } from "../types/swap-cache.types";
 import type { Cluster } from "../../../common/cluster/cluster.types";
 import { TokenPriceService } from "../../tokens/services/token-price.service";
-import { TokensService } from "../../tokens/services/tokens.service";
 import { COMMON_TOKEN_MINT } from "src/modules/tokens/constants/token.constant";
 import { getErrorMessage, logError } from "src/common/errors/error-helper";
 import axios from "axios";
@@ -22,25 +23,24 @@ const TIP_FALLBACK_LAMPORTS = 50_000;
 const MAX_FEE_BUFFER_MULTIPLIER = 3;
 
 const FEE_CACHE_TTL_SECONDS = 5;
-const KORA_CACHE_TTL_SECONDS = 60;
 
 @Injectable()
 export class SwapService {
     private readonly logger = new Logger(SwapService.name);
 
     constructor(
-        @Inject(EXECUTOR_SERVICE) private readonly executorService: ExecutorService,
+        private readonly circuitBreaker: CircuitBreaker,
         private readonly solanaService: SolanaService,
         private readonly koraService: KoraService,
         private readonly jitoService: JitoService,
         private readonly redisService: RedisService,
-        private readonly tokenPriceService: TokenPriceService,
-        private readonly tokensService: TokensService
+        private readonly tokenPriceService: TokenPriceService
     ) {}
 
     async getQuote(cluster: Cluster, dto: GetQuoteDto): Promise<QuoteResponse> {
+        const executor = this.circuitBreaker.forCluster(cluster);
         try {
-            return await this.executorService.getQuote(cluster, {
+            return await executor.getQuote(cluster, {
                 inputMint: dto.inputMint,
                 outputMint: dto.outputMint,
                 amount: dto.amount,
@@ -53,35 +53,20 @@ export class SwapService {
     }
 
     async getSwapTransaction(cluster: Cluster, dto: GetSwapTransactionDto): Promise<SwapResponse> {
-        if (!dto.gaslessFeeToken) {
-            try {
-                return await this.executorService.getSwapTransaction(cluster, {
-                    quoteResponse: dto.quoteResponse,
-                    userPublicKey: dto.userPublicKey,
-                    wrapAndUnwrapSol: dto.wrapAndUnwrapSol ?? true
-                });
-            } catch (error) {
-                throw this.toHttpException(error);
-            }
-        }
-
-        if (!this.koraService.isEnabled()) {
-            throw new BadRequestException("Gasless transactions are not configured on this server.");
-        }
-
-        const supportedTokens = await this.koraService.getSupportedTokens();
-        if (!supportedTokens.includes(dto.gaslessFeeToken)) {
-            throw new BadRequestException(`Fee token ${dto.gaslessFeeToken} is not supported by the paymaster.`);
-        }
-
-        this.logger.log(`Gasless swap requested: feeToken=${this.shortAddr(dto.gaslessFeeToken)}`);
+        const executor = this.circuitBreaker.forCluster(cluster);
 
         try {
-            return await this.executorService.getSwapTransaction(cluster, {
+            if (dto.gaslessFeeToken) {
+                const capabilities = await executor.getCapabilities();
+                this.assertGaslessSupported(dto.gaslessFeeToken, capabilities);
+                this.logger.log(`Gasless swap requested: feeToken=${this.shortAddr(dto.gaslessFeeToken)}`);
+            }
+
+            return await executor.getSwapTransaction(cluster, {
                 quoteResponse: dto.quoteResponse,
                 userPublicKey: dto.userPublicKey,
                 wrapAndUnwrapSol: dto.wrapAndUnwrapSol ?? true,
-                feeToken: dto.gaslessFeeToken
+                ...(dto.gaslessFeeToken ? { feeToken: dto.gaslessFeeToken } : {})
             });
         } catch (error) {
             throw this.toHttpException(error);
@@ -92,9 +77,9 @@ export class SwapService {
         let result: { signature: string };
 
         if (dto.gaslessFeeToken) {
-            if (!this.koraService.isEnabled()) {
-                throw new BadRequestException("Gasless transactions are not configured on this server.");
-            }
+            const executor = this.circuitBreaker.forCluster(cluster);
+            const capabilities = await executor.getCapabilities();
+            this.assertGaslessSupported(dto.gaslessFeeToken, capabilities);
             try {
                 const koraSent = await this.koraService.signAndSendTransaction({ transaction: dto.signedTransaction });
                 await this.solanaService.confirmSignature(cluster, koraSent.signature);
@@ -114,7 +99,9 @@ export class SwapService {
     }
 
     async getSwapInfo(cluster: Cluster, _dto: GetSwapInfoDto): Promise<SwapInfoResponse> {
-        const [feeFields, gaslessFields] = await Promise.all([this.aggregateFeeFields(cluster), this.aggregateGaslessFields(cluster)]);
+        const executor = this.circuitBreaker.forCluster(cluster);
+        const [feeFields, executorCapabilities] = await Promise.all([this.aggregateFeeFields(cluster), executor.getCapabilities()]);
+        const capabilities = [...executorCapabilities.capabilities];
 
         return {
             autoPriorityFeeLamports: feeFields.autoPriorityFeeLamports,
@@ -122,9 +109,11 @@ export class SwapService {
             // TODO(swap-info): derive auto slippage from quote response
             autoSlippageBps: null,
             maxAutoFeeLamports: feeFields.maxAutoFeeLamports,
-            gaslessEnabled: gaslessFields.gaslessEnabled,
-            gaslessSupportedTokens: gaslessFields.gaslessSupportedTokens,
-            payerPubkey: gaslessFields.payerPubkey
+            executorKey: executorCapabilities.executorKey,
+            capabilities,
+            gaslessEnabled: capabilities.includes(ExecutorCapability.Gasless),
+            gaslessSupportedTokens: [...executorCapabilities.gaslessSupportedTokens],
+            payerPubkey: executorCapabilities.payerPubkey
         };
     }
 
@@ -170,34 +159,6 @@ export class SwapService {
         return fields;
     }
 
-    private async aggregateGaslessFields(cluster: Cluster): Promise<CachedGaslessFields> {
-        const cached = await this.redisService.get<CachedGaslessFields>(RedisService.KEYS.SWAP_KORA_CACHE(cluster));
-        if (cached) {
-            return cached;
-        }
-
-        const gaslessEnabled = this.koraService.isEnabled();
-        let gaslessSupportedTokens: string[] = [];
-        let payerPubkey: string | null = null;
-
-        try {
-            [gaslessSupportedTokens, payerPubkey] = await Promise.all([this.koraService.getSupportedTokens(), this.koraService.getPayerPubkey()]);
-        } catch (error) {
-            this.logger.warn(`Kora aggregation failed; serving disabled-state fallback: ${error instanceof Error ? error.message : String(error)}`);
-            gaslessSupportedTokens = [];
-            payerPubkey = null;
-        }
-
-        const fields: CachedGaslessFields = {
-            gaslessEnabled,
-            gaslessSupportedTokens,
-            payerPubkey
-        };
-
-        await this.redisService.set(RedisService.KEYS.SWAP_KORA_CACHE(cluster), fields, KORA_CACHE_TTL_SECONDS);
-        return fields;
-    }
-
     private async fetchAutoPriorityFee(cluster: Cluster): Promise<number> {
         try {
             const samples = await this.solanaService.getRecentPrioritizationFees(cluster);
@@ -235,6 +196,16 @@ export class SwapService {
         } catch (error) {
             this.logger.warn(`Jito tip-floor fetch failed; using fallback ${TIP_FALLBACK_LAMPORTS}: ${error instanceof Error ? error.message : String(error)}`);
             return TIP_FALLBACK_LAMPORTS;
+        }
+    }
+
+    private assertGaslessSupported(gaslessFeeToken: string, capabilities: ExecutorCapabilities): void {
+        if (!capabilities.capabilities.includes(ExecutorCapability.Gasless)) {
+            throw new GaslessNotSupportedException(capabilities.executorKey);
+        }
+
+        if (!capabilities.gaslessSupportedTokens.includes(gaslessFeeToken)) {
+            throw new BadRequestException(`Fee token ${gaslessFeeToken} is not supported by the paymaster.`);
         }
     }
 

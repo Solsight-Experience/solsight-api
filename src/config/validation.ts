@@ -74,7 +74,6 @@ export const validationSchema = Joi.object({
     JITO_TIP_FLOOR_URL: Joi.string().uri().optional(),
 
     // Executor
-    EXECUTOR_PROVIDER: Joi.string().valid("jupiter", "solsight").optional(),
     SOLSIGHT_EXECUTOR_API_URL: Joi.string().uri().optional(),
     SOLSIGHT_EXECUTOR_API_KEY: Joi.string().optional(),
 
