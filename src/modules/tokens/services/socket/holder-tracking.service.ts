@@ -1,13 +1,11 @@
-import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from "@nestjs/common";
-import { PubSubService } from "../../../../redis/services/pubsub.service";
+import { Injectable, Logger, OnModuleDestroy } from "@nestjs/common";
 import { RedisService } from "../../../../redis/services/redis.service";
 import { HolderCommand, TrackedMintState } from "../../types/holder-tracking.types";
 import { logError } from "src/common/errors/error-helper";
-import { CLUSTERS, type Cluster } from "../../../../common/cluster/cluster.types";
+import type { Cluster } from "../../../../common/cluster/cluster.types";
 import { RoomFactory } from "./room/room.factory";
 
 const HOLDER_COMMAND_CHANNEL = (network: string) => `solsight:holder_commands:${network}`;
-const HOLDER_RESPONSE_CHANNEL = (network: string) => `solsight:holder_responses:${network}`;
 const UNTRACK_GRACE_PERIOD_MS = 5 * 60 * 1000; // 5 minutes grace period
 
 /**
@@ -18,25 +16,11 @@ const UNTRACK_GRACE_PERIOD_MS = 5 * 60 * 1000; // 5 minutes grace period
  * it waits for a grace period before sending "untrack".
  */
 @Injectable()
-export class HolderTrackingService implements OnModuleInit, OnModuleDestroy {
+export class HolderTrackingService implements OnModuleDestroy {
     private readonly logger = new Logger(HolderTrackingService.name);
     private readonly trackedMints = new Map<string, TrackedMintState>();
 
-    constructor(
-        private readonly redisService: RedisService,
-        private readonly pubSubService: PubSubService
-    ) {}
-
-    async onModuleInit(): Promise<void> {
-        // Subscribe to responses from indexer (optional, for logging)
-        for (const network of CLUSTERS) {
-            await this.pubSubService.subscribe(HOLDER_RESPONSE_CHANNEL(network), (message) => {
-                this.logger.debug(`Indexer ${network} response: ${JSON.stringify(message)}`);
-            });
-        }
-
-        this.logger.log("HolderTrackingService initialized");
-    }
+    constructor(private readonly redisService: RedisService) {}
 
     onModuleDestroy(): void {
         // Clear all timers
@@ -45,6 +29,11 @@ export class HolderTrackingService implements OnModuleInit, OnModuleDestroy {
                 clearTimeout(state.untrackTimer);
             }
         }
+    }
+
+    logResponse(event: unknown, channel: string): void {
+        const cluster = channel.split(":").pop();
+        this.logger.debug(`Indexer ${cluster} response: ${JSON.stringify(event)}`);
     }
 
     /**

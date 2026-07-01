@@ -12,6 +12,9 @@ export class RedisService implements OnModuleDestroy {
     private readonly logger = new Logger(RedisService.name);
 
     public static readonly KEYS = redisKeys({
+        // Latest-price hash fields: `price_usd`, `price_native`, `slot`, `source`.
+        // `source` must describe price origin (`swap`, `indexer-price-update`, `reference-sync`),
+        // never the name of the service process that happened to write last.
         TOKEN_PRICE_LATEST: (network: string, mint: string) => `price:${network}:${mint}:latest`,
         TOKEN_PRICE_HISTORY: (network: string, mint: string) => `price:${network}:${mint}:history`,
         TOKEN_METADATA: (network: string, mint: string) => `token:meta:${network}:${mint}`,
@@ -39,7 +42,7 @@ export class RedisService implements OnModuleDestroy {
     });
 
     public static readonly TTL = redisTtls({
-        TOKEN_PRICE_LATEST: 60,
+        TOKEN_PRICE_LATEST: 60 * 60,
         TOKEN_PRICE_HISTORY: 25 * 60 * 60,
         TOKEN_METADATA: 24 * 60 * 60,
         HOLDER_MINT_WALLET: 24 * 60 * 60,

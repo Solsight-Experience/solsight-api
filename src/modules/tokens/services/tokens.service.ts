@@ -633,7 +633,7 @@ export class TokensService {
                 amount_token: isBuy ? Number(tx.amountOut ?? 0) : Number(tx.amount),
                 amount_sol: isBuy ? Number(tx.amount) : Number(tx.amountOut ?? 0),
                 price: Number(tx.metadata?.price_native ?? 0),
-                price_usd: Number(tx.metadata?.price_usd ?? 0),
+                price_usd: tx.metadata?.price_usd == null ? null : Number(tx.metadata.price_usd),
                 market_cap: 0,
                 trader_address: tx.signerAddress ?? "",
                 tx_url: `https://solscan.io/tx/${tx.signature}`
