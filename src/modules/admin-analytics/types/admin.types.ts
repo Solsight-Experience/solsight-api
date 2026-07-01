@@ -10,6 +10,24 @@
  */
 
 // ---------------------------------------------------------------------------
+// Internal: normalized swap record from transactions table
+// ---------------------------------------------------------------------------
+
+export interface NormalizedSwap {
+    id: string;
+    signature: string;
+    walletAddress: string;
+    userId: string | null;
+    inputMint: string;
+    outputMint: string;
+    inAmount: string;
+    outAmount: string;
+    volumeUsd: number | null;
+    createdAt: Date;
+    source: "transactions";
+}
+
+// ---------------------------------------------------------------------------
 // Shared primitives
 // ---------------------------------------------------------------------------
 
