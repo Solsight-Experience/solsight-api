@@ -30,11 +30,7 @@ export class DiscoveryService implements OnModuleInit {
         @InjectRepository(Token)
         private readonly tokenRepository: Repository<Token>,
         @InjectRepository(Category)
-        private readonly categoryRepository: Repository<Category>,
-        @InjectRepository(OhlcCandle)
-        private readonly ohlcCandleRepository: Repository<OhlcCandle>,
-        @InjectRepository(Transaction)
-        private readonly transactionRepository: Repository<Transaction>
+        private readonly categoryRepository: Repository<Category>
     ) {}
     onModuleInit() {
         this.logger.log("DiscoveryService initialized. Checking if categories need sync...");
@@ -535,7 +531,7 @@ export class DiscoveryService implements OnModuleInit {
         }
     }
 
-    async getCategoryDetail(cluster: Cluster, categorySlug: string, _dto: GetCategoryDto) {
+    async getCategoryDetail(_cluster: Cluster, categorySlug: string, _dto: GetCategoryDto) {
         const cacheKey = RedisService.KEYS.DISCOVERY_CATEGORY_DETAIL(categorySlug);
 
         const cached = await this.redisService.get(cacheKey);
