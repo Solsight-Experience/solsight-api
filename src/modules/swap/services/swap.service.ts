@@ -85,7 +85,7 @@ export class SwapService {
         }
     }
 
-    async executeSwap(cluster: Cluster, dto: ExecuteSwapDto, userId: string | null = null): Promise<{ signature: string }> {
+    async executeSwap(cluster: Cluster, dto: ExecuteSwapDto): Promise<{ signature: string }> {
         let result: { signature: string };
 
         if (dto.gaslessFeeToken) {
