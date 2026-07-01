@@ -3,7 +3,7 @@ import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
 import { User } from "../entities/user.entity";
 import { Wallet } from "../../wallets/entities/wallet.entity";
-import { SwapExecution } from "../../admin-analytics/entities/swap-execution.entity";
+import { Transaction, TransactionStatus, TransactionType } from "../../transactions/entities/transaction.entity";
 import { CreateUserDto } from "../dtos/create-user.dto";
 import { UserFilters } from "../types";
 
@@ -14,8 +14,8 @@ export class UsersRepository {
         private readonly userRepository: Repository<User>,
         @InjectRepository(Wallet)
         private readonly walletRepository: Repository<Wallet>,
-        @InjectRepository(SwapExecution)
-        private readonly swapExecutionRepository: Repository<SwapExecution>
+        @InjectRepository(Transaction)
+        private readonly transactionRepository: Repository<Transaction>
     ) {}
 
     async create(createUserDto: Partial<CreateUserDto> & Partial<User>): Promise<User> {
@@ -71,18 +71,20 @@ export class UsersRepository {
     }
 
     async getUserSwapStats(userId: string): Promise<{ totalSwaps: number; totalVolumeUsd: number; firstSwapAt: Date | null; lastSwapAt: Date | null }> {
-        const result = await this.swapExecutionRepository
-            .createQueryBuilder("se")
-            .select("COUNT(*)", "totalSwaps")
-            .addSelect("COALESCE(SUM(se.volumeUsd), 0)", "totalVolumeUsd")
-            .addSelect("MIN(se.createdAt)", "firstSwapAt")
-            .addSelect("MAX(se.createdAt)", "lastSwapAt")
-            .where("se.userId = :userId", { userId })
-            .getRawOne<{ totalSwaps: string; totalVolumeUsd: string; firstSwapAt: Date | null; lastSwapAt: Date | null }>();
+        const result = await this.transactionRepository
+            .createQueryBuilder("t")
+            .innerJoin(Wallet, "w", "w.address = t.signerAddress")
+            .where("w.userId = :userId", { userId })
+            .andWhere("t.type = :type", { type: TransactionType.SWAP })
+            .andWhere("t.status = :status", { status: TransactionStatus.CONFIRMED })
+            .select("COUNT(t.id)", "totalSwaps")
+            .addSelect("MIN(t.createdAt)", "firstSwapAt")
+            .addSelect("MAX(t.createdAt)", "lastSwapAt")
+            .getRawOne<{ totalSwaps: string; firstSwapAt: Date | null; lastSwapAt: Date | null }>();
 
         return {
             totalSwaps: parseInt(result?.totalSwaps ?? "0", 10),
-            totalVolumeUsd: parseFloat(result?.totalVolumeUsd ?? "0") || 0,
+            totalVolumeUsd: 0,
             firstSwapAt: result?.firstSwapAt ?? null,
             lastSwapAt: result?.lastSwapAt ?? null
         };
