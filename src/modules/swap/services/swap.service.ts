@@ -35,9 +35,7 @@ export class SwapService {
         private readonly jitoService: JitoService,
         private readonly redisService: RedisService,
         private readonly tokenPriceService: TokenPriceService,
-        private readonly tokensService: TokensService,
-        @InjectRepository(SwapExecution)
-        private readonly swapExecutionRepo: Repository<SwapExecution>
+        private readonly tokensService: TokensService
     ) {}
 
     async getQuote(cluster: Cluster, dto: GetQuoteDto): Promise<QuoteResponse> {
