@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, Logger, OnModuleInit, NotFoundException } from "@nestjs/common";
 import { Cron, CronExpression } from "@nestjs/schedule";
 import { InjectRepository } from "@nestjs/typeorm";
-import { ILike, IsNull, MoreThan, Not, Repository, SelectQueryBuilder } from "typeorm";
+import { IsNull, Not, Repository, SelectQueryBuilder } from "typeorm";
 import { Token } from "../../tokens/entities/token.entity";
 import { Category } from "../../tokens/entities/category.entity";
 import { OhlcCandle } from "../../tokens/entities/ohlc-candle.entity";
