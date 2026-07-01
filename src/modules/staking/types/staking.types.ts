@@ -64,3 +64,9 @@ export type CompiledMessageShape = {
     compiledInstructions: Array<{ programIdIndex: number; data: Uint8Array }>;
     staticAccountKeys: import("@solana/web3.js").PublicKey[];
 };
+
+export type TransactionMetaBalanceShape = {
+    fee?: number;
+    preBalances?: number[];
+    postBalances?: number[];
+};
