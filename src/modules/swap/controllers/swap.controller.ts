@@ -8,10 +8,14 @@ import { OptionalJwtAuthGuard } from "../../../common/guards/optional-jwt-auth.g
 import { JwtAuthGuard } from "../../auth/guards/jwt-auth.guard";
 import { RequestCluster } from "../../../common/cluster/request-cluster.decorator";
 import type { Cluster } from "../../../common/cluster/cluster.types";
+import { SolanaService } from "../../../infra/solana/solana.service";
 
 @Controller("swap")
 export class SwapController {
-    constructor(private readonly swapService: SwapService) {}
+    constructor(
+        private readonly swapService: SwapService,
+        private readonly solanaService: SolanaService
+    ) {}
 
     @Get("quote")
     async getQuote(@RequestCluster() cluster: Cluster, @Query() dto: GetQuoteDto) {
@@ -36,7 +40,8 @@ export class SwapController {
 
     @Get("token-info/:mint")
     async getTokenInfo(@RequestCluster() cluster: Cluster, @Param("mint") mint: string) {
-        return this.swapService.getTokenInfo(cluster, mint);
+        const decimals = await this.solanaService.getMintDecimals(cluster, mint);
+        return decimals == null ? null : { decimals };
     }
 
     @UseGuards(JwtAuthGuard)

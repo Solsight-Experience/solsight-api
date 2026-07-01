@@ -4,6 +4,7 @@ import { RoomFactory } from "./room/room.factory";
 import { WebsocketGateway } from "../../../../websocket/websocket.gateway";
 import { Injectable, Logger } from "@nestjs/common";
 import { HolderTrackingService } from "./holder-tracking.service";
+import { logError } from "../../../../common/errors/error-helper";
 
 @Injectable()
 export class TokenSocketGateway {
@@ -29,7 +30,7 @@ export class TokenSocketGateway {
                 });
             }
         } catch (error) {
-            this.logger.error("Error in subscribe:", error instanceof Error ? error.stack : String(error), TokenSocketGateway.name);
+            logError(this.logger, "Error in subscribe", error);
         }
     }
 
@@ -43,7 +44,7 @@ export class TokenSocketGateway {
                 this.holderTracking.onHolderRoomLeave(room);
             }
         } catch (error) {
-            this.logger.error("Error in unsubscribe:", error instanceof Error ? error.stack : String(error), TokenSocketGateway.name);
+            logError(this.logger, "Error in unsubscribe", error);
         }
     }
 
