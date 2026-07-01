@@ -1,4 +1,4 @@
-import { HttpException, Inject, Injectable, Logger } from "@nestjs/common";
+import { HttpException, Injectable, Logger } from "@nestjs/common";
 import type { ChatCompletionMessageParam, ChatCompletionTool } from "openai/resources/chat/completions";
 import { OpenAIService } from "../../../infra/openai/openai.service";
 import { SortByTrending, TimeFrame } from "../../discovery/dtos/get-trending.dto";
@@ -7,8 +7,7 @@ import { PortfolioService } from "../../portfolio/services/portfolio.service";
 import { TokensService } from "../../tokens/services/tokens.service";
 import { ChatResponsePayload, SendMessagePayload, PageContext } from "../types/chat.types";
 import { RagService } from "./rag.service";
-import { EXECUTOR_SERVICE } from "../../../infra/executor/constants/executor.token";
-import type { ExecutorService } from "../../../infra/executor/interfaces/executor-service.interface";
+import { CircuitBreaker } from "../../../infra/executor/circuit-breaker/circuit-breaker";
 import * as fs from "fs";
 import * as path from "path";
 import type { Cluster } from "../../../common/cluster/cluster.types";
@@ -315,8 +314,7 @@ export class ChatService {
         private readonly portfolioService: PortfolioService,
         private readonly openaiService: OpenAIService,
         private readonly ragService: RagService,
-        @Inject(EXECUTOR_SERVICE)
-        private readonly executorService: ExecutorService,
+        private readonly circuitBreaker: CircuitBreaker,
         @InjectRepository(ChatSessionEntity)
         private readonly sessionRepo: Repository<ChatSessionEntity>,
         @InjectRepository(ChatMessageEntity)
@@ -354,7 +352,7 @@ export class ChatService {
     /**
      * Fetch price impact for a given swap pair via the ExecutorService interface.
      *
-     * Delegates to whichever executor is configured (solsight-executor or Jupiter).
+     * Delegates to the executor selected for the request cluster.
      * Both return `priceImpactPct` as a decimal-fraction string, e.g. "0.05" = 5%.
      *
      * Returns the raw decimal fraction, or null if the quote cannot be obtained.
@@ -371,7 +369,8 @@ export class ChatService {
             const amountBaseUnits = Math.round(amount * Math.pow(10, inputDecimals));
             if (amountBaseUnits <= 0) return null;
 
-            const quote = await this.executorService.getQuote(cluster, {
+            const executor = this.circuitBreaker.forCluster(cluster);
+            const quote = await executor.getQuote(cluster, {
                 inputMint,
                 outputMint,
                 amount: String(amountBaseUnits),

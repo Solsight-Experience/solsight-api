@@ -1,5 +1,6 @@
 import type { JupiterGetSwapQuoteParams, JupiterQuoteResponse, JupiterSwapRequest, JupiterSwapResponse } from "../../jupiter/types";
 import type { Cluster } from "../../../common/cluster/cluster.types";
+import type { ExecutorCapabilities } from "./executor-capabilities.interface";
 
 /**
  * Provider-agnostic types consumed by the swap module.
@@ -21,6 +22,11 @@ export interface SwapRequest extends JupiterSwapRequest {
 export type SwapResponse = JupiterSwapResponse;
 
 export interface ExecutorService {
+    /**
+     * Describe the optional features exposed by this executor.
+     */
+    getCapabilities(): Promise<ExecutorCapabilities>;
+
     /**
      * Fetch a swap quote for the given input/output mint pair.
      */

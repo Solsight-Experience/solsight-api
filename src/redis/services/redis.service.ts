@@ -26,7 +26,6 @@ export class RedisService implements OnModuleDestroy {
         DISCOVERY_CATEGORIES_TOTAL: () => `discovery:categories:total`,
         DISCOVERY_CATEGORY_DETAIL: (slug: string) => `discovery:category:${slug}`,
         SWAP_FEE_CACHE: (network: string) => `swap:info:${network}:fees:v1`,
-        SWAP_KORA_CACHE: (network: string) => `swap:info:${network}:gasless:v1`,
         HOLDER_MINT_WALLET: (network: string, mint: string, wallet: string) => `holder:${network}:${mint}:${wallet}`,
         HOLDER_RANKING: (network: string, mint: string) => `holders:${network}:${mint}:ranked`,
         TRADER_POSITION: (network: string, mint: string, wallet: string) => `trader:${network}:${mint}:${wallet}`,

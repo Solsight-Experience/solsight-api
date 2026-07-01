@@ -5,7 +5,6 @@ import { GetSwapTransactionDto } from "../dtos/get-swap-transaction.dto";
 import { ExecuteSwapDto } from "../dtos/execute-swap.dto";
 import { GetSwapInfoDto } from "../dtos/get-swap-info.dto";
 import { OptionalJwtAuthGuard } from "../../../common/guards/optional-jwt-auth.guard";
-import { JwtAuthGuard } from "../../auth/guards/jwt-auth.guard";
 import { RequestCluster } from "../../../common/cluster/request-cluster.decorator";
 import type { Cluster } from "../../../common/cluster/cluster.types";
 
@@ -39,7 +38,6 @@ export class SwapController {
         return this.swapService.getTokenInfo(cluster, mint);
     }
 
-    @UseGuards(JwtAuthGuard)
     @Get("info")
     async getSwapInfo(@RequestCluster() cluster: Cluster, @Query() dto: GetSwapInfoDto) {
         return this.swapService.getSwapInfo(cluster, dto);
