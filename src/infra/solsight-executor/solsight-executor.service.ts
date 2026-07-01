@@ -5,6 +5,7 @@ import { KoraService } from "../kora/kora.service";
 import { ExecutorCapability, type ExecutorCapabilities } from "../executor/interfaces/executor-capabilities.interface";
 import type { ExecutorService, QuoteParams, QuoteResponse, SwapRequest, SwapResponse } from "../executor/interfaces/executor-service.interface";
 import type { Cluster } from "../../common/cluster/cluster.types";
+import { logError } from "../../common/errors/error-helper";
 
 @Injectable()
 export class SolsightExecutorService implements ExecutorService {
@@ -64,7 +65,7 @@ export class SolsightExecutorService implements ExecutorService {
             const response = await this.apiClient.get<QuoteResponse>("/quote", { params: { ...params, cluster } });
             return response.data;
         } catch (error) {
-            this.logger.error("Failed to get swap quote from solsight-executor", error);
+            logError(this.logger, "Failed to get swap quote from solsight-executor", error);
             throw error;
         }
     }
@@ -74,7 +75,7 @@ export class SolsightExecutorService implements ExecutorService {
             const response = await this.apiClient.post<SwapResponse>("/swap", { ...params, cluster });
             return response.data;
         } catch (error) {
-            this.logger.error("Failed to get swap transaction from solsight-executor", error);
+            logError(this.logger, "Failed to get swap transaction from solsight-executor", error);
             throw error;
         }
     }

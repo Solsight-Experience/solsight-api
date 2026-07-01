@@ -12,7 +12,7 @@ import * as fs from "fs";
 import * as path from "path";
 import type { Cluster } from "../../../common/cluster/cluster.types";
 
-const SYSTEM_PROMPT = fs.readFileSync(path.join(process.cwd(), "prompts/system.prompt.md"), "utf-8");
+const SYSTEM_PROMPT = fs.readFileSync(path.join(__dirname, "../prompts/system.prompt.md"), "utf-8");
 
 const STATIC_ROUTES = ["/", "/token/[tokenAddress]", "/portfolio", "/multi-chart", "/wallet-tracker", "/notifications"];
 
@@ -82,13 +82,15 @@ export const TOOL_DEFINITIONS: ChatCompletionTool[] = [
         type: "function",
         function: {
             name: "fetch_token_data",
-            description: "Fetch detailed token information by token mint address",
+            description:
+                'Fetch detailed token information including price, market cap, and 24h change. Accepts either a Solana mint address OR a token symbol (e.g. "SOL", "USDC", "BONK"). Symbol resolution is handled automatically — no need to call search_tokens first for well-known or common tokens.',
             parameters: {
                 type: "object",
                 properties: {
                     address: {
                         type: "string",
-                        description: "Solana token mint address"
+                        description:
+                            'Solana token mint address OR token symbol (e.g. "SOL", "USDC", "BONK", "JUP"). If a symbol is provided, it will be resolved to the correct mint address automatically.'
                     }
                 },
                 required: ["address"],
@@ -343,6 +345,19 @@ export class ChatService {
             } as unknown as ChatCompletionMessageParam;
         }
 
+        if (message.role === "user") {
+            let content = message.content;
+            const data = message.data as { pageContext?: PageContext } | null | undefined;
+            if (data?.pageContext) {
+                const { pathname, tokenAddress } = data.pageContext;
+                content = `[Current Page: ${pathname}${tokenAddress ? `, Token Address: ${tokenAddress}` : ""}] ${message.content}`;
+            }
+            return {
+                role: "user" as const,
+                content
+            } as ChatCompletionMessageParam;
+        }
+
         return {
             role: message.role as "user" | "system",
             content: message.content
@@ -450,7 +465,8 @@ export class ChatService {
             this.messageRepo.create({
                 sessionId: payload.sessionId,
                 role: "user",
-                content: payload.message
+                content: payload.message,
+                data: payload.pageContext ? { pageContext: payload.pageContext } : undefined
             })
         );
 
@@ -501,7 +517,8 @@ export class ChatService {
             this.messageRepo.create({
                 sessionId: payload.sessionId,
                 role: "user",
-                content: payload.message
+                content: payload.message,
+                data: payload.pageContext ? { pageContext: payload.pageContext } : undefined
             })
         );
 
@@ -846,7 +863,23 @@ export class ChatService {
         try {
             switch (toolName) {
                 case "fetch_token_data": {
-                    const address = this.getStringArg(args, "address");
+                    let address = this.getStringArg(args, "address");
+
+                    const isAddress = (str: string) => /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(str);
+
+                    // Resolve symbol → mint address (same logic as prepare_swap)
+                    if (address && !isAddress(address)) {
+                        const upper = address.toUpperCase();
+                        if (COMMON_SYMBOLS[upper]) {
+                            address = COMMON_SYMBOLS[upper];
+                        } else {
+                            const searchResult = await this.tokensService.search(cluster, address, 1);
+                            if (searchResult && searchResult.length > 0) {
+                                address = searchResult[0].address;
+                            }
+                        }
+                    }
+
                     const data = await this.tokensService.findOne(cluster, address);
                     return JSON.stringify(data);
                 }

@@ -18,6 +18,8 @@ import type { Cluster } from "../../../common/cluster/cluster.types";
 import { TokenPriceService } from "../../tokens/services/token-price.service";
 import { TokensService } from "../../tokens/services/tokens.service";
 import { COMMON_TOKEN_MINT } from "src/modules/tokens/constants/token.constant";
+import { getErrorMessage, logError } from "src/common/errors/error-helper";
+import axios from "axios";
 
 const FEE_FALLBACK_PRIORITY_LAMPORTS = 100_000;
 const TIP_FALLBACK_LAMPORTS = 50_000;
@@ -124,12 +126,6 @@ export class SwapService {
         return { usd: price.priceUsd };
     }
 
-    async getTokenInfo(cluster: Cluster, mint: string): Promise<{ decimals: number } | null> {
-        const meta = await this.tokensService.getTokenMetadata(cluster, mint);
-        if (!meta) return null;
-        return { decimals: meta.decimals };
-    }
-
     private async submitSignedTransaction(cluster: Cluster, signedTransactionBase64: string): Promise<{ signature: string }> {
         try {
             return await this.solanaService.submitAndConfirm(cluster, signedTransactionBase64);
@@ -222,30 +218,14 @@ export class SwapService {
             return error;
         }
 
-        const axiosError = error as {
-            response?: {
-                status?: number;
-                data?: { errorCode?: string; error?: string; message?: string };
-            };
-        };
+        logError(this.logger, "Swap quote request failed", error);
 
-        const data = axiosError?.response?.data;
-        const upstreamStatus = axiosError?.response?.status;
+        const response = axios.isAxiosError(error) ? error.response : undefined;
+        const data: unknown = response?.data;
+        const isTokenNotTradable = typeof data === "object" && data !== null && (data as Record<string, unknown>)["errorCode"] === "TOKEN_NOT_TRADABLE";
 
-        let message: string;
-        if (data?.errorCode === "TOKEN_NOT_TRADABLE") {
-            message = "This token is not tradable on Jupiter.";
-        } else if (data?.message) {
-            message = String(data.message);
-        } else if (data?.error) {
-            message = String(data.error);
-        } else if (error instanceof Error) {
-            message = error.message;
-        } else {
-            message = "Jupiter API request failed.";
-        }
-
-        const status = upstreamStatus && upstreamStatus >= 400 && upstreamStatus < 600 ? upstreamStatus : HttpStatus.BAD_GATEWAY;
+        const message = isTokenNotTradable ? "This token is not tradable on Jupiter." : getErrorMessage(error);
+        const status = response?.status && response.status >= 400 && response.status < 600 ? response.status : HttpStatus.BAD_GATEWAY;
 
         return new HttpException(message, status);
     }

@@ -1,4 +1,4 @@
-import { IsString, IsNotEmpty, IsOptional, Length } from "class-validator";
+import { IsString, IsNotEmpty, IsOptional, Length, IsObject } from "class-validator";
 
 export class SendMessageDto {
     @IsString()
@@ -17,4 +17,11 @@ export class SendMessageDto {
     @IsOptional()
     @IsString()
     walletAddress?: string;
+
+    @IsOptional()
+    @IsObject()
+    pageContext?: {
+        pathname: string;
+        tokenAddress?: string;
+    };
 }

@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Delete, Body, Param, UseGuards } from "@nestjs/common";
+import { Controller, Get, Post, Patch, Delete, Body, Param, Query, UseGuards } from "@nestjs/common";
 import { JwtAuthGuard } from "../auth/guards/jwt-auth.guard";
 import { WatchlistService } from "./watchlist.service";
 import { WalletAlertService } from "./wallet-alert.service";
@@ -32,8 +32,8 @@ export class WatchlistController {
     }
 
     @Delete(":address")
-    async removeWallet(@CurrentUser() user: CurrentUserPayload, @Param("address") address: string) {
-        return this.watchlistService.remove(user.id, address);
+    async removeWallet(@CurrentUser() user: CurrentUserPayload, @Param("address") address: string, @Query("network") network?: string) {
+        return this.watchlistService.remove(user.id, address, network);
     }
 
     // ── Wallet Alerts ─────────────────────────────────────────────────────────

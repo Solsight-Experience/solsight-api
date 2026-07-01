@@ -9,10 +9,8 @@ export class GetStakingHistoryDto extends ClusterQueryDto {
     wallet!: string;
 
     @IsOptional()
-    @Type(() => Number)
-    @IsInt()
-    @Min(1)
-    page?: number = 1;
+    @IsString()
+    before?: string;
 
     @IsOptional()
     @Type(() => Number)

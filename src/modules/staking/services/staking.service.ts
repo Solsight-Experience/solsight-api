@@ -90,19 +90,19 @@ export class StakingService {
 
     async getHistory(cluster: Cluster, dto: GetStakingHistoryDto): Promise<StakingHistoryResponse> {
         const { rpc, pdas, ifProgramId, owner } = this.resolveStakingContext(cluster, dto.wallet);
-        const page = dto.page ?? 1;
         const pageSize = dto.pageSize ?? 8;
+        const before = dto.before;
         const ifInfo = await rpc.getAccountInfo(pdas.insuranceFund, "confirmed");
         if (!ifInfo) {
-            return { records: [], total: 0 };
+            return { records: [], nextCursor: null };
         }
         const fund = decodeInsuranceFund(ifInfo.data);
         const vaultBalance = await rpc.getTokenAccountBalance(fund.vaultTokenAccount, "confirmed").catch(() => null);
         const vaultUnits = vaultBalance ? BigInt(vaultBalance.value.amount) : ZERO;
-        const allSigs = await rpc.getSignaturesForAddress(pdas.ifStake, { limit: 100 });
-        const total = allSigs.length;
-        const start = (page - 1) * pageSize;
-        const pageSigs = allSigs.slice(start, start + pageSize);
+        const fetchedSigs = await rpc.getSignaturesForAddress(pdas.ifStake, { limit: pageSize + 1, before });
+        const hasMore = fetchedSigs.length > pageSize;
+        const pageSigs = fetchedSigs.slice(0, pageSize);
+        const nextCursor = hasMore && pageSigs.length > 0 ? pageSigs[pageSigs.length - 1].signature : null;
 
         const records = (
             await Promise.all(
@@ -146,7 +146,7 @@ export class StakingService {
             )
         ).filter((record): record is StakeHistoryRecord => record !== null);
 
-        return { records, total };
+        return { records, nextCursor };
     }
 
     async buildTransaction(cluster: Cluster, dto: BuildStakingTransactionDto): Promise<BuiltStakingTransaction> {
