@@ -1,11 +1,21 @@
 import { Injectable } from "@nestjs/common";
 import type { Cluster } from "../../../common/cluster/cluster.types";
 import { JupiterService } from "../../jupiter/jupiter.service";
+import { ExecutorCapability, type ExecutorCapabilities } from "../interfaces/executor-capabilities.interface";
 import type { ExecutorService, QuoteParams, QuoteResponse, SwapRequest, SwapResponse } from "../interfaces/executor-service.interface";
 
 @Injectable()
 export class JupiterExecutorService implements ExecutorService {
     constructor(private readonly jupiterService: JupiterService) {}
+
+    getCapabilities(): Promise<ExecutorCapabilities> {
+        return Promise.resolve({
+            executorKey: "jupiter",
+            capabilities: [ExecutorCapability.MevProtection],
+            gaslessSupportedTokens: [],
+            payerPubkey: null
+        });
+    }
 
     async getQuote(cluster: Cluster, params: QuoteParams): Promise<QuoteResponse> {
         return this.jupiterService.getSwapQuote(cluster, params);

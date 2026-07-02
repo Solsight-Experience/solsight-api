@@ -35,7 +35,7 @@ export class CoinGeckoService {
             timeout: 10000,
             headers: {
                 "Content-Type": "application/json",
-                ...(apiKey && { "x-cg-pro-api-key": apiKey })
+                ...(apiKey && { "x-cg-demo-api-key": apiKey })
             }
         });
 
