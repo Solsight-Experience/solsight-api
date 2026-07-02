@@ -1,16 +1,22 @@
 import { Injectable } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { Repository } from "typeorm";
+import { FindOptionsOrder, FindOptionsOrderValue, ILike, In, Repository } from "typeorm";
 import { Token } from "../../tokens/entities/token.entity";
+import { Favorite } from "../entities/favorite.entity";
 import type { Cluster } from "../../../common/cluster/cluster.types";
-import { TokenOverview } from "../../discovery/dtos/discovery.response.dto";
 import { FavoriteTokenDto } from "../dtos/favorite.dto";
+import { TokenFilterConditionDto, TokenFilterResponseDto } from "../../tokens/dtos/token.filter.dto";
+import { mapTokenEntityToOverviewDto } from "../../tokens/mapper/token.mapper";
+import { resolvePriceChangeColumn, buildTokenFilterWhere } from "../../tokens/services/token-filter.util";
+import { TimeFrame } from "../../discovery/dtos/get-trending.dto";
 
 @Injectable()
 export class AccountService {
     constructor(
         @InjectRepository(Token)
-        private readonly tokenRepository: Repository<Token>
+        private readonly tokenRepository: Repository<Token>,
+        @InjectRepository(Favorite)
+        private readonly favoriteRepository: Repository<Favorite>
     ) {}
 
     private user = {
@@ -49,27 +55,6 @@ export class AccountService {
         wallets_connected: 3
     };
 
-    private favorites = [
-        {
-            token_address: "0x12345",
-            added_at: "2023-01-01T00:00:00Z",
-            token: {
-                name: "Token1",
-                symbol: "T1",
-                price_usd: 10
-            }
-        },
-        {
-            token_address: "0x67890",
-            added_at: "2023-02-01T00:00:00Z",
-            token: {
-                name: "Token2",
-                symbol: "T2",
-                price_usd: 20
-            }
-        }
-    ];
-
     private wallets = [
         {
             address: "sol_wallet_1",
@@ -101,61 +86,107 @@ export class AccountService {
         return this.userStats;
     }
 
-    async getFavorites(cluster: Cluster): Promise<FavoriteTokenDto[]> {
+    async getFavorites(userId: string, cluster: Cluster): Promise<FavoriteTokenDto[]> {
+        const favorites = await this.favoriteRepository.find({
+            where: { userId, network: cluster },
+            order: { createdAt: "DESC" }
+        });
+
         const result: FavoriteTokenDto[] = [];
-        for (const fav of this.favorites) {
+        for (const fav of favorites) {
             const token = await this.tokenRepository.findOne({
-                where: { address: fav.token_address, network: cluster },
+                where: { address: fav.tokenAddress, network: cluster },
                 relations: ["category"]
             });
 
-            if (token) {
-                result.push({
-                    token_address: fav.token_address,
-                    added_at: fav.added_at,
-                    token: this.transformToTokenOverview(token, cluster)
-                });
-            } else {
-                result.push({
-                    token_address: fav.token_address,
-                    added_at: fav.added_at,
-                    token: null
-                });
-            }
+            result.push({
+                token_address: fav.tokenAddress,
+                added_at: fav.createdAt.toISOString(),
+                token: token ? mapTokenEntityToOverviewDto(token, cluster) : null
+            });
         }
         return result;
     }
 
-    addFavorite(tokenAddress: string) {
-        // Check if already exists
-        const exists = this.favorites.find((fav) => fav.token_address === tokenAddress);
+    async addFavorite(userId: string, cluster: Cluster, tokenAddress: string) {
+        const exists = await this.favoriteRepository.findOne({ where: { userId, tokenAddress, network: cluster } });
         if (exists) {
             return { success: true, message: "Token already in favorites" };
         }
 
-        // Add to favorites
-        this.favorites.push({
-            token_address: tokenAddress,
-            added_at: new Date().toISOString(),
-            token: {
-                name: "Unknown Token",
-                symbol: "UNK",
-                price_usd: 0
-            }
-        });
+        await this.favoriteRepository.save(this.favoriteRepository.create({ userId, tokenAddress, network: cluster }));
 
         return { success: true, message: "Token added to favorites" };
     }
 
-    removeFavorite(tokenAddress: string) {
-        const initialLength = this.favorites.length;
-        this.favorites = this.favorites.filter((fav) => fav.token_address !== tokenAddress);
+    async removeFavorite(userId: string, cluster: Cluster, tokenAddress: string) {
+        const result = await this.favoriteRepository.delete({ userId, tokenAddress, network: cluster });
 
-        if (this.favorites.length < initialLength) {
+        if (result.affected) {
             return { success: true, message: "Token removed from favorites" };
         }
 
         return { success: false, message: "Token not found in favorites" };
+    }
+
+    async filterFavorites(
+        userId: string,
+        cluster: Cluster,
+        filter: TokenFilterConditionDto,
+        limit: number = 10,
+        sort_by: string,
+        sort_order?: "asc" | "desc",
+        offset?: number
+    ): Promise<TokenFilterResponseDto> {
+        const favorites = await this.favoriteRepository.find({ where: { userId, network: cluster } });
+        const favoriteAddresses = favorites.map((fav) => fav.tokenAddress);
+
+        if (favoriteAddresses.length === 0) {
+            return { tokens: [], total: 0, filter_applied: filter };
+        }
+
+        const time_frame = filter?.time_frame ?? TimeFrame.TWENTY_FOUR_HOURS;
+        const priceChangeColumn = resolvePriceChangeColumn(time_frame);
+        const orderValue: FindOptionsOrderValue = sort_order?.toUpperCase() === "ASC" ? "ASC" : "DESC";
+
+        const SortByMap: Record<string, string> = {
+            market_cap: "marketCap",
+            volume_24h: "volume24h",
+            txns_24h: "txns24hTotal",
+            holders: "holdersCount",
+            age: "ageSeconds",
+            price_change_24h: priceChangeColumn
+        };
+        const column = SortByMap[sort_by];
+
+        const whereConditions = buildTokenFilterWhere(cluster, filter, priceChangeColumn);
+        whereConditions.address = In(favoriteAddresses);
+
+        // Address is already pinned to the favorites set above, so search only
+        // branches on name/symbol — an address-ILike branch would overwrite the
+        // In(favoriteAddresses) constraint since a where object holds one value per key.
+        const where = filter?.search_query
+            ? [
+                  { ...whereConditions, name: ILike(`%${filter.search_query}%`) },
+                  { ...whereConditions, symbol: ILike(`%${filter.search_query}%`) }
+              ]
+            : whereConditions;
+
+        const tokens = await this.tokenRepository.find({
+            take: limit,
+            skip: offset,
+            relations: ["category"],
+            order: column ? ({ [column]: orderValue } as FindOptionsOrder<Token>) : undefined,
+            where
+        });
+
+        const responseTokens = tokens.map((token) => mapTokenEntityToOverviewDto(token, cluster));
+
+        return {
+            tokens: responseTokens,
+            total: responseTokens.length,
+            filter_applied: filter
+        };
     }
 
     getWallets() {
@@ -164,54 +195,6 @@ export class AccountService {
             total_wallets: this.wallets.length,
             total_balance_sol: this.wallets.reduce((total, w) => total + w.balance_sol, 0),
             total_balance_usd: this.wallets.reduce((total, w) => total + w.balance_usd, 0)
-        };
-    }
-
-    private transformToTokenOverview(token: Token, cluster: Cluster): TokenOverview {
-        return {
-            address: token.address,
-            symbol: token.symbol,
-            name: token.name,
-            logo_uri: token.logoUri || "",
-            network: cluster,
-            category: token.category?.name || "",
-            age_seconds: token.ageSeconds,
-            price: token.price,
-            price_change_1h: token.priceChange1h,
-            price_change_24h: token.priceChange24h,
-            price_change_7d: token.priceChange7d,
-            market_cap: token.marketCap,
-            market_cap_change_24h: token.marketCapChange24h,
-            fdv: token.fdv,
-            liquidity: token.liquidity,
-            liquidity_change_24h: token.liquidityChange24h,
-            volume_24h: token.volume24h,
-            volume_change_24h: token.volumeChange24h,
-            txns_24h: {
-                total: token.txns24hTotal,
-                buys: token.txns24hBuys,
-                sells: token.txns24hSells,
-                change_24h: token.txns24hChange
-            },
-            holders: {
-                count: token.holdersCount,
-                change_24h: token.holdersChange24h,
-                unique_wallets_24h: token.uniqueWallets24h,
-                top_10_percent: token.top10Percent,
-                insider_percent: token.insiderPercent
-            },
-            audit: {
-                mint_authority_disabled: token.mintAuthorityDisabled,
-                freeze_authority_disabled: token.freezeAuthorityDisabled,
-                lp_burnt: token.lpBurnt,
-                has_social_links: token.hasSocialLinks,
-                holders_count: token.holdersCount,
-                unique_wallets_24h: token.uniqueWallets24h,
-                top_10_holders_percent: token.top10Percent,
-                insider_percent: token.insiderPercent,
-                risk_score: token.riskScore
-            },
-            price_sparkline: token.priceSparkline || []
         };
     }
 }

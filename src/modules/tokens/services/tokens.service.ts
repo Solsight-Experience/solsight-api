@@ -1,6 +1,6 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { Between, Brackets, FindOptionsOrder, FindOptionsOrderValue, FindOptionsWhere, ILike, In, LessThanOrEqual, MoreThanOrEqual, Repository } from "typeorm";
+import { Between, Brackets, FindOptionsOrder, FindOptionsOrderValue, ILike, In, Repository } from "typeorm";
 import { Token } from "../entities/token.entity";
 import { OhlcCandle } from "../entities/ohlc-candle.entity";
 import { Holder } from "../entities/holder.entity";
@@ -20,6 +20,7 @@ import { Transaction, TransactionType } from "../../transactions/entities/transa
 import { TimeFrame } from "../../discovery/dtos/get-trending.dto";
 import { StatsAggregationService } from "./aggregation/stats-aggregation.service";
 import { TokenSyncEnqueuer } from "./sync/token-sync.enqueuer";
+import { resolvePriceChangeColumn, buildTokenFilterWhere } from "./token-filter.util";
 
 @Injectable()
 export class TokensService {
@@ -166,19 +167,6 @@ export class TokensService {
         return tokens.map((token) => mapTokenEntityToResponseDto(token, cluster));
     }
 
-    private resolvePriceChangeColumn(time_frame: TimeFrame): keyof Token {
-        if (time_frame === TimeFrame.SEVEN_DAYS) return "priceChange7d";
-        if (
-            time_frame === TimeFrame.ONE_HOUR ||
-            time_frame === TimeFrame.FIVE_MINUTES ||
-            time_frame === TimeFrame.FIFTEEN_MINUTES ||
-            time_frame === TimeFrame.THIRTY_MINUTES ||
-            time_frame === TimeFrame.SIX_HOURS
-        )
-            return "priceChange1h";
-        return "priceChange24h";
-    }
-
     private filterTimeFrameToMs(tf: TimeFrame): number {
         const map: Record<TimeFrame, number> = {
             [TimeFrame.FIVE_MINUTES]: 5 * 60 * 1000,
@@ -201,7 +189,7 @@ export class TokensService {
         offset?: number
     ): Promise<TokenFilterResponseDto> {
         const time_frame = filter?.time_frame ?? TimeFrame.TWENTY_FOUR_HOURS;
-        const priceChangeColumn = this.resolvePriceChangeColumn(time_frame);
+        const priceChangeColumn = resolvePriceChangeColumn(time_frame);
         const orderValue: FindOptionsOrderValue = sort_order?.toUpperCase() === "ASC" ? "ASC" : "DESC";
 
         const SortByMap: Record<string, string> = {
@@ -222,49 +210,7 @@ export class TokensService {
         }
 
         const column = SortByMap[sort_by];
-        const whereConditions: FindOptionsWhere<Token> = { network: cluster };
-
-        // Treat 0 as "not set" — 0 is the default unset value from the filter form.
-        const rangeOp = (min: number | null | undefined, max: number | null | undefined) => {
-            const lo = min != null && min !== 0 ? min : null;
-            const hi = max != null && max !== 0 ? max : null;
-            if (lo !== null && hi !== null) return Between(lo, hi);
-            if (lo !== null) return MoreThanOrEqual(lo);
-            if (hi !== null) return LessThanOrEqual(hi);
-            return undefined;
-        };
-
-        if (filter?.metrics) {
-            const m = filter.metrics;
-            whereConditions.ageSeconds = rangeOp(
-                m.age_min_minutes != null ? m.age_min_minutes * 60 : null,
-                m.age_max_minutes != null ? m.age_max_minutes * 60 : null
-            );
-            whereConditions.liquidity = rangeOp(m.liquidity_min, m.liquidity_max);
-            whereConditions.marketCap = rangeOp(m.market_cap_min, m.market_cap_max);
-            whereConditions.volume24h = rangeOp(m.volume_24h_min, m.volume_24h_max);
-            whereConditions.txns24hTotal = rangeOp(m.txns_24h_min, m.txns_24h_max);
-            whereConditions.holdersCount = rangeOp(m.holders_min, m.holders_max);
-            (whereConditions as Record<string, unknown>)[priceChangeColumn] = rangeOp(m.price_change_24h_min, m.price_change_24h_max);
-        }
-
-        if (filter?.holder_filters) {
-            const h = filter.holder_filters;
-            if (h.top_10_max_percent != null) whereConditions.top10Percent = LessThanOrEqual(h.top_10_max_percent);
-            if (h.insider_max_percent != null) whereConditions.insiderPercent = LessThanOrEqual(h.insider_max_percent);
-        }
-
-        if (filter?.audit_filters) {
-            const a = filter.audit_filters;
-            if (a.mint_authority_disabled) whereConditions.mintAuthorityDisabled = true;
-            if (a.freeze_authority_disabled) whereConditions.freezeAuthorityDisabled = true;
-            if (a.lp_burnt) whereConditions.lpBurnt = true;
-            if (a.has_social_links) whereConditions.hasSocialLinks = true;
-        }
-
-        if (filter?.categories?.length > 0) {
-            whereConditions.category = { slug: In(filter.categories) };
-        }
+        const whereConditions = buildTokenFilterWhere(cluster, filter, priceChangeColumn);
 
         const where = filter?.search_query
             ? [
