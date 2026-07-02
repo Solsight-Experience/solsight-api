@@ -1,8 +1,11 @@
-import { Controller, Get, Post, Delete, Param, Body } from "@nestjs/common";
+import { Controller, Get, Post, Delete, Param, Body, Query, UseGuards } from "@nestjs/common";
 import { AccountService } from "../services/account.service";
 import { AddFavoriteDto } from "../dtos/favorite.dto";
 import { RequestCluster } from "../../../common/cluster/request-cluster.decorator";
 import type { Cluster } from "../../../common/cluster/cluster.types";
+import { JwtAuthGuard } from "../../auth/guards/jwt-auth.guard";
+import { CurrentUser, CurrentUserPayload } from "../../../common/decorators/current-user.decorator";
+import { TokenFilterConditionDto } from "../../tokens/dtos/token.filter.dto";
 
 @Controller("account/me")
 export class AccountController {
@@ -24,20 +27,38 @@ export class AccountController {
 
     // Lấy danh sách token yêu thích
     @Get("favorites")
-    getFavorites(@RequestCluster() cluster: Cluster) {
-        return this.accountService.getFavorites(cluster);
+    @UseGuards(JwtAuthGuard)
+    getFavorites(@CurrentUser() user: CurrentUserPayload, @RequestCluster() cluster: Cluster) {
+        return this.accountService.getFavorites(user.id, cluster);
+    }
+
+    // Lọc danh sách token yêu thích (áp dụng bộ lọc như tokens/filter)
+    @Post("favorites/filter")
+    @UseGuards(JwtAuthGuard)
+    filterFavorites(
+        @CurrentUser() user: CurrentUserPayload,
+        @RequestCluster() cluster: Cluster,
+        @Query("sort_by") sort_by: string,
+        @Query("sort_order") sort_order: "asc" | "desc",
+        @Query("limit") limit: number = 10,
+        @Query("offset") offset: number = 0,
+        @Body() filterDto: TokenFilterConditionDto
+    ) {
+        return this.accountService.filterFavorites(user.id, cluster, filterDto, limit, sort_by, sort_order, offset);
     }
 
     // Thêm token vào danh sách yêu thích
     @Post("favorites")
-    addFavorite(@Body() body: AddFavoriteDto) {
-        return this.accountService.addFavorite(body.token_address);
+    @UseGuards(JwtAuthGuard)
+    addFavorite(@CurrentUser() user: CurrentUserPayload, @RequestCluster() cluster: Cluster, @Body() body: AddFavoriteDto) {
+        return this.accountService.addFavorite(user.id, cluster, body.token_address);
     }
 
     // Xóa token khỏi danh sách yêu thích
     @Delete("favorites/:tokenAddress")
-    removeFavorite(@Param("tokenAddress") tokenAddress: string) {
-        return this.accountService.removeFavorite(tokenAddress);
+    @UseGuards(JwtAuthGuard)
+    removeFavorite(@CurrentUser() user: CurrentUserPayload, @RequestCluster() cluster: Cluster, @Param("tokenAddress") tokenAddress: string) {
+        return this.accountService.removeFavorite(user.id, cluster, tokenAddress);
     }
 
     // Lấy danh sách ví của người dùng

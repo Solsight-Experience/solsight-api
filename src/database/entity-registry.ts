@@ -11,6 +11,7 @@ import { Notification } from "../modules/notifications/entities/notification.ent
 import { BotSubscription } from "../modules/bot/entities/bot-subscription.entity";
 import { WalletAlert } from "../modules/watchlist/entities/wallet-alert.entity";
 import { WatchedWallet } from "../modules/watchlist/entities/watched-wallet.entity";
+import { Favorite } from "../modules/account/entities/favorite.entity";
 
 export type AppEntity =
     | Token
@@ -25,7 +26,8 @@ export type AppEntity =
     | Notification
     | BotSubscription
     | WalletAlert
-    | WatchedWallet;
+    | WatchedWallet
+    | Favorite;
 
 export const ENTITIES = [
     Token,
@@ -40,5 +42,6 @@ export const ENTITIES = [
     Notification,
     BotSubscription,
     WalletAlert,
-    WatchedWallet
+    WatchedWallet,
+    Favorite
 ];

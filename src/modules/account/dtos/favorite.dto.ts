@@ -1,9 +1,9 @@
-import { TokenOverview } from "../../discovery/dtos/discovery.response.dto";
+import { TokenOverviewResponseDto } from "../../tokens/dtos/token.response.dto";
 
 export type FavoriteTokenDto = {
     token_address: string;
     added_at: string;
-    token: TokenOverview | null;
+    token: TokenOverviewResponseDto | null;
 };
 
 export type AddFavoriteDto = {
