@@ -4,7 +4,6 @@ import { GetQuoteDto } from "../dtos/get-quote.dto";
 import { GetSwapTransactionDto } from "../dtos/get-swap-transaction.dto";
 import { ExecuteSwapDto } from "../dtos/execute-swap.dto";
 import { GetSwapInfoDto } from "../dtos/get-swap-info.dto";
-import { OptionalJwtAuthGuard } from "../../../common/guards/optional-jwt-auth.guard";
 import { JwtAuthGuard } from "../../auth/guards/jwt-auth.guard";
 import { RequestCluster } from "../../../common/cluster/request-cluster.decorator";
 import type { Cluster } from "../../../common/cluster/cluster.types";
@@ -18,17 +17,19 @@ export class SwapController {
     ) {}
 
     @Get("quote")
+    @UseGuards(JwtAuthGuard)
     async getQuote(@RequestCluster() cluster: Cluster, @Query() dto: GetQuoteDto) {
         return this.swapService.getQuote(cluster, dto);
     }
 
     @Post("transaction")
+    @UseGuards(JwtAuthGuard)
     async getSwapTransaction(@RequestCluster() cluster: Cluster, @Body() dto: GetSwapTransactionDto) {
         return this.swapService.getSwapTransaction(cluster, dto);
     }
 
     @Post("execute")
-    @UseGuards(OptionalJwtAuthGuard)
+    @UseGuards(JwtAuthGuard)
     async executeSwap(@RequestCluster() cluster: Cluster, @Body() dto: ExecuteSwapDto) {
         return this.swapService.executeSwap(cluster, dto);
     }
@@ -44,7 +45,6 @@ export class SwapController {
         return decimals == null ? null : { decimals };
     }
 
-    @UseGuards(JwtAuthGuard)
     @Get("info")
     async getSwapInfo(@RequestCluster() cluster: Cluster, @Query() dto: GetSwapInfoDto) {
         return this.swapService.getSwapInfo(cluster, dto);
