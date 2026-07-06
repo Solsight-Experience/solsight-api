@@ -1,9 +1,9 @@
 import { Logger } from "@nestjs/common";
 import type { Repository } from "typeorm";
 import type { Holder } from "../../entities/holder.entity";
+import type { Token } from "../../entities/token.entity";
 import type { RedisService } from "../../../../redis/services/redis.service";
 import type { TokenPriceService } from "../token-price.service";
-import type { JupiterService } from "../../../../infra/jupiter/jupiter.service";
 import type { PriceUpdateEvent } from "../../types/holder-aggregation.types";
 import { HolderAggregationService } from "./holder-aggregation.service";
 
@@ -52,8 +52,8 @@ describe("HolderAggregationService", () => {
         service = new HolderAggregationService(
             redisService as RedisService,
             tokenPriceService as TokenPriceService,
-            {} as JupiterService,
-            {} as Repository<Holder>
+            {} as Repository<Holder>,
+            {} as Repository<Token>
         );
     });
 

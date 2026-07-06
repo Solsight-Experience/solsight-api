@@ -140,6 +140,14 @@ describe("TokenPriceService", () => {
             priceChange24h: 3.5,
             source: "db"
         });
+        expect(redisClient.eval).toHaveBeenCalledWith(
+            expect.any(String),
+            1,
+            "price:mainnet:mint-1:latest",
+            String(TokenPriceService.FRESH_MIN_TTL_S),
+            String(TokenPriceService.PRICE_TTL_S),
+            "99"
+        );
     });
 
     it("applies the same freshness check in bulk reads", async () => {
@@ -190,5 +198,29 @@ describe("TokenPriceService", () => {
                 ]
             ])
         );
+        expect(redisClient.eval).toHaveBeenCalledWith(
+            expect.any(String),
+            1,
+            "price:mainnet:stale:latest",
+            String(TokenPriceService.FRESH_MIN_TTL_S),
+            String(TokenPriceService.PRICE_TTL_S),
+            "55"
+        );
+    });
+
+    it("still returns the DB fallback when Redis rehydration fails", async () => {
+        (redisService.hgetall as jest.Mock).mockResolvedValue(null);
+        (redisService.ttl as jest.Mock).mockResolvedValue(-2);
+        (tokenRepository.findOne as jest.Mock).mockResolvedValue({
+            price: 42,
+            priceChange24h: 0
+        });
+        redisClient.eval.mockRejectedValueOnce(new Error("redis unavailable"));
+
+        await expect(service.getPrice("devnet", "mint-1")).resolves.toEqual({
+            priceUsd: 42,
+            priceChange24h: 0,
+            source: "db"
+        });
     });
 });
