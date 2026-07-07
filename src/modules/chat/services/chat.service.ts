@@ -187,7 +187,12 @@ export const TOOL_DEFINITIONS: ChatCompletionTool[] = [
                     },
                     limit: {
                         type: "number",
-                        description: "Max number of activities to return (default 10)"
+                        description: "Max number of activities to return (default 10, max 100)"
+                    },
+                    rangeDays: {
+                        type: "number",
+                        description:
+                            "Optional look-back window in days from now (e.g. 90 for last 3 months). Use for broad/general analysis requests without a specific count or date range."
                     }
                 },
                 required: ["userId"],
@@ -957,9 +962,13 @@ export class ChatService {
                     const activityType = this.getStringArg(args, "type") || "all";
 
                     const rawLimit = args.limit;
-                    const limit = typeof rawLimit === "number" && Number.isInteger(rawLimit) ? Math.max(1, Math.min(rawLimit, 20)) : 10;
+                    const limit = typeof rawLimit === "number" && Number.isInteger(rawLimit) ? Math.max(1, Math.min(rawLimit, 100)) : 10;
 
-                    const data = await this.portfolioService.getActivities(cluster, resolvedUserId, walletFilter, activityType, limit);
+                    const rawRangeDays = args.rangeDays;
+                    const rangeDays = typeof rawRangeDays === "number" && Number.isFinite(rawRangeDays) ? Math.max(1, Math.floor(rawRangeDays)) : undefined;
+                    const from = rangeDays ? Math.floor(Date.now() / 1000) - rangeDays * 86400 : undefined;
+
+                    const data = await this.portfolioService.getActivities(cluster, resolvedUserId, walletFilter, activityType, limit, undefined, from);
                     return JSON.stringify(data);
                 }
 
