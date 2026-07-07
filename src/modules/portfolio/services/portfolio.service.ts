@@ -1570,9 +1570,12 @@ export class PortfolioService {
                 ? "https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/So11111111111111111111111111111111111111112/logo.png"
                 : (tokenMetaMap.get(mint)?.logoUri ?? "");
 
+        const MAX_ENRICH_CANDIDATES = 20;
+
         const candidates = activities
             .map((a, i) => ({ a, i }))
-            .filter(({ a }) => a.type === "TRANSFER_OUT" && a.token?.address === COMMON_TOKEN_MINT.SOL && !!a.from);
+            .filter(({ a }) => a.type === "TRANSFER_OUT" && a.token?.address === COMMON_TOKEN_MINT.SOL && !!a.from)
+            .slice(0, MAX_ENRICH_CANDIDATES);
 
         if (!candidates.length) return;
 
