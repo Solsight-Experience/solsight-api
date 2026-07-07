@@ -10,6 +10,7 @@ import { GetTrendingDto, SortByTrending, TimeFrame } from "../dtos/get-trending.
 import { GetNewListingsDto } from "../dtos/get-new-listings.dto";
 import { GetGainersLosersDto, GainersLosersType, GainersLosersTimeFrame } from "../dtos/get-gainers-losers.dto";
 import { GetCategoryDto } from "../dtos/get-category.dto";
+import { GetCategoryNamesDto } from "../dtos/get-category-names.dto";
 import { CoinGeckoService } from "../../../infra/coingecko/coingecko.service";
 import { TokenOverview, CategoryOverview, PaginatedCategoriesResponse } from "../dtos/discovery.response.dto";
 import { RedisService } from "../../../redis";
@@ -467,6 +468,27 @@ export class DiscoveryService implements OnModuleInit {
 
         return {
             data: combined.slice(startInCombined, startInCombined + limit),
+            total,
+            limit,
+            offset
+        };
+    }
+
+    async getCategoryNames(dto: GetCategoryNamesDto): Promise<{ data: { id: string; name: string }[]; total: number; limit: number; offset: number }> {
+        const { limit = 20, offset = 0, name, sort_order = "asc" } = dto;
+
+        const qb = this.categoryRepository.createQueryBuilder("cat").select(["cat.slug", "cat.name"]);
+
+        if (name) qb.andWhere("cat.name ILIKE :name", { name: `%${name}%` });
+
+        qb.orderBy("cat.name", sort_order === "desc" ? "DESC" : "ASC")
+            .skip(offset)
+            .take(limit);
+
+        const [categories, total] = await qb.getManyAndCount();
+
+        return {
+            data: categories.map((cat) => ({ id: cat.slug, name: cat.name })),
             total,
             limit,
             offset
