@@ -1,4 +1,4 @@
-import { HttpException, Inject, Injectable, Logger } from "@nestjs/common";
+import { HttpException, Injectable, Logger } from "@nestjs/common";
 import type { ChatCompletionMessageParam, ChatCompletionTool } from "openai/resources/chat/completions";
 import { OpenAIService } from "../../../infra/openai/openai.service";
 import { SortByTrending, TimeFrame } from "../../discovery/dtos/get-trending.dto";
@@ -7,8 +7,7 @@ import { PortfolioService } from "../../portfolio/services/portfolio.service";
 import { TokensService } from "../../tokens/services/tokens.service";
 import { ChatResponsePayload, SendMessagePayload, PageContext } from "../types/chat.types";
 import { RagService } from "./rag.service";
-import { EXECUTOR_SERVICE } from "../../../infra/executor/constants/executor.token";
-import type { ExecutorService } from "../../../infra/executor/interfaces/executor-service.interface";
+import { CircuitBreaker } from "../../../infra/executor/circuit-breaker/circuit-breaker";
 import * as fs from "fs";
 import * as path from "path";
 import type { Cluster } from "../../../common/cluster/cluster.types";
@@ -317,8 +316,7 @@ export class ChatService {
         private readonly portfolioService: PortfolioService,
         private readonly openaiService: OpenAIService,
         private readonly ragService: RagService,
-        @Inject(EXECUTOR_SERVICE)
-        private readonly executorService: ExecutorService,
+        private readonly circuitBreaker: CircuitBreaker,
         @InjectRepository(ChatSessionEntity)
         private readonly sessionRepo: Repository<ChatSessionEntity>,
         @InjectRepository(ChatMessageEntity)
@@ -367,9 +365,83 @@ export class ChatService {
     }
 
     /**
+     * Sanitize a raw history window into a valid OpenAI message sequence.
+     *
+     * OpenAI enforces a strict invariant:
+     *   Every `tool` message must be preceded (anywhere in the array, not just
+     *   immediately) by an `assistant` message whose `tool_calls` array contains
+     *   the same `tool_call_id`. If the history window is sliced such that the
+     *   assistant-caller is missing, OpenAI returns 400.
+     *
+     * Strategy — drop complete, atomic tool-call groups from the **oldest** end
+     * until the array either:
+     *   (a) starts with a `user` message, or
+     *   (b) starts with an `assistant` message that has NO tool_calls (plain text).
+     *
+     * A "tool-call group" is defined as:
+     *   [assistant + tool_calls] followed by one or more [tool] messages.
+     * Both parts are dropped together so the remainder is always self-consistent.
+     */
+    private sanitizeHistoryMessages(messages: ChatCompletionMessageParam[]): ChatCompletionMessageParam[] {
+        // Build a set of tool_call_ids that are "claimed" by assistant messages
+        // present in the window, so we can detect orphaned tool messages quickly.
+        const claimedIds = new Set<string>();
+        for (const msg of messages) {
+            if (msg.role === "assistant") {
+                const toolCalls = (msg as { tool_calls?: { id?: string }[] }).tool_calls;
+                if (toolCalls) {
+                    for (const tc of toolCalls) {
+                        if (tc.id) claimedIds.add(tc.id);
+                    }
+                }
+            }
+        }
+
+        // Drop leading orphaned tool messages — their assistant caller was cut off.
+        let start = 0;
+        while (start < messages.length) {
+            const msg = messages[start];
+            if (msg.role === "tool") {
+                const toolCallId = (msg as { tool_call_id?: string }).tool_call_id ?? "";
+                if (!claimedIds.has(toolCallId)) {
+                    // Orphaned — skip it and remove from claimed set to stay in sync.
+                    start++;
+                    continue;
+                }
+            }
+            // First non-orphaned message found.
+            break;
+        }
+
+        const sanitized = messages.slice(start);
+
+        // After dropping orphaned tool messages the first non-system message must
+        // now be a `user` or a plain `assistant` (no tool_calls). If it is still
+        // an `assistant` with tool_calls (i.e. the caller is present but the
+        // tool-result messages were somehow missing), drop the entire group to
+        // avoid an unresolved dangling tool_calls entry.
+        while (sanitized.length > 0) {
+            const first = sanitized[0];
+            if (first.role === "assistant" && (first as { tool_calls?: unknown[] }).tool_calls?.length) {
+                // Drop this assistant-caller and all immediately following tool messages.
+                sanitized.shift();
+                while (sanitized.length > 0 && sanitized[0].role === "tool") {
+                    sanitized.shift();
+                }
+                continue;
+            }
+            break;
+        }
+
+        this.logger.debug(`sanitizeHistoryMessages: window=${messages.length} → sanitized=${sanitized.length}`, ChatService.name);
+
+        return sanitized;
+    }
+
+    /**
      * Fetch price impact for a given swap pair via the ExecutorService interface.
      *
-     * Delegates to whichever executor is configured (solsight-executor or Jupiter).
+     * Delegates to the executor selected for the request cluster.
      * Both return `priceImpactPct` as a decimal-fraction string, e.g. "0.05" = 5%.
      *
      * Returns the raw decimal fraction, or null if the quote cannot be obtained.
@@ -386,7 +458,8 @@ export class ChatService {
             const amountBaseUnits = Math.round(amount * Math.pow(10, inputDecimals));
             if (amountBaseUnits <= 0) return null;
 
-            const quote = await this.executorService.getQuote(cluster, {
+            const executor = this.circuitBreaker.forCluster(cluster);
+            const quote = await executor.getQuote(cluster, {
                 inputMint,
                 outputMint,
                 amount: String(amountBaseUnits),
@@ -543,12 +616,16 @@ export class ChatService {
         onToolProgress: (label: string) => void = () => {},
         pageContext?: PageContext
     ): Promise<ChatResponsePayload> {
-        const recentMessages = await this.messageRepo.find({
+        // Fetch a wide window so we never accidentally slice through the middle
+        // of a tool-call group (assistant caller + tool results). The
+        // sanitizeHistoryMessages helper will trim it safely from the oldest end.
+        const HISTORY_WINDOW = 50;
+        const rawHistory = await this.messageRepo.find({
             where: { sessionId },
             order: { createdAt: "DESC" },
-            take: 10
+            take: HISTORY_WINDOW
         });
-        recentMessages.reverse();
+        rawHistory.reverse();
 
         const messages: ChatCompletionMessageParam[] = [
             {
@@ -580,11 +657,17 @@ export class ChatService {
             });
         }
 
+        // Map raw DB entities → OpenAI message params, then sanitize to guarantee
+        // no orphaned tool messages reach the API.
+        const mappedHistory = rawHistory.map((m) => this.mapToCompletionMessage(m));
+        const safeHistory = this.sanitizeHistoryMessages(mappedHistory);
+
         // Inject RAG context from vector store if available
-        const userQuery = recentMessages.findLast((m) => m.role === "user")?.content ?? "";
-        if (userQuery) {
+        const userQuery = safeHistory.findLast((m) => m.role === "user") as { content?: string } | undefined;
+        const userQueryText = typeof userQuery?.content === "string" ? userQuery.content : "";
+        if (userQueryText) {
             try {
-                const ragPrompt = await this.ragService.buildContextPrompt(userQuery);
+                const ragPrompt = await this.ragService.buildContextPrompt(userQueryText);
                 if (ragPrompt) {
                     messages.push({ role: "system", content: ragPrompt });
                     this.logger.debug("RAG context injected into prompt", ChatService.name);
@@ -594,7 +677,10 @@ export class ChatService {
             }
         }
 
-        messages.push(...recentMessages.map((message) => this.mapToCompletionMessage(message)));
+        messages.push(...safeHistory);
+
+        // Expose sanitized history for parseResponse (replaces old recentMessages reference).
+        const recentMessages = rawHistory;
 
         this.logger.debug(`LLM request: messages=${messages.length}`, ChatService.name);
 
@@ -707,12 +793,16 @@ export class ChatService {
     }
 
     async *runLlmLoopStream(cluster: Cluster, sessionId: string, walletAddress?: string, userId?: string): AsyncGenerator<string, void, unknown> {
-        const recentMessages = await this.messageRepo.find({
+        const HISTORY_WINDOW = 50;
+        const rawHistory = await this.messageRepo.find({
             where: { sessionId },
             order: { createdAt: "DESC" },
-            take: 20
+            take: HISTORY_WINDOW
         });
-        recentMessages.reverse();
+        rawHistory.reverse();
+
+        const mappedHistory = rawHistory.map((m) => this.mapToCompletionMessage(m));
+        const safeHistory = this.sanitizeHistoryMessages(mappedHistory);
 
         const messages: ChatCompletionMessageParam[] = [
             {
@@ -728,7 +818,7 @@ export class ChatService {
                       }
                   ]
                 : []),
-            ...recentMessages.map((message) => this.mapToCompletionMessage(message))
+            ...safeHistory
         ];
 
         this.logger.debug(`LLM stream request: messages=${messages.length}`, ChatService.name);
