@@ -4,6 +4,7 @@ import { GetTrendingDto } from "../dtos/get-trending.dto";
 import { GetNewListingsDto } from "../dtos/get-new-listings.dto";
 import { GetGainersLosersDto } from "../dtos/get-gainers-losers.dto";
 import { GetCategoryDto } from "../dtos/get-category.dto";
+import { GetCategoryNamesDto } from "../dtos/get-category-names.dto";
 import { RequestCluster } from "../../../common/cluster/request-cluster.decorator";
 import type { Cluster } from "../../../common/cluster/cluster.types";
 
@@ -30,6 +31,11 @@ export class DiscoveryController {
     async syncCategories(@RequestCluster() cluster: Cluster) {
         await this.discoveryService.syncCategoriesForCluster(cluster);
         return { message: "Categories synced successfully" };
+    }
+
+    @Get("categories/names")
+    async getCategoryNames(@RequestCluster() cluster: Cluster, @Query() dto: GetCategoryNamesDto) {
+        return this.discoveryService.getCategoryNames(dto);
     }
 
     @Get("categories/:slug")
