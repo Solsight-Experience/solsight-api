@@ -51,6 +51,9 @@ export const validationSchema = Joi.object({
     HELIUS_RPC_URL: Joi.string().uri().required(),
     HELIUS_API_KEY: Joi.string().required(),
 
+    // Billing — wallet that receives SOL payments for paid credits; required, no safe default
+    MERCHANT_WALLET: Joi.string().required(),
+
     // JWT
     JWT_SECRET: Joi.string().required(),
     JWT_EXPIRES_IN: Joi.string().optional(),
