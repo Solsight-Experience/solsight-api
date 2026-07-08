@@ -28,6 +28,7 @@ export class UsersRepository {
     }
 
     async findByEmail(email: string): Promise<User | null> {
+        if (!email || email.trim() === "") return null;
         return this.userRepository.findOne({
             where: { email },
             select: ["id", "email", "username", "password", "isActive", "isEmailVerified"]
