@@ -15,6 +15,7 @@ export class UserRepository {
      * Tìm user theo email
      */
     async findByEmail(email: string): Promise<User | null> {
+        if (!email || email.trim() === "") return null;
         return this.repository.findOne({ where: { email } });
     }
 
@@ -29,6 +30,7 @@ export class UserRepository {
      * Tìm user active theo email
      */
     async findActiveByEmailWithPassword(email: string): Promise<User | null> {
+        if (!email || email.trim() === "") return null;
         return this.repository.findOne({
             where: { email, isActive: true },
             select: ["id", "email", "username", "password", "firstName", "lastName", "isActive", "isEmailVerified", "role"]
@@ -74,6 +76,7 @@ export class UserRepository {
      * Kiểm tra email đã tồn tại chưa
      */
     async existsByEmail(email: string): Promise<boolean> {
+        if (!email || email.trim() === "") return false;
         const count = await this.repository.count({ where: { email } });
         return count > 0;
     }
