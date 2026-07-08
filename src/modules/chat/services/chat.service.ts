@@ -309,6 +309,8 @@ import { ChatSession as ChatSessionEntity } from "../entities/chat-session.entit
 import { ChatMessage as ChatMessageEntity } from "../entities/chat-message.entity";
 import { Wallet } from "../../wallets/entities/wallet.entity";
 import { COMMON_SYMBOLS } from "src/modules/tokens/constants/token.constant";
+import { QuotaService } from "../../billing/services/quota.service";
+import { QuotaExceededException } from "../../billing/exceptions/quota-exceeded.exception";
 
 @Injectable()
 export class ChatService {
@@ -322,6 +324,7 @@ export class ChatService {
         private readonly openaiService: OpenAIService,
         private readonly ragService: RagService,
         private readonly circuitBreaker: CircuitBreaker,
+        private readonly quotaService: QuotaService,
         @InjectRepository(ChatSessionEntity)
         private readonly sessionRepo: Repository<ChatSessionEntity>,
         @InjectRepository(ChatMessageEntity)
@@ -531,6 +534,13 @@ export class ChatService {
             throw new HttpException("Already processing a message", 429);
         }
 
+        // Quota chỉ áp dụng cho tính năng AI chat. Kiểm tra (không trừ) TRƯỚC khi gọi
+        // LLM để không tốn chi phí AI cho request chắc chắn bị chặn — quota thật chỉ
+        // bị trừ SAU KHI LLM phản hồi thành công, xem cuối khối try dưới.
+        if (payload.userId && !(await this.quotaService.hasQuotaAvailable(payload.userId))) {
+            throw new QuotaExceededException();
+        }
+
         this.logger.log(
             `Received message for session=${payload.sessionId} wallet=${payload.walletAddress ?? "none"} length=${payload.message.length}`,
             ChatService.name
@@ -559,6 +569,20 @@ export class ChatService {
                 payload.pageContext
             );
             this.logger.log(`Session ${payload.sessionId} completed: responseType=${response.type}`, ChatService.name);
+
+            // AI đã phản hồi thành công tới đây — trừ quota bây giờ. Best-effort: nếu
+            // trừ lỗi (hiếm, chỉ là race ở đúng biên giới hạn) vẫn trả response cho
+            // user vì AI đã tốn chi phí tạo ra rồi, không thể "thu hồi".
+            if (payload.userId) {
+                await this.quotaService.consumeQuota(payload.userId).catch((error: unknown) => {
+                    this.logger.error(
+                        `Failed to consume chat quota for user ${payload.userId}`,
+                        error instanceof Error ? error.stack : error,
+                        ChatService.name
+                    );
+                });
+            }
+
             return {
                 ...response,
                 sessionId: payload.sessionId

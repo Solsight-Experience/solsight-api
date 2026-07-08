@@ -448,23 +448,16 @@ export class AuthService {
         }
 
         if (!user) {
-            // Check if user with this generated email already exists
-            const generatedEmail = `solana_${walletAddress.toLowerCase()}@solsight.com`;
-            user = await this.userRepository.findByEmail(generatedEmail);
+            // Auto-create new user without email
+            const dummyPassword = await bcrypt.hash(randomBytes(32).toString("hex"), 10);
+            const username = `solsight_${walletAddress.slice(0, 6)}_${walletAddress.slice(-4)}`;
 
-            if (!user) {
-                // Auto-create new user
-                const dummyPassword = await bcrypt.hash(randomBytes(32).toString("hex"), 10);
-                const username = `sol_${walletAddress.slice(0, 6)}_${walletAddress.slice(-4)}`;
-
-                user = await this.userRepository.create({
-                    email: generatedEmail,
-                    username,
-                    password: dummyPassword,
-                    isActive: true,
-                    isEmailVerified: true
-                });
-            }
+            user = await this.userRepository.create({
+                username,
+                password: dummyPassword,
+                isActive: true,
+                isEmailVerified: false
+            });
 
             // Link the wallet to the user
             await this.walletsService.updateUser(wallet.id, user.id, walletIcon || WalletIcon.PHANTOM);

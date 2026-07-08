@@ -18,7 +18,7 @@ export interface OauthLoginDto {
 
 export interface JwtPayload {
     sub: string;
-    email: string;
+    email?: string | null;
     username: string;
 }
 
