@@ -28,6 +28,10 @@ const configuration = () => ({
         ifAuthority: process.env.IF_AUTHORITY || "HJnpCRqahd2Zunhx1VyY9d9Hj7UyLSNWQEavybJC3MSa"
     },
 
+    billing: {
+        merchantWallet: process.env.MERCHANT_WALLET
+    },
+
     helius: {
         rpcUrl: process.env.HELIUS_RPC_URL,
         apiKey: process.env.HELIUS_API_KEY

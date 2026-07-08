@@ -5,6 +5,7 @@ import { WebsocketGateway } from "../../../websocket/websocket.gateway";
 import { ChatService } from "../services/chat.service";
 import { SendMessagePayload, ChatErrorPayload, ChatToolProgressPayload } from "../types/chat.types";
 import { requireCluster } from "../../../common/cluster/cluster.types";
+import { QuotaExceededException } from "../../billing/exceptions/quota-exceeded.exception";
 
 @Injectable()
 export class ChatGateway {
@@ -106,6 +107,17 @@ export class ChatGateway {
             client.emit("chat:complete", { sessionId: payload.sessionId });
             this.logger.log(`chat:message completed client=${clientKey} session=${payload.sessionId}`, ChatGateway.name);
         } catch (error) {
+            if (error instanceof QuotaExceededException) {
+                this.logger.warn(`chat:message rejected — quota exceeded client=${clientKey} session=${payload.sessionId}`, ChatGateway.name);
+                const err: ChatErrorPayload = {
+                    sessionId: payload.sessionId,
+                    code: "quota_exceeded",
+                    message: "Daily quota exceeded"
+                };
+                client.emit("chat:error", err);
+                return;
+            }
+
             const message = error instanceof Error ? error.message : "Unknown error";
             this.logger.error(
                 `chat:message handler failed client=${clientKey} session=${payload.sessionId}: ${message}`,
