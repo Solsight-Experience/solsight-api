@@ -61,6 +61,14 @@ function toolLabel(toolName: string, args: Record<string, unknown>): string {
             return "Fetching recent activities…";
         case "fetch_portfolio_performance":
             return "Analyzing portfolio performance…";
+        case "fetch_wallet_portfolio": {
+            const wallet = typeof args.walletAddress === "string" ? args.walletAddress : "…";
+            return `Fetching portfolio overview for ${wallet.slice(0, 6)}…`;
+        }
+        case "fetch_wallet_activities": {
+            const wallet = typeof args.walletAddress === "string" ? args.walletAddress : "…";
+            return `Fetching activities for ${wallet.slice(0, 6)}…`;
+        }
         case "prepare_swap":
             return "Preparing swap quote…";
         case "set_slippage": {
@@ -297,6 +305,57 @@ export const TOOL_DEFINITIONS: ChatCompletionTool[] = [
                     }
                 },
                 required: ["route"],
+                additionalProperties: false
+            }
+        }
+    },
+    {
+        type: "function",
+        function: {
+            name: "fetch_wallet_portfolio",
+            description:
+                "Fetch portfolio overview, token balances, and allocations of any arbitrary Solana wallet address. Use this when the user asks about the portfolio, balances, or token allocation of a specific wallet address.",
+            parameters: {
+                type: "object",
+                properties: {
+                    walletAddress: {
+                        type: "string",
+                        description: "The Solana wallet address to fetch the portfolio for"
+                    }
+                },
+                required: ["walletAddress"],
+                additionalProperties: false
+            }
+        }
+    },
+    {
+        type: "function",
+        function: {
+            name: "fetch_wallet_activities",
+            description:
+                "Fetch recent on-chain activities (swaps, transfers, stakes) of any arbitrary Solana wallet address. Use this when the user asks about recent transactions or activities of a specific wallet address.",
+            parameters: {
+                type: "object",
+                properties: {
+                    walletAddress: {
+                        type: "string",
+                        description: "The Solana wallet address to fetch recent activities for"
+                    },
+                    type: {
+                        type: "string",
+                        description: "Activity type filter: all, swap, transfer, stake, unstake"
+                    },
+                    limit: {
+                        type: "number",
+                        description: "Max number of activities to return (default 10, max 100)"
+                    },
+                    rangeDays: {
+                        type: "number",
+                        description:
+                            "Optional look-back window in days from now (e.g. 90 for last 3 months). Use for broad/general analysis requests without a specific count or date range."
+                    }
+                },
+                required: ["walletAddress"],
                 additionalProperties: false
             }
         }
@@ -1087,6 +1146,36 @@ export class ChatService {
                     return JSON.stringify(data);
                 }
 
+                case "fetch_wallet_portfolio": {
+                    const extWalletAddress = this.getStringArg(args, "walletAddress");
+                    if (!extWalletAddress) {
+                        this.logger.warn("fetch_wallet_portfolio called without walletAddress", ChatService.name);
+                        return JSON.stringify({
+                            error: "Wallet address required"
+                        });
+                    }
+                    const data = await this.portfolioService.getOverviewByAddress(cluster, extWalletAddress);
+                    return JSON.stringify(data);
+                }
+
+                case "fetch_wallet_activities": {
+                    const extWalletAddress = this.getStringArg(args, "walletAddress");
+                    if (!extWalletAddress) {
+                        this.logger.warn("fetch_wallet_activities called without walletAddress", ChatService.name);
+                        return JSON.stringify({ error: "Wallet address required" });
+                    }
+                    const activityType = this.getStringArg(args, "type") || "all";
+                    const rawLimit = args.limit;
+                    const limit = typeof rawLimit === "number" && Number.isInteger(rawLimit) ? Math.max(1, Math.min(rawLimit, 100)) : 10;
+
+                    const rawRangeDays = args.rangeDays;
+                    const rangeDays = typeof rawRangeDays === "number" && Number.isFinite(rawRangeDays) ? Math.max(1, Math.floor(rawRangeDays)) : undefined;
+                    const from = rangeDays ? Math.floor(Date.now() / 1000) - rangeDays * 86400 : undefined;
+
+                    const data = await this.portfolioService.getActivitiesByAddress(cluster, extWalletAddress, activityType, limit, undefined, from);
+                    return JSON.stringify(data);
+                }
+
                 case "prepare_swap": {
                     let inputMint = this.getStringArg(args, "inputMint");
                     let outputMint = this.getStringArg(args, "outputMint");
@@ -1303,6 +1392,20 @@ export class ChatService {
                 };
             }
 
+            if (toolMessage.toolName === "fetch_wallet_activities") {
+                const activitiesRaw = Array.isArray(parsedToolOutput.activities) ? parsedToolOutput.activities : [];
+                this.logger.log("parseResponse fallback: inferred portfolio_activities from fetch_wallet_activities", ChatService.name);
+                return {
+                    sessionId: "",
+                    type: "portfolio_activities",
+                    data: {
+                        activities: activitiesRaw,
+                        total: typeof parsedToolOutput.total === "number" ? parsedToolOutput.total : activitiesRaw.length,
+                        summary: typeof parsedToolOutput.summary === "object" && parsedToolOutput.summary !== null ? parsedToolOutput.summary : {}
+                    }
+                };
+            }
+
             if (toolMessage.toolName === "fetch_portfolio_performance") {
                 this.logger.log("parseResponse fallback: inferred portfolio_performance from fetch_portfolio_performance", ChatService.name);
                 return {
@@ -1340,6 +1443,43 @@ export class ChatService {
                     });
 
                 this.logger.log("parseResponse fallback: inferred portfolio_summary from fetch_portfolio", ChatService.name);
+
+                return {
+                    sessionId: "",
+                    type: "portfolio_summary",
+                    data: {
+                        total_balance_usd: Number.isFinite(totalBalanceUsd) ? totalBalanceUsd : 0,
+                        total_balance_sol: Number.isFinite(totalBalanceSol) ? totalBalanceSol : 0,
+                        top_tokens: topTokens
+                    }
+                };
+            }
+
+            if (toolMessage.toolName === "fetch_wallet_portfolio") {
+                const totalBalanceUsdRaw = parsedToolOutput.total_balance_usd;
+                const totalBalanceSolRaw = parsedToolOutput.total_balance_sol;
+
+                const totalBalanceUsd =
+                    typeof totalBalanceUsdRaw === "number" ? totalBalanceUsdRaw : typeof totalBalanceUsdRaw === "string" ? Number(totalBalanceUsdRaw) : 0;
+                const totalBalanceSol =
+                    typeof totalBalanceSolRaw === "number" ? totalBalanceSolRaw : typeof totalBalanceSolRaw === "string" ? Number(totalBalanceSolRaw) : 0;
+
+                const topTokensRaw = Array.isArray(parsedToolOutput.top_tokens) ? parsedToolOutput.top_tokens : [];
+
+                const topTokens = topTokensRaw
+                    .filter((token): token is Record<string, unknown> => typeof token === "object" && token !== null)
+                    .map((token) => {
+                        const valueUsdRaw = token.value_usd;
+                        const valueUsd = typeof valueUsdRaw === "number" ? valueUsdRaw : typeof valueUsdRaw === "string" ? Number(valueUsdRaw) : 0;
+
+                        return {
+                            name: typeof token.name === "string" ? token.name : "Unknown",
+                            symbol: typeof token.symbol === "string" ? token.symbol : "???",
+                            value_usd: Number.isFinite(valueUsd) ? valueUsd : 0
+                        };
+                    });
+
+                this.logger.log("parseResponse fallback: inferred portfolio_summary from fetch_wallet_portfolio", ChatService.name);
 
                 return {
                     sessionId: "",

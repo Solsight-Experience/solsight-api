@@ -1466,12 +1466,15 @@ export class PortfolioService {
 
         top_tokens.sort((a, b) => b.value_usd - a.value_usd);
 
+        const dummyWallet = { address: walletAddress } as Wallet;
+        const [transactionStats] = await Promise.all([this.getTransactionStats(cluster, [dummyWallet]), this.fetchAllTrades(cluster, [dummyWallet])]);
+
         return {
             total_balance_usd,
             total_balance_sol,
             balance_change_24h: 0,
             pnl: { total: 0, realized: 0, unrealized: 0, change_24h: 0, roi_percent: 0 },
-            transactions: { total: 0, buys: 0, sells: 0, transfers: 0, last_24h: 0 },
+            transactions: transactionStats,
             top_tokens: top_tokens.slice(0, 10),
             allocation: allocation.sort((a, b) => b.value_usd - a.value_usd)
         };
