@@ -12,6 +12,7 @@ import type { Cluster } from "../../../../common/cluster/cluster.types";
 import { RoomFactory } from "./room/room.factory";
 import { logError } from "src/common/errors/error-helper";
 import { TokenSyncEnqueuer } from "../sync/token-sync.enqueuer";
+import { TokenPriceService } from "../token-price.service";
 
 @Injectable()
 export class TokenSocketService implements OnModuleInit {
@@ -26,7 +27,8 @@ export class TokenSocketService implements OnModuleInit {
         private readonly ohlcAggregation: OhlcAggregationService,
         private readonly traderAggregation: TraderAggregationService,
         private readonly holderAggregation: HolderAggregationService,
-        private readonly tokenSyncEnqueuer: TokenSyncEnqueuer
+        private readonly tokenSyncEnqueuer: TokenSyncEnqueuer,
+        private readonly tokenPriceService: TokenPriceService
     ) {}
 
     onModuleInit(): void {
@@ -228,12 +230,11 @@ export class TokenSocketService implements OnModuleInit {
         this.lastEmittedClose.set(room, candle.close);
     }
 
-    // Giá fallback khi chưa có candle nào: Redis latest price → token.price (DB)
+    // Giá fallback khi chưa có candle nào: Redis latest price (fresh) → token.price (DB)
     private async resolveReferencePrice(cluster: Cluster, token: string): Promise<number | null> {
         try {
-            const stats = await this.statsAggregation.getStats(cluster, token);
-            const price = Number(stats?.price);
-            return Number.isFinite(price) && price > 0 ? price : null;
+            const { priceUsd } = await this.tokenPriceService.getPrice(cluster, token);
+            return priceUsd > 0 ? priceUsd : null;
         } catch (error) {
             logError(this.logger, `Failed to resolve reference price for "${token}"`, error);
             return null;

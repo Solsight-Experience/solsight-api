@@ -20,6 +20,7 @@ import { Transaction, TransactionType } from "../../transactions/entities/transa
 import { TimeFrame } from "../../discovery/dtos/get-trending.dto";
 import { StatsAggregationService } from "./aggregation/stats-aggregation.service";
 import { TokenSyncEnqueuer } from "./sync/token-sync.enqueuer";
+import { TokenPriceService } from "./token-price.service";
 import { resolvePriceChangeColumn, buildTokenFilterWhere } from "./token-filter.util";
 
 @Injectable()
@@ -40,7 +41,8 @@ export class TokensService {
         private readonly holderAggregationService: HolderAggregationService,
         private readonly redisService: RedisService,
         private readonly statsAggregationService: StatsAggregationService,
-        private readonly tokenSyncEnqueuer: TokenSyncEnqueuer
+        private readonly tokenSyncEnqueuer: TokenSyncEnqueuer,
+        private readonly tokenPriceService: TokenPriceService
     ) {}
 
     private async cacheTokenMetadata(
@@ -510,8 +512,8 @@ export class TokensService {
         // chart from the token's current reference price instead of an empty chart.
         let price = 0;
         try {
-            const stats = await this.statsAggregationService.getStats(cluster, address);
-            price = Number(stats?.price);
+            const { priceUsd } = await this.tokenPriceService.getPrice(cluster, address);
+            price = priceUsd;
         } catch (error) {
             this.logger.warn(`Failed to resolve fallback price for chart of ${address}: ${error instanceof Error ? error.message : error}`);
         }
