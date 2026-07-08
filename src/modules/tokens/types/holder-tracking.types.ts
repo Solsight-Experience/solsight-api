@@ -1,7 +1,6 @@
 export interface HolderCommand {
-    action: "track" | "untrack" | "list";
+    action: "track" | "untrack";
     mint?: string;
-    bootstrap?: boolean;
 }
 
 export interface TrackedMintState {

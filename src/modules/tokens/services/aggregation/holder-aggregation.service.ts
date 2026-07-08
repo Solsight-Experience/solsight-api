@@ -10,6 +10,7 @@ import { Token } from "../../entities/token.entity";
 import { logError } from "src/common/errors/error-helper";
 import { TokenPriceService } from "../token-price.service";
 import type { Cluster } from "src/common/cluster/cluster.types";
+import { SolanaService } from "../../../../infra/solana/solana.service";
 
 const HOLDER_UPSERT_FLUSH_MS = 5_000;
 
@@ -22,6 +23,7 @@ export class HolderAggregationService implements OnModuleInit, OnModuleDestroy {
     constructor(
         private readonly redisService: RedisService,
         private readonly tokenPriceService: TokenPriceService,
+        private readonly solanaService: SolanaService,
         @InjectRepository(Holder)
         private readonly holderRepository: Repository<Holder>,
         @InjectRepository(Token)
@@ -269,6 +271,7 @@ export class HolderAggregationService implements OnModuleInit, OnModuleDestroy {
     async enrichHolders(tokenMint: string, cluster: Cluster, rows: HolderEnrichmentInput[]): Promise<EnrichedHolder[]> {
         const redis = this.redisService.getClient();
         const { currentPriceUsd, totalSupply } = await this.getPriceAndSupply(tokenMint, cluster);
+        const mintAuthorities = await this.getCachedMintAuthorities(tokenMint, cluster);
         const holders: EnrichedHolder[] = [];
 
         for (const row of rows) {
@@ -299,11 +302,12 @@ export class HolderAggregationService implements OnModuleInit, OnModuleDestroy {
             const avgSellPrice = sellTxCount > 0 && totalSold > 0 ? totalSold / sellTxCount : 0;
             const remainingUsd = balance * currentPriceUsd;
             const walletLabel = getWalletLabel(address);
+            const isDevWallet = !walletLabel && (address === mintAuthorities.mintAuthority || address === mintAuthorities.freezeAuthority);
             const balancePercent = totalSupply > 0 ? (balance / totalSupply) * 100 : 0;
 
             holders.push({
                 address,
-                name: walletLabel?.name ?? null,
+                name: walletLabel?.name ?? (isDevWallet ? "Token authority" : null),
                 balance,
                 balance_percent: balancePercent,
                 avg_buy_price: avgBuyPrice,
@@ -319,8 +323,8 @@ export class HolderAggregationService implements OnModuleInit, OnModuleDestroy {
                 last_active_ts: lastActiveTs,
                 cost_basis: costBasis,
                 remaining_usd: remainingUsd,
-                funding_label: walletLabel?.name ?? null,
-                account_type: walletLabel?.type ?? null,
+                funding_label: walletLabel?.name ?? (isDevWallet ? "Token authority" : null),
+                account_type: walletLabel?.type ?? (isDevWallet ? "DEV" : null),
                 tx_count: txCount,
                 buy_tx_count: buyTxCount,
                 sell_tx_count: sellTxCount
@@ -425,6 +429,32 @@ export class HolderAggregationService implements OnModuleInit, OnModuleDestroy {
         } catch (error) {
             logError(this.logger, `Failed to delete holder ${network}:${event.mint}:${event.wallet}`, error);
         }
+    }
+
+    private async getCachedMintAuthorities(tokenMint: string, cluster: Cluster): Promise<{ mintAuthority: string | null; freezeAuthority: string | null }> {
+        const redis = this.redisService.getClient();
+        const cacheKey = RedisService.KEYS.MINT_AUTHORITIES(cluster, tokenMint);
+
+        if (redis) {
+            try {
+                const cached = await redis.get(cacheKey);
+                if (cached) return JSON.parse(cached) as { mintAuthority: string | null; freezeAuthority: string | null };
+            } catch {
+                // fall through to RPC
+            }
+        }
+
+        const authorities = await this.solanaService.getMintAuthorities(cluster, tokenMint);
+
+        if (redis) {
+            try {
+                await redis.setex(cacheKey, RedisService.TTL.MINT_AUTHORITIES, JSON.stringify(authorities));
+            } catch {
+                // non-critical
+            }
+        }
+
+        return authorities;
     }
 
     private async getPriceAndSupply(tokenMint: string, cluster: Cluster): Promise<{ currentPriceUsd: number; totalSupply: number }> {

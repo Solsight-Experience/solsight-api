@@ -1,5 +1,13 @@
 import { Injectable, Logger } from "@nestjs/common";
-import { AddressLookupTableAccount, Commitment, LAMPORTS_PER_SOL, PublicKey, RecentPrioritizationFees } from "@solana/web3.js";
+import {
+    AddressLookupTableAccount,
+    Commitment,
+    GetProgramAccountsConfig,
+    GetProgramAccountsFilter,
+    LAMPORTS_PER_SOL,
+    PublicKey,
+    RecentPrioritizationFees
+} from "@solana/web3.js";
 import { TOKEN_PROGRAM_ID, getAssociatedTokenAddress } from "@solana/spl-token";
 import { HeliusResolver } from "./helius.resolver";
 import type { Cluster } from "../../common/cluster/cluster.types";
@@ -59,6 +67,57 @@ export class SolanaService {
         } catch (error) {
             this.logger.debug(`Failed to get mint decimals for ${mintAddress}: ${(error as Error).message}`);
             return null;
+        }
+    }
+
+    async getMintAuthorities(cluster: Cluster, mintAddress: string): Promise<{ mintAuthority: string | null; freezeAuthority: string | null }> {
+        try {
+            const result = await this.heliusResolver.forCluster(cluster).getParsedAccountInfo(new PublicKey(mintAddress));
+            const data = result.value?.data;
+
+            if (!data || typeof data === "string" || !("parsed" in data)) {
+                return { mintAuthority: null, freezeAuthority: null };
+            }
+
+            const info = (data.parsed as { info?: { mintAuthority?: unknown; freezeAuthority?: unknown } }).info;
+            return {
+                mintAuthority: typeof info?.mintAuthority === "string" ? info.mintAuthority : null,
+                freezeAuthority: typeof info?.freezeAuthority === "string" ? info.freezeAuthority : null
+            };
+        } catch (error) {
+            this.logger.debug(`Failed to get mint authorities for ${mintAddress}: ${(error as Error).message}`);
+            return { mintAuthority: null, freezeAuthority: null };
+        }
+    }
+
+    async getProgramAccountsFiltered(
+        cluster: Cluster,
+        programId: PublicKey,
+        filters: GetProgramAccountsFilter[],
+        options: { dataSlice?: { offset: number; length: number }; commitment?: Commitment } = {}
+    ): Promise<Array<{ pubkey: PublicKey; account: { data: Buffer; owner: PublicKey; lamports: number; executable: boolean; rentEpoch?: number } }>> {
+        const config: GetProgramAccountsConfig = {
+            filters,
+            encoding: "base64",
+            ...(options.dataSlice ? { dataSlice: options.dataSlice } : {}),
+            ...(options.commitment ? { commitment: options.commitment } : {})
+        };
+        try {
+            const rpc = this.heliusResolver.forCluster(cluster);
+            const accounts = await rpc.getProgramAccounts(programId, config);
+            return accounts.map((a) => ({
+                pubkey: a.pubkey,
+                account: {
+                    data: a.account.data as Buffer,
+                    owner: a.account.owner,
+                    lamports: a.account.lamports,
+                    executable: a.account.executable,
+                    rentEpoch: a.account.rentEpoch
+                }
+            }));
+        } catch (error) {
+            this.logger.error(`getProgramAccountsFiltered failed for ${programId.toBase58()}`, error);
+            throw error;
         }
     }
 

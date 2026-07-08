@@ -4,6 +4,7 @@ import { HolderCommand, TrackedMintState } from "../../types/holder-tracking.typ
 import { logError } from "src/common/errors/error-helper";
 import type { Cluster } from "../../../../common/cluster/cluster.types";
 import { RoomFactory } from "./room/room.factory";
+import { HolderBootstrapService } from "../aggregation/holder-bootstrap.service";
 
 const HOLDER_COMMAND_CHANNEL = (network: string) => `solsight:holder_commands:${network}`;
 const UNTRACK_GRACE_PERIOD_MS = 5 * 60 * 1000; // 5 minutes grace period
@@ -20,7 +21,10 @@ export class HolderTrackingService implements OnModuleDestroy {
     private readonly logger = new Logger(HolderTrackingService.name);
     private readonly trackedMints = new Map<string, TrackedMintState>();
 
-    constructor(private readonly redisService: RedisService) {}
+    constructor(
+        private readonly redisService: RedisService,
+        private readonly holderBootstrapService: HolderBootstrapService
+    ) {}
 
     onModuleDestroy(): void {
         // Clear all timers
@@ -68,6 +72,10 @@ export class HolderTrackingService implements OnModuleDestroy {
         if (state.subscriberCount === 1 && !state.isTracked) {
             await this.sendTrackCommand(cluster, mint);
             state.isTracked = true;
+            // Bootstrap holders asynchronously without blocking the room join
+            void this.holderBootstrapService.bootstrap(mint, cluster).catch((error) => {
+                logError(this.logger, `Bootstrap failed for ${mint}`, error);
+            });
         }
     }
 
@@ -126,7 +134,7 @@ export class HolderTrackingService implements OnModuleDestroy {
     /**
      * Manually trigger tracking for a mint (e.g., from an admin endpoint).
      */
-    async trackMint(cluster: Cluster, mint: string, bootstrap = true): Promise<void> {
+    async trackMint(cluster: Cluster, mint: string): Promise<void> {
         const trackingKey = this.trackingKey(cluster, mint);
         let state = this.trackedMints.get(trackingKey);
 
@@ -139,7 +147,7 @@ export class HolderTrackingService implements OnModuleDestroy {
         }
 
         if (!state.isTracked) {
-            await this.sendTrackCommand(cluster, mint, bootstrap);
+            await this.sendTrackCommand(cluster, mint);
             state.isTracked = true;
         }
     }
@@ -164,11 +172,10 @@ export class HolderTrackingService implements OnModuleDestroy {
         return `${cluster}:${mint}`;
     }
 
-    private async sendTrackCommand(cluster: Cluster, mint: string, bootstrap = true): Promise<void> {
+    private async sendTrackCommand(cluster: Cluster, mint: string): Promise<void> {
         const command: HolderCommand = {
             action: "track",
-            mint,
-            bootstrap
+            mint
         };
 
         const redis = this.redisService.getClient();
@@ -179,7 +186,7 @@ export class HolderTrackingService implements OnModuleDestroy {
 
         try {
             await redis.publish(HOLDER_COMMAND_CHANNEL(cluster), JSON.stringify(command));
-            this.logger.log(`Sent track command for ${mint} (bootstrap: ${bootstrap})`);
+            this.logger.log(`Sent track command for ${mint}`);
         } catch (error) {
             logError(this.logger, `Failed to send track command for ${mint}`, error);
         }

@@ -20,6 +20,7 @@ import { OhlcAggregationService } from "./services/aggregation/ohlc-aggregation.
 import { OhlcPersistorService } from "./services/aggregation/ohlc-persistor.service";
 import { TraderAggregationService } from "./services/aggregation/trader-aggregation.service";
 import { HolderAggregationService } from "./services/aggregation/holder-aggregation.service";
+import { HolderBootstrapService } from "./services/aggregation/holder-bootstrap.service";
 import { HolderUpdateHandler } from "./services/aggregation/holder-update.handler";
 import { HolderTrackingService } from "./services/socket/holder-tracking.service";
 import { PriceUpdateHandler } from "./services/aggregation/price-update.handler";
@@ -53,6 +54,7 @@ import { StatsPersistorService } from "./services/aggregation/stats-persistor.se
         OhlcPersistorService,
         TraderAggregationService,
         HolderAggregationService,
+        HolderBootstrapService,
         HolderUpdateHandler,
         HolderTrackingService,
         PriceUpdateHandler,
