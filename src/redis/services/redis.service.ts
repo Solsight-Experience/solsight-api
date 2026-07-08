@@ -40,7 +40,9 @@ export class RedisService implements OnModuleDestroy {
         KNOWN_TOKEN: (network: string, mint: string) => `token:known:${network}:${mint}`,
         ACTIVE_TOKENS: (network: string) => `tokens:active:${network}`,
         PENDING_REGISTRATION_TOKEN: (token: string) => `auth:pending_registration:${token}`,
-        PENDING_REGISTRATION_EMAIL: (email: string) => `auth:pending_registration:email:${email.toLowerCase()}`
+        PENDING_REGISTRATION_EMAIL: (email: string) => `auth:pending_registration:email:${email.toLowerCase()}`,
+        BILLING_ORDER_RATE_LIMIT: (userId: string) => `billing:order_rate:${userId}`,
+        BILLING_RECONCILE_CURSOR: (network: string) => `billing:reconcile_cursor:${network}`
     });
 
     public static readonly TTL = redisTtls({
@@ -58,6 +60,7 @@ export class RedisService implements OnModuleDestroy {
         KNOWN_TOKEN: 24 * 60 * 60,
         PENDING_REGISTRATION_TOKEN: 24 * 60 * 60,
         PENDING_REGISTRATION_EMAIL: 24 * 60 * 60,
+        BILLING_ORDER_RATE_LIMIT: 60 * 60, // 10 đơn/giờ/user — xem PaymentService.assertOrderRateLimitNotExceeded
         OHLC_BUCKET: (interval: string) => OHLC_INTERVAL_TTLS[interval as keyof typeof OHLC_INTERVAL_TTLS] ?? 60 * 60,
         OHLC_LAST_CLOSE: (interval: string) => (OHLC_INTERVAL_TTLS[interval as keyof typeof OHLC_INTERVAL_TTLS] ?? 60 * 60) * 3
     } satisfies Partial<Record<keyof typeof RedisService.KEYS, RedisTtlValue>>);
@@ -123,6 +126,16 @@ export class RedisService implements OnModuleDestroy {
         } catch (error) {
             logError(this.logger, `Redis exists error for key "${key}"`, error);
             return false;
+        }
+    }
+
+    async incr(key: RedisKey): Promise<number | null> {
+        if (!this.redis) return null;
+        try {
+            return await this.redis.incr(key);
+        } catch (error) {
+            logError(this.logger, `Redis incr error for key "${key}"`, error);
+            return null;
         }
     }
 

@@ -12,6 +12,9 @@ import { BotSubscription } from "../modules/bot/entities/bot-subscription.entity
 import { WalletAlert } from "../modules/watchlist/entities/wallet-alert.entity";
 import { WatchedWallet } from "../modules/watchlist/entities/watched-wallet.entity";
 import { Favorite } from "../modules/account/entities/favorite.entity";
+import { UserCredit } from "../modules/billing/entities/user-credit.entity";
+import { FeatureUsage } from "../modules/billing/entities/feature-usage.entity";
+import { PaymentOrder } from "../modules/billing/entities/payment-order.entity";
 
 export type AppEntity =
     | Token
@@ -27,7 +30,10 @@ export type AppEntity =
     | BotSubscription
     | WalletAlert
     | WatchedWallet
-    | Favorite;
+    | Favorite
+    | UserCredit
+    | FeatureUsage
+    | PaymentOrder;
 
 export const ENTITIES = [
     Token,
@@ -43,5 +49,8 @@ export const ENTITIES = [
     BotSubscription,
     WalletAlert,
     WatchedWallet,
-    Favorite
+    Favorite,
+    UserCredit,
+    FeatureUsage,
+    PaymentOrder
 ];

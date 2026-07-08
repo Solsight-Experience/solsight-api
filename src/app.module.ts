@@ -29,6 +29,7 @@ import { JitoModule } from "./infra/jito/jito.module";
 import { AdminAnalyticsModule } from "./modules/admin-analytics/admin-analytics.module";
 import { StakingModule } from "./modules/staking/staking.module";
 import { EventsModule } from "./events/events.module";
+import { BillingModule } from "./modules/billing/billing.module";
 
 @Module({
     imports: [
@@ -70,7 +71,8 @@ import { EventsModule } from "./events/events.module";
         JitoModule,
         AdminAnalyticsModule,
         StakingModule,
-        EventsModule
+        EventsModule,
+        BillingModule
     ],
     controllers: [],
     providers: []
