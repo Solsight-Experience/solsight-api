@@ -34,23 +34,3 @@ export interface CompleteOrderResult {
     alreadyProcessed: boolean;
     credits?: number;
 }
-
-export interface PaymentOrderSummary {
-    id: string;
-    packageCode: string;
-    credits: number;
-    amountLamports: string;
-    network: string;
-    status: string;
-    txSignature: string | null;
-    createdAt: string;
-    expiresAt: string;
-    completedAt: string | null;
-}
-
-export interface PaymentOrderPage {
-    orders: PaymentOrderSummary[];
-    total: number;
-    page: number;
-    limit: number;
-}

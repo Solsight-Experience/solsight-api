@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Param, Post, UseGuards } from "@nestjs/common";
 import { JwtAuthGuard } from "../../auth/guards/jwt-auth.guard";
 import { RequestCluster } from "../../../common/cluster/request-cluster.decorator";
 import type { Cluster } from "../../../common/cluster/cluster.types";
@@ -39,11 +39,5 @@ export class PaymentController {
     @UseGuards(JwtAuthGuard)
     async submitPayment(@CurrentUser() user: CurrentUserPayload, @RequestCluster() cluster: Cluster, @Param("id") id: string, @Body() dto: SubmitPaymentDto) {
         return this.paymentService.submitPayment(user.id, cluster, id, dto);
-    }
-
-    @Get("orders")
-    @UseGuards(JwtAuthGuard)
-    async listOrders(@CurrentUser() user: CurrentUserPayload, @Query("page") page?: string, @Query("limit") limit?: string) {
-        return this.paymentService.listOrders(user.id, page ? parseInt(page, 10) : undefined, limit ? parseInt(limit, 10) : undefined);
     }
 }

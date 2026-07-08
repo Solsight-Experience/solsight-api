@@ -12,7 +12,7 @@ import { CreateOrderDto } from "../dtos/create-order.dto";
 import { SubmitPaymentDto } from "../dtos/submit-payment.dto";
 import { buildOrderMemo, memoInstruction } from "../constants/memo.constant";
 import { ORDER_EXPIRY_MINUTES, ORDER_RATE_LIMIT_PER_HOUR, PACKAGES } from "../constants/packages.constant";
-import { BuiltPaymentTransaction, CompleteOrderResult, CreatedPaymentOrder, PaymentOrderPage, SubmitPaymentResult } from "../types/billing.types";
+import { BuiltPaymentTransaction, CompleteOrderResult, CreatedPaymentOrder, SubmitPaymentResult } from "../types/billing.types";
 
 @Injectable()
 export class PaymentService {
@@ -110,33 +110,6 @@ export class PaymentService {
 
             return { alreadyProcessed: false, credits };
         });
-    }
-
-    async listOrders(userId: string, page = 1, limit = 20): Promise<PaymentOrderPage> {
-        const [orders, total] = await this.paymentOrderRepository.findAndCount({
-            where: { userId },
-            order: { createdAt: "DESC" },
-            take: limit,
-            skip: (page - 1) * limit
-        });
-
-        return {
-            orders: orders.map((order) => ({
-                id: order.id,
-                packageCode: order.packageCode,
-                credits: order.credits,
-                amountLamports: order.amountLamports,
-                network: order.network,
-                status: order.status,
-                txSignature: order.txSignature,
-                createdAt: order.createdAt.toISOString(),
-                expiresAt: order.expiresAt.toISOString(),
-                completedAt: order.completedAt?.toISOString() ?? null
-            })),
-            total,
-            page,
-            limit
-        };
     }
 
     private async buildPaymentTransaction(cluster: Cluster, walletAddress: string, lamports: bigint, memo: string): Promise<BuiltPaymentTransaction> {
