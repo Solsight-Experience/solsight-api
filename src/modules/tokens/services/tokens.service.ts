@@ -8,7 +8,7 @@ import { TokenResponseDto, TokenDetailsResponseDto, TokenMetadata } from "../dto
 import { CoinGeckoService } from "../../../infra/coingecko/coingecko.service";
 import { TokenFilterConditionDto, TokenFilterResponseDto } from "../dtos/token.filter.dto";
 import { mapTokenEntityToResponseDto, mapTokenEntityToOverviewDto } from "../mapper/token.mapper";
-import { ChartQueryDto, ChartResponseDto } from "../dtos/token.chart.dto";
+import { ChartCandlePointDto, ChartQueryDto, ChartResponseDto } from "../dtos/token.chart.dto";
 import { OhlcAggregationService } from "./aggregation/ohlc-aggregation.service";
 import { OhlcInterval } from "./socket/room/room.constants";
 import { RedisService } from "../../../redis/services/redis.service";
@@ -407,15 +407,11 @@ export class TokensService {
             for (const point of redisPoints) {
                 pointsByTimestamp.set(point.timestamp, point);
             }
-            const points = Array.from(pointsByTimestamp.values())
-                .sort((a, b) => a.timestamp - b.timestamp)
-                .slice(-limitNum);
-            for (let i = 1; i < points.length; i++) {
-                points[i].open = points[i - 1].close;
-            }
-            return { interval, points };
+            const points = Array.from(pointsByTimestamp.values()).sort((a, b) => a.timestamp - b.timestamp);
+            return { interval, points: await this.buildChartPoints(cluster, address, points, this.parseIntervalMs(interval), limitNum, from, to) };
         }
 
+        const intervalMs = this.parseIntervalMs(interval);
         const days = this.resolveCoinGeckoDays(from, to, interval, limitNum);
 
         const cached = await this.ohlcCandleRepository.find({
@@ -424,16 +420,16 @@ export class TokensService {
         });
 
         if (cached.length >= limitNum) {
-            return { interval, points: this.mapCandles(cached.slice(-limitNum)) };
+            return { interval, points: await this.buildChartPoints(cluster, address, this.mapCandles(cached), intervalMs, limitNum, from, to) };
         }
 
         if (cluster === "devnet") {
-            return { interval, points: this.mapCandles(cached) };
+            return { interval, points: await this.buildChartPoints(cluster, address, this.mapCandles(cached), intervalMs, limitNum, from, to) };
         }
 
         const token = await this.tokenRepository.findOne({ where: { address, network: cluster }, select: ["coingeckoId"] });
         if (!token?.coingeckoId) {
-            return { interval, points: this.mapCandles(cached) };
+            return { interval, points: await this.buildChartPoints(cluster, address, this.mapCandles(cached), intervalMs, limitNum, from, to) };
         }
 
         // Cache CoinGecko OHLC for 1h to avoid repeated calls
@@ -445,7 +441,7 @@ export class TokensService {
                 if (rawCached) {
                     const cachedOhlc = JSON.parse(rawCached) as [number, number, number, number, number][];
                     if (cachedOhlc.length > 0) {
-                        return { interval, points: this.mapCandles(cached) };
+                        return { interval, points: await this.buildChartPoints(cluster, address, this.mapCandles(cached), intervalMs, limitNum, from, to) };
                     }
                 }
             } catch {
@@ -456,7 +452,7 @@ export class TokensService {
         try {
             const raw = await this.coinGeckoService.getOhlc(cluster, token.coingeckoId, "usd", days);
             if (raw.length === 0) {
-                return { interval, points: this.mapCandles(cached) };
+                return { interval, points: await this.buildChartPoints(cluster, address, this.mapCandles(cached), intervalMs, limitNum, from, to) };
             }
 
             if (redis) {
@@ -480,15 +476,15 @@ export class TokensService {
                 where: { tokenMint: address, network: cluster, interval, timestamp: Between(from, to) },
                 order: { timestamp: "ASC" }
             });
-            return { interval, points: this.mapCandles(fresh.slice(-limitNum)) };
+            return { interval, points: await this.buildChartPoints(cluster, address, this.mapCandles(fresh), intervalMs, limitNum, from, to) };
         } catch (error) {
             this.logger.error(`Failed to fetch CoinGecko chart data for ${address}:`, error);
-            return { interval, points: this.mapCandles(cached) };
+            return { interval, points: await this.buildChartPoints(cluster, address, this.mapCandles(cached), intervalMs, limitNum, from, to) };
         }
     }
 
-    private mapCandles(candles: OhlcCandle[]) {
-        const points = candles.map((c) => ({
+    private mapCandles(candles: OhlcCandle[]): ChartCandlePointDto[] {
+        return candles.map((c) => ({
             timestamp: Number(c.timestamp),
             open: Number(c.open),
             high: Number(c.high),
@@ -496,12 +492,82 @@ export class TokensService {
             close: Number(c.close),
             volume: Number(c.volume)
         }));
+    }
 
-        for (let i = 1; i < points.length; i++) {
-            points[i].open = points[i - 1].close;
+    private async buildChartPoints(
+        cluster: Cluster,
+        address: string,
+        points: ChartCandlePointDto[],
+        intervalMs: number,
+        limit: number,
+        from: number,
+        to: number
+    ): Promise<ChartCandlePointDto[]> {
+        const finalized = this.finalizeChartPoints(points, intervalMs, limit, to);
+        if (finalized.length > 0 || intervalMs <= 0) return finalized;
+
+        // No candle exists at all (token has no recorded swaps) → seed a flat
+        // chart from the token's current reference price instead of an empty chart.
+        let price = 0;
+        try {
+            const stats = await this.statsAggregationService.getStats(cluster, address);
+            price = Number(stats?.price);
+        } catch (error) {
+            this.logger.warn(`Failed to resolve fallback price for chart of ${address}: ${error instanceof Error ? error.message : error}`);
+        }
+        if (!Number.isFinite(price) || price <= 0) return finalized;
+
+        const endBucket = Math.floor(Math.min(to, Date.now()) / intervalMs) * intervalMs;
+        const startBucket = Math.max(Math.floor(from / intervalMs) * intervalMs, endBucket - (limit - 1) * intervalMs);
+        const flat: ChartCandlePointDto[] = [];
+        for (let bucket = startBucket; bucket <= endBucket; bucket += intervalMs) {
+            flat.push({ timestamp: bucket, open: price, high: price, low: price, close: price, volume: 0 });
+        }
+        return flat;
+    }
+
+    private finalizeChartPoints(points: ChartCandlePointDto[], intervalMs: number, limit: number, to: number): ChartCandlePointDto[] {
+        const filled = this.fillGaps(points, intervalMs, limit, to);
+        const sliced = filled.slice(-limit);
+        for (let i = 1; i < sliced.length; i++) {
+            sliced[i].open = sliced[i - 1].close;
+        }
+        return sliced;
+    }
+
+    // Buckets without swaps have no row anywhere (DB/Redis only store traded buckets),
+    // so synthesize flat candles at read time to mirror the WS behavior of emitting
+    // lastClose when a bucket is empty. Fill window is capped at `limit` buckets.
+    private fillGaps(points: ChartCandlePointDto[], intervalMs: number, limit: number, to: number): ChartCandlePointDto[] {
+        if (points.length === 0 || intervalMs <= 0) return points;
+
+        const endBucket = Math.floor(Math.min(to, Date.now()) / intervalMs) * intervalMs;
+        const firstBucket = Math.floor(points[0].timestamp / intervalMs) * intervalMs;
+        const startBucket = Math.max(firstBucket, endBucket - (limit - 1) * intervalMs);
+        if (endBucket < startBucket) return points;
+
+        const byBucket = new Map<number, ChartCandlePointDto>();
+        let prevClose: number | null = null;
+        for (const point of points) {
+            const bucket = Math.floor(point.timestamp / intervalMs) * intervalMs;
+            if (bucket < startBucket) {
+                prevClose = point.close;
+            } else {
+                byBucket.set(bucket, point);
+            }
         }
 
-        return points;
+        const filled: ChartCandlePointDto[] = [];
+        for (let bucket = startBucket; bucket <= endBucket; bucket += intervalMs) {
+            const existing = byBucket.get(bucket);
+            if (existing) {
+                filled.push(existing);
+                prevClose = existing.close;
+            } else if (prevClose != null) {
+                filled.push({ timestamp: bucket, open: prevClose, high: prevClose, low: prevClose, close: prevClose, volume: 0 });
+            }
+        }
+        return filled;
     }
 
     private resolveChartWindow(interval: string, limit: number, from?: number, to?: number): { from: number; to: number } {

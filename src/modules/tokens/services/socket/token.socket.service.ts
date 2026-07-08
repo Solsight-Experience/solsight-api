@@ -189,14 +189,20 @@ export class TokenSocketService implements OnModuleInit {
 
         if (!currentOhlc) {
             // Bucket trống (không có swap) → emit flat candle từ lastClose
-            if (lastClose == null) return;
+            let close: number | null = lastClose ?? null;
+            if (close == null) {
+                // Chưa có close nào (token chưa swap / sau restart) → seed từ giá tham chiếu
+                close = await this.resolveReferencePrice(cluster, token);
+                if (close == null) return;
+                this.lastEmittedClose.set(room, close);
+            }
             this.gateway.emit(room, "priceOHLC", {
                 token,
                 priceOHLC: {
-                    open: lastClose,
-                    close: lastClose,
-                    high: lastClose,
-                    low: lastClose
+                    open: close,
+                    close,
+                    high: close,
+                    low: close
                 },
                 time: bucketTime
             });
@@ -220,6 +226,18 @@ export class TokenSocketService implements OnModuleInit {
             time: bucketTime
         });
         this.lastEmittedClose.set(room, candle.close);
+    }
+
+    // Giá fallback khi chưa có candle nào: Redis latest price → token.price (DB)
+    private async resolveReferencePrice(cluster: Cluster, token: string): Promise<number | null> {
+        try {
+            const stats = await this.statsAggregation.getStats(cluster, token);
+            const price = Number(stats?.price);
+            return Number.isFinite(price) && price > 0 ? price : null;
+        } catch (error) {
+            logError(this.logger, `Failed to resolve reference price for "${token}"`, error);
+            return null;
+        }
     }
 
     private bufferTrade(cluster: Cluster, tokenMint: string, trade: TradeData): void {
