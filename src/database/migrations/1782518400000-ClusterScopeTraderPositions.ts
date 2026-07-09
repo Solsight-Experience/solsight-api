@@ -24,7 +24,7 @@ export class ClusterScopeTraderPositions1782518400000 implements MigrationInterf
                       AND t.relname = 'trader_positions'
                       AND c.contype = 'u'
                       AND ARRAY(
-                          SELECT a.attname
+                          SELECT a.attname::text
                           FROM unnest(c.conkey) AS key(attnum)
                           JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = key.attnum
                           ORDER BY a.attname

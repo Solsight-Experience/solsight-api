@@ -8,7 +8,7 @@ export class ZaloToTelegram1782700000000 implements MigrationInterface {
         // Rename column zaloUserId → telegramChatId
         await queryRunner.query(`
             ALTER TABLE "telegram_subscriptions"
-            RENAME COLUMN IF EXISTS "zaloUserId" TO "telegramChatId"
+            RENAME COLUMN "zaloUserId" TO "telegramChatId";
         `);
     }
 
