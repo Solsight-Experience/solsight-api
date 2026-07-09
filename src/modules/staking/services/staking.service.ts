@@ -16,10 +16,10 @@ import { ASSOCIATED_TOKEN_PROGRAM_ID, getAssociatedTokenAddressSync, TOKEN_PROGR
 import bs58 from "bs58";
 import { Repository } from "typeorm";
 import type { Cluster } from "../../../common/cluster/cluster.types";
-import type { AppConfig } from "../../../config/configuration";
 import { HeliusResolver } from "../../../infra/solana/helius.resolver";
 import { HeliusService } from "../../../infra/solana/helius.service";
 import { getStakePoolCoordinates, StakePoolCoordinates } from "../config/pool-config";
+import { STAKING_AUTHORITY, STAKING_PROGRAM_ID } from "../config/staking-addresses";
 import { BuildStakingTransactionDto, StakingTransactionAction } from "../dtos/build-staking-transaction.dto";
 import { GetStakingHistoryDto } from "../dtos/get-staking-history.dto";
 import { GetStakingPositionDto } from "../dtos/get-staking-position.dto";
@@ -673,19 +673,15 @@ export class StakingService {
 
     // ─── Config helpers ──────────────────────────────────────────────────────
     private getPool(network: Cluster): StakePoolCoordinates {
-        const pool =
-            network === "mainnet"
-                ? this.configService.get<AppConfig["staking"]["mainnetPool"]>("staking.mainnetPool")!
-                : this.configService.get<AppConfig["staking"]["devnetPool"]>("staking.devnetPool")!;
-        return getStakePoolCoordinates(network, pool);
+        return getStakePoolCoordinates(network);
     }
 
     private getProgramId(): PublicKey {
-        return this.getRequiredPublicKey("staking.programId", "STAKING_PROGRAM_ID");
+        return new PublicKey(STAKING_PROGRAM_ID);
     }
 
     private getAuthority(): PublicKey {
-        return this.getRequiredPublicKey("staking.authority", "STAKING_AUTHORITY");
+        return new PublicKey(STAKING_AUTHORITY);
     }
 
     private requirePositiveAmount(amountLamportsStr: string | undefined, action: StakingTransactionAction): bigint {
@@ -706,12 +702,6 @@ export class StakingService {
         if (cluster !== network) {
             throw new BadRequestException(`Staking is configured for ${network}, but request cluster is ${cluster}.`);
         }
-    }
-
-    private getRequiredPublicKey(configKey: string, envName: string): PublicKey {
-        const value = this.configService.get<string>(configKey);
-        if (!value) throw new BadRequestException(`${envName} is required to build staking transactions.`);
-        return this.parsePublicKey(value, envName);
     }
 
     private parsePublicKey(value: string | undefined, label: string): PublicKey {

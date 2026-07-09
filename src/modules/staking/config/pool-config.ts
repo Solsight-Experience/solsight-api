@@ -1,7 +1,6 @@
-import { BadRequestException } from "@nestjs/common";
 import { PublicKey } from "@solana/web3.js";
-import type { AppConfig } from "../../../config/configuration";
 import type { Cluster } from "../../../common/cluster/cluster.types";
+import { DEVNET_POOL, MAINNET_POOL } from "./staking-addresses";
 
 export interface StakePoolCoordinates {
     stakePoolProgram: PublicKey;
@@ -12,20 +11,15 @@ export interface StakePoolCoordinates {
     managerFeeAccount: PublicKey;
 }
 
-type PoolConfig = AppConfig["staking"]["mainnetPool"] | AppConfig["staking"]["devnetPool"];
-
-export function getStakePoolCoordinates(cluster: Cluster, pool: PoolConfig): StakePoolCoordinates {
-    const { stakePool, lstMint, withdrawAuthority, reserveStake, managerFeeAccount, stakePoolProgram } = pool;
-    if (!stakePool || !lstMint || !withdrawAuthority || !reserveStake || !managerFeeAccount || !stakePoolProgram) {
-        throw new BadRequestException(`Stake pool is not configured for ${cluster}.`);
-    }
+export function getStakePoolCoordinates(cluster: Cluster): StakePoolCoordinates {
+    const pool = cluster === "mainnet" ? MAINNET_POOL : DEVNET_POOL;
 
     return {
-        stakePoolProgram: new PublicKey(stakePoolProgram),
-        stakePool: new PublicKey(stakePool),
-        lstMint: new PublicKey(lstMint),
-        withdrawAuthority: new PublicKey(withdrawAuthority),
-        reserveStake: new PublicKey(reserveStake),
-        managerFeeAccount: new PublicKey(managerFeeAccount)
+        stakePoolProgram: new PublicKey(pool.stakePoolProgram),
+        stakePool: new PublicKey(pool.stakePool),
+        lstMint: new PublicKey(pool.lstMint),
+        withdrawAuthority: new PublicKey(pool.withdrawAuthority),
+        reserveStake: new PublicKey(pool.reserveStake),
+        managerFeeAccount: new PublicKey(pool.managerFeeAccount)
     };
 }
