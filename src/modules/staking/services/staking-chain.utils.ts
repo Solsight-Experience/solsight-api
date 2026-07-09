@@ -51,13 +51,6 @@ export function readU128LE(data: Uint8Array, offset: number): bigint {
     return readU64LE(data, offset) + readU64LE(data, offset + 8) * U64_FACTOR;
 }
 
-function readI64LE(data: Uint8Array, offset: number): bigint {
-    const view = new DataView(data.buffer, data.byteOffset);
-    const lo = BigInt(view.getUint32(offset, true));
-    const hi = BigInt(view.getInt32(offset + 4, true));
-    return lo | (BigInt(hi) << BigInt(32));
-}
-
 function pubkeyAt(data: Uint8Array, offset: number): PublicKey {
     return new PublicKey(new Uint8Array(data.buffer, data.byteOffset + offset, 32));
 }

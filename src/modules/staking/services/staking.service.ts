@@ -35,7 +35,6 @@ import {
     StakeActionType,
     StakeHistoryRecord,
     StakingHistoryResponse,
-    StakingMode,
     StakingPositionResponse,
     StakingValidatorResponse
 } from "../types/staking.types";
@@ -674,7 +673,7 @@ export class StakingService {
 
     // ─── Config helpers ──────────────────────────────────────────────────────
     private getPool(network: Cluster): StakePoolCoordinates {
-        const devnetPool = this.configService.get<AppConfig["staking"]["devnetPool"]>("staking.devnetPool", { infer: true });
+        const devnetPool = this.configService.get<AppConfig["staking"]["devnetPool"]>("staking.devnetPool")!;
         return getStakePoolCoordinates(network, devnetPool);
     }
 
