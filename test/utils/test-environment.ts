@@ -38,7 +38,6 @@ export class TestEnvironment {
         process.env.MONGODB_URI = process.env.MONGODB_URI || "mongodb://localhost:27017/test";
         process.env.NODE_ENV = "test";
         process.env.JWT_SECRET = process.env.JWT_SECRET || "test-secret";
-        process.env.SOLANA_RPC_URL = process.env.SOLANA_RPC_URL || "http://localhost:8899";
         process.env.HELIUS_RPC_URL = process.env.HELIUS_RPC_URL || "http://localhost:8899";
         process.env.HELIUS_API_KEY = process.env.HELIUS_API_KEY || "mock-helius-key";
         process.env.JUPITER_API_KEY = process.env.JUPITER_API_KEY || "mock-jupiter-key";
