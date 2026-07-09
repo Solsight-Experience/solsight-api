@@ -5,6 +5,7 @@ import { ExecutorModule } from "../../infra/executor/executor.module";
 import { LoggerModule } from "../../common/logger/logger.module";
 import { OpenAIModule } from "../../infra/openai/openai.module";
 import { VectorStoreModule } from "../../infra/vectorstore/vectorstore.module";
+import { BillingModule } from "../billing/billing.module";
 import { DiscoveryModule } from "../discovery/discovery.module";
 import { PortfolioModule } from "../portfolio/portfolio.module";
 import { TokensModule } from "../tokens/tokens.module";
@@ -38,7 +39,8 @@ import { RagDocument } from "./entities/rag-document.entity";
         WebsocketModule,
         OpenAIModule,
         VectorStoreModule,
-        ExecutorModule
+        ExecutorModule,
+        BillingModule
     ],
     providers: [ChatService, RagService, ChatGateway],
     controllers: [ChatController],

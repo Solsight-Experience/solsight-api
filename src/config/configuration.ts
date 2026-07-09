@@ -43,6 +43,10 @@ const configuration = () => ({
         }
     },
 
+    billing: {
+        merchantWallet: process.env.MERCHANT_WALLET
+    },
+
     helius: {
         rpcUrl: process.env.HELIUS_RPC_URL,
         apiKey: process.env.HELIUS_API_KEY
