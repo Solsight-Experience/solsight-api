@@ -673,8 +673,11 @@ export class StakingService {
 
     // ─── Config helpers ──────────────────────────────────────────────────────
     private getPool(network: Cluster): StakePoolCoordinates {
-        const devnetPool = this.configService.get<AppConfig["staking"]["devnetPool"]>("staking.devnetPool")!;
-        return getStakePoolCoordinates(network, devnetPool);
+        const pool =
+            network === "mainnet"
+                ? this.configService.get<AppConfig["staking"]["mainnetPool"]>("staking.mainnetPool")!
+                : this.configService.get<AppConfig["staking"]["devnetPool"]>("staking.devnetPool")!;
+        return getStakePoolCoordinates(network, pool);
     }
 
     private getProgramId(): PublicKey {

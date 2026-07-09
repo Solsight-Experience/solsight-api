@@ -12,22 +12,12 @@ export interface StakePoolCoordinates {
     managerFeeAccount: PublicKey;
 }
 
-// Mainnet: Jito's SPL Stake Pool (mirrors staking-program/config/networks.ts).
-const MAINNET_POOL: StakePoolCoordinates = {
-    stakePoolProgram: new PublicKey("SPoo1Ku8WFXoNDMHPsrGSTSG1Y47rzgn41SLUNakuHy"),
-    stakePool: new PublicKey("Jito4APyf642JPZPx3hGc6WWJ8zPKtRbRs4P815Awbb"),
-    lstMint: new PublicKey("J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn"),
-    withdrawAuthority: new PublicKey("6iQKfEyhr3bZMotVkW6beNZz5CPAkiwvgV2CTje9pVSS"),
-    reserveStake: new PublicKey("BgKUXdS29YcHCFrPm5M8oLHiTzZaMDjsebggjoaQ6KFL"),
-    managerFeeAccount: new PublicKey("8yoigZfzZ1nNaadumY9uPVD118225UYHTDpmjpr2nrSa")
-};
+type PoolConfig = AppConfig["staking"]["mainnetPool"] | AppConfig["staking"]["devnetPool"];
 
-export function getStakePoolCoordinates(cluster: Cluster, devnetPool: AppConfig["staking"]["devnetPool"]): StakePoolCoordinates {
-    if (cluster === "mainnet") return MAINNET_POOL;
-
-    const { stakePool, lstMint, withdrawAuthority, reserveStake, managerFeeAccount, stakePoolProgram } = devnetPool;
+export function getStakePoolCoordinates(cluster: Cluster, pool: PoolConfig): StakePoolCoordinates {
+    const { stakePool, lstMint, withdrawAuthority, reserveStake, managerFeeAccount, stakePoolProgram } = pool;
     if (!stakePool || !lstMint || !withdrawAuthority || !reserveStake || !managerFeeAccount || !stakePoolProgram) {
-        throw new BadRequestException("Devnet stake pool is not configured. Set STAKING_DEVNET_* env vars (see staking-program/config/devnet-pool.json).");
+        throw new BadRequestException(`Stake pool is not configured for ${cluster}.`);
     }
 
     return {

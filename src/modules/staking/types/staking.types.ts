@@ -1,3 +1,7 @@
+import type { PublicKey } from "@solana/web3.js";
+import type { Cluster } from "../../../common/cluster/cluster.types";
+import type { StakingTransactionAction } from "../dtos/build-staking-transaction.dto";
+
 export const DEFAULT_HISTORY_PAGE_SIZE = 8;
 export const MAX_HISTORY_PAGE_SIZE = 50;
 export const SIGNATURE_BACKFILL_BATCH_SIZE = 50;
@@ -58,8 +62,8 @@ export interface StakingHistoryResponse {
 
 export interface BuiltStakingTransaction {
     mode: StakingMode;
-    action: import("../dtos/build-staking-transaction.dto").StakingTransactionAction;
-    network: import("../../../common/cluster/cluster.types").Cluster;
+    action: StakingTransactionAction;
+    network: Cluster;
     transaction: string;
     blockhash: string;
     lastValidBlockHeight: number;
@@ -68,7 +72,7 @@ export interface BuiltStakingTransaction {
 
 export type CompiledMessageShape = {
     compiledInstructions: Array<{ programIdIndex: number; data: Uint8Array }>;
-    staticAccountKeys: import("@solana/web3.js").PublicKey[];
+    staticAccountKeys: PublicKey[];
 };
 
 export type TransactionMetaBalanceShape = {

@@ -24,22 +24,31 @@ const configuration = () => ({
     },
 
     staking: {
-        programId: process.env.STAKING_PROGRAM_ID || "BHaXES9ZvPVozojv3Z7ETV16vjBpWNQL59mDiwoPtNPG",
+        programId: "BHaXES9ZvPVozojv3Z7ETV16vjBpWNQL59mDiwoPtNPG",
         // Wallet that ran `initialize` and owns the StakePoolConfig PDA. Already set up on
         // devnet (verified on-chain via getProgramAccounts) using the same admin wallet as
-        // the old IF_AUTHORITY. Must be set explicitly for mainnet once initialized there.
-        authority: process.env.STAKING_AUTHORITY || "HJnpCRqahd2Zunhx1VyY9d9Hj7UyLSNWQEavybJC3MSa",
+        // the old IF_AUTHORITY. Must be updated here once initialized for mainnet.
+        authority: "HJnpCRqahd2Zunhx1VyY9d9Hj7UyLSNWQEavybJC3MSa",
+        // Jito's official SPL Stake Pool deployment (mirrors staking-program/config/networks.ts).
+        mainnetPool: {
+            stakePool: "Jito4APyf642JPZPx3hGc6WWJ8zPKtRbRs4P815Awbb",
+            lstMint: "J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn",
+            withdrawAuthority: "6iQKfEyhr3bZMotVkW6beNZz5CPAkiwvgV2CTje9pVSS",
+            reserveStake: "BgKUXdS29YcHCFrPm5M8oLHiTzZaMDjsebggjoaQ6KFL",
+            managerFeeAccount: "8yoigZfzZ1nNaadumY9uPVD118225UYHTDpmjpr2nrSa",
+            stakePoolProgram: "SPoo1Ku8WFXoNDMHPsrGSTSG1Y47rzgn41SLUNakuHy"
+        },
         // Jito's official devnet SPL Stake Pool deployment. The old well-known address
         // SPoo1Ku8WFXoNDMHPsrGSTSG1Y47rzgn41SLUNakuHy is stuck on devnet at an outdated
         // v0.6.4 build and is no longer upgradable there (per Jito) — mainnet is unaffected
         // and keeps using SPoo1... (see modules/staking/config/pool-config.ts).
         devnetPool: {
-            stakePool: process.env.STAKING_DEVNET_STAKE_POOL || "JitoY5pcAxWX6iyP2QdFwTznGb8A99PRCUCVVxB46WZ",
-            lstMint: process.env.STAKING_DEVNET_LST_MINT || "J1tos8mqbhdGcF3pgj4PCKyVjzWSURcpLZU7pPGHxSYi",
-            withdrawAuthority: process.env.STAKING_DEVNET_WITHDRAW_AUTHORITY || "8HPpFV5PFqGmDumjRTFw9BhsjrZYjJBDuHX2p6H5nBmd",
-            reserveStake: process.env.STAKING_DEVNET_RESERVE_STAKE || "Dsd1zgN4XtxC6239vNznTNb6akTLNQeSBKoJqYjNps5e",
-            managerFeeAccount: process.env.STAKING_DEVNET_MANAGER_FEE_ACCOUNT || "77MybzFEM9WbZLsGtoiX2WACJ4K5JbxU9HBKUVapb5KN",
-            stakePoolProgram: process.env.STAKING_DEVNET_STAKE_POOL_PROGRAM || "DPoo15wWDqpPJJtS2MUZ49aRxqz5ZaaJCJP4z8bLuib"
+            stakePool: "JitoY5pcAxWX6iyP2QdFwTznGb8A99PRCUCVVxB46WZ",
+            lstMint: "J1tos8mqbhdGcF3pgj4PCKyVjzWSURcpLZU7pPGHxSYi",
+            withdrawAuthority: "8HPpFV5PFqGmDumjRTFw9BhsjrZYjJBDuHX2p6H5nBmd",
+            reserveStake: "Dsd1zgN4XtxC6239vNznTNb6akTLNQeSBKoJqYjNps5e",
+            managerFeeAccount: "77MybzFEM9WbZLsGtoiX2WACJ4K5JbxU9HBKUVapb5KN",
+            stakePoolProgram: "DPoo15wWDqpPJJtS2MUZ49aRxqz5ZaaJCJP4z8bLuib"
         }
     },
 
