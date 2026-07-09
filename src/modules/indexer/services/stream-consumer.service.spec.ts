@@ -5,6 +5,7 @@ import type { Transaction } from "../../transactions/entities/transaction.entity
 import type { Repository } from "typeorm";
 import type { TokenPriceService } from "../../tokens/services/token-price.service";
 import type { SwapEvent } from "../../tokens/types/swap-event.types";
+import type { TokenSyncEnqueuer } from "../../tokens/services/sync/token-sync.enqueuer";
 
 describe("StreamConsumerService", () => {
     let service: StreamConsumerService;
@@ -16,6 +17,7 @@ describe("StreamConsumerService", () => {
         query: jest.Mock;
     };
     let tokenPriceService: Pick<TokenPriceService, "getPrice" | "setPrice">;
+    let tokenSyncEnqueuer: Pick<TokenSyncEnqueuer, "enqueueIfUnknown">;
     let priceEventInsertExecute: jest.Mock;
 
     const swapBase: SwapEvent = {
@@ -74,11 +76,15 @@ describe("StreamConsumerService", () => {
             }),
             setPrice: jest.fn().mockResolvedValue(true)
         };
+        tokenSyncEnqueuer = {
+            enqueueIfUnknown: jest.fn().mockResolvedValue(undefined)
+        };
 
         service = new StreamConsumerService(
             priceEventRepository as unknown as Repository<MarketPriceEvent>,
             transactionRepository as unknown as Repository<Transaction>,
-            tokenPriceService as TokenPriceService
+            tokenPriceService as TokenPriceService,
+            tokenSyncEnqueuer as TokenSyncEnqueuer
         );
     });
 
@@ -100,7 +106,8 @@ describe("StreamConsumerService", () => {
         });
         expect(priceEventRepository.create).toHaveBeenCalledWith(
             expect.objectContaining({
-                price: 42
+                price: 42,
+                source: "swap"
             })
         );
     });
@@ -131,7 +138,7 @@ describe("StreamConsumerService", () => {
         ]);
     });
 
-    it("persists the service fallback USD price when the swap omits it", async () => {
+    it("uses the service fallback for the transaction without recording it as a new market-price event", async () => {
         (tokenPriceService.getPrice as jest.Mock).mockResolvedValue({
             priceUsd: 7.5,
             priceChange24h: 0,
@@ -140,11 +147,7 @@ describe("StreamConsumerService", () => {
 
         await service.handle(swapBase, "ignored" as never);
 
-        expect(priceEventRepository.create).toHaveBeenCalledWith(
-            expect.objectContaining({
-                price: 7.5
-            })
-        );
+        expect(priceEventInsertExecute).not.toHaveBeenCalled();
         expect(transactionRepository.query).toHaveBeenCalledWith(
             expect.any(String),
             expect.arrayContaining([

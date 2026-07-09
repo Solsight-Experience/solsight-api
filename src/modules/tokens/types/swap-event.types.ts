@@ -2,7 +2,7 @@ import type { Cluster } from "../../../common/cluster/cluster.types";
 
 export type TradeDirection = "BUY" | "SELL";
 
-const MAX_PRICE_USD = 1_000_000_000; // 1 billion USD — cap for out-of-range detection
+export const MAX_PRICE_USD = 1_000_000_000; // 1 billion USD — cap for out-of-range detection
 
 export function isValidPrice(price: number): boolean {
     return isFinite(price) && price > 0 && price < MAX_PRICE_USD;

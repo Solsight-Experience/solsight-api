@@ -46,7 +46,7 @@ export class RedisService implements OnModuleDestroy {
     });
 
     public static readonly TTL = redisTtls({
-        TOKEN_PRICE_LATEST: 60 * 60,
+        TOKEN_PRICE_LATEST: 60 * 60 * 24,
         TOKEN_PRICE_HISTORY: 25 * 60 * 60,
         TOKEN_METADATA: 24 * 60 * 60,
         HOLDER_MINT_WALLET: 24 * 60 * 60,
