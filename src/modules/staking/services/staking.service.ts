@@ -661,7 +661,7 @@ export class StakingService {
             };
         }
 
-        throw new BadRequestException(`Unsupported native action: ${dto.action}`);
+        throw new BadRequestException(`Unsupported native action: ${String(dto.action)}`);
     }
 
     private async requireOwnedNativeStake(network: Cluster, owner: PublicKey, address: string | undefined): Promise<PublicKey> {
