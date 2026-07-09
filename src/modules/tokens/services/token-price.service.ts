@@ -12,16 +12,16 @@ import { getErrorMessage, logError } from "src/common/errors/error-helper";
  * Owns the live latest-price cache in Redis.
  *
  * Redis `TOKEN_PRICE_LATEST` is the slot-ordered, short-latency USD price source for
- * request-time reads and trade ingestion. `tokens.price` remains a slower reference
- * fallback populated by background token catalog sync jobs and is never treated as the
- * live write target for swaps. ESLint blocks `RedisService.KEYS.TOKEN_PRICE_LATEST`
+ * request-time reads and trade ingestion. `tokens.price` is the durable fallback
+ * projected asynchronously from market-price events (and mainnet catalog sync), never
+ * a synchronous swap write target. ESLint blocks `RedisService.KEYS.TOKEN_PRICE_LATEST`
  * references outside this service and the Redis key registry.
  */
 @Injectable()
 export class TokenPriceService {
     private readonly logger = new Logger(TokenPriceService.name);
     private static readonly STALE_THRESHOLD_S = 5 * 60;
-    static readonly PRICE_TTL_S = 60 * 60;
+    static readonly PRICE_TTL_S = RedisService.TTL.TOKEN_PRICE_LATEST;
     static readonly FRESH_MIN_TTL_S = TokenPriceService.PRICE_TTL_S - TokenPriceService.STALE_THRESHOLD_S;
     private static readonly UPSERT_LATEST_PRICE_SCRIPT = `
         local key = KEYS[1]
@@ -45,6 +45,30 @@ export class TokenPriceService {
         end
 
         redis.call('HSET', key, 'price_usd', priceUsd, 'price_native', priceNative, 'slot', tostring(incomingSlot), 'source', source)
+        redis.call('EXPIRE', key, ttl)
+
+        return 1
+    `;
+    private static readonly REHYDRATE_LATEST_PRICE_SCRIPT = `
+        local key = KEYS[1]
+        local freshMinTtl = tonumber(ARGV[1])
+        local ttl = tonumber(ARGV[2])
+        local priceUsd = ARGV[3]
+
+        local keyType = redis.call('TYPE', key)['ok']
+        if keyType ~= 'none' and keyType ~= 'hash' then
+            redis.call('DEL', key)
+            keyType = 'none'
+        end
+
+        if keyType == 'hash' and redis.call('TTL', key) >= freshMinTtl then
+            return 0
+        end
+
+        local priceNative = redis.call('HGET', key, 'price_native') or '0'
+        local slot = redis.call('HGET', key, 'slot') or '0'
+
+        redis.call('HSET', key, 'price_usd', priceUsd, 'price_native', priceNative, 'slot', slot, 'source', 'reference-sync')
         redis.call('EXPIRE', key, ttl)
 
         return 1
@@ -105,7 +129,8 @@ export class TokenPriceService {
         });
 
         const dbPrice = Number(token?.price) || 0;
-        if (dbPrice > 0) {
+        if (this.isValidWritePrice(dbPrice)) {
+            await this.rehydrateRedisPrice(cluster, mint, dbPrice);
             return { priceUsd: dbPrice, priceChange24h: Number(token?.priceChange24h) || 0, source: "db" };
         }
 
@@ -135,12 +160,15 @@ export class TokenPriceService {
                 select: ["address", "price", "priceChange24h"]
             });
 
+            const rehydrateTasks: Promise<void>[] = [];
             for (const t of tokens) {
                 const priceUsd = Number(t.price) || 0;
-                if (priceUsd > 0) {
+                if (this.isValidWritePrice(priceUsd)) {
                     result.set(t.address, { priceUsd, priceChange24h: Number(t.priceChange24h) || 0, source: "db" });
+                    rehydrateTasks.push(this.rehydrateRedisPrice(cluster, t.address, priceUsd));
                 }
             }
+            await Promise.all(rehydrateTasks);
         }
 
         for (const mint of mints) {
@@ -154,6 +182,26 @@ export class TokenPriceService {
 
     private isValidWritePrice(price: number): boolean {
         return Number.isFinite(price) && price > 0;
+    }
+
+    private async rehydrateRedisPrice(cluster: Cluster, mint: string, priceUsd: number): Promise<void> {
+        const redis = this.redisService.getClient();
+        if (!redis) return;
+
+        const key = RedisService.KEYS.TOKEN_PRICE_LATEST(cluster, mint);
+
+        try {
+            await redis.eval(
+                TokenPriceService.REHYDRATE_LATEST_PRICE_SCRIPT,
+                1,
+                key,
+                String(TokenPriceService.FRESH_MIN_TTL_S),
+                String(TokenPriceService.PRICE_TTL_S),
+                String(priceUsd)
+            );
+        } catch (error) {
+            this.logger.debug(`Failed to rehydrate Redis price for ${cluster}:${mint}: ${getErrorMessage(error)}`);
+        }
     }
 
     private async getFreshRedisPrice(cluster: Cluster, mint: string): Promise<number | null> {
