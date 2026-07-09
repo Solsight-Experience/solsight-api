@@ -49,7 +49,7 @@ export interface ChatStreamChunkPayload {
 
 export interface ChatErrorPayload {
     sessionId: string;
-    code: "rate_limited" | "processing" | "llm_error" | "unknown";
+    code: "rate_limited" | "processing" | "llm_error" | "quota_exceeded" | "unauthorized" | "unknown";
     message: string;
 }
 
