@@ -23,7 +23,7 @@ export class DropTokensAddressUnique1780300000000 implements MigrationInterface 
                       AND t.relname = 'tokens'
                       AND c.contype = 'u'
                       AND (
-                          SELECT array_agg(a.attname ORDER BY a.attnum)
+                          SELECT array_agg(a.attname::text ORDER BY a.attnum)
                           FROM unnest(c.conkey) AS key(attnum)
                           JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = key.attnum
                       ) = ARRAY['address']

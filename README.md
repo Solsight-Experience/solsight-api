@@ -70,7 +70,6 @@ A robust NestJS-based REST API for Solana blockchain trading operations. This AP
     JWT_EXPIRES_IN=7d
 
     # Solana Configuration
-    SOLANA_RPC_URL=https://api.devnet.solana.com
     SOLANA_NETWORK=devnet
     SOLANA_PROGRAM_ID=your_program_id
 
@@ -289,7 +288,6 @@ Ensure all environment variables are properly set for production:
 - Set `NODE_ENV=production`
 - Use strong `JWT_SECRET`
 - Configure production database credentials
-- Set appropriate `SOLANA_RPC_URL` for mainnet
 - Configure proper CORS origins
 
 ### Build for Production
