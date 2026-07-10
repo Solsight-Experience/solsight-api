@@ -51,8 +51,9 @@ export class StreamConsumerService implements EventHandler<SwapEvent> {
         void this.tokenSyncEnqueuer.enqueueIfUnknown(network, swap.token_in.mint).catch(() => {});
         void this.tokenSyncEnqueuer.enqueueIfUnknown(network, swap.token_out.mint).catch(() => {});
 
+        let acceptedPriceUsd: number | null = null;
         if (swap.price_usd != null && swap.price_usd > 0) {
-            await this.tokenPriceService.setPrice({
+            const stored = await this.tokenPriceService.setPrice({
                 cluster: network,
                 mint: tokenMint,
                 priceUsd: swap.price_usd,
@@ -60,25 +61,28 @@ export class StreamConsumerService implements EventHandler<SwapEvent> {
                 slot: swap.slot,
                 source: "swap"
             });
+            if (stored) {
+                acceptedPriceUsd = swap.price_usd;
+            }
         }
 
         const resolvedPriceUsd = await this.resolvePriceUsd(swap);
 
-        await Promise.all([this.persistPriceEvent(swap, resolvedPriceUsd), this.persistTransaction(swap, resolvedPriceUsd)]);
+        await Promise.all([this.persistPriceEvent(swap, acceptedPriceUsd), this.persistTransaction(swap, resolvedPriceUsd)]);
     }
 
-    private async persistPriceEvent(swap: SwapEvent, resolvedPriceUsd: number | null): Promise<void> {
-        if (resolvedPriceUsd == null) return;
+    private async persistPriceEvent(swap: SwapEvent, acceptedPriceUsd: number | null): Promise<void> {
+        if (acceptedPriceUsd == null) return;
 
         try {
             const entity = this.priceEventRepository.create({
                 tokenMint: getTokenMintFromSwap(swap),
                 network: this.eventNetwork(swap),
-                price: resolvedPriceUsd,
+                price: acceptedPriceUsd,
                 slot: String(swap.slot),
                 timestamp: String(swap.timestamp),
                 txSignature: swap.signature,
-                source: "UNKNOWN",
+                source: "swap",
                 eventType: "SWAP"
             });
 
