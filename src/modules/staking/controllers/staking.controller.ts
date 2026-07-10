@@ -20,6 +20,11 @@ export class StakingController {
         return this.stakingService.getHistory(cluster, dto);
     }
 
+    @Get("validators")
+    getValidators(@RequestCluster() cluster: Cluster) {
+        return this.stakingService.getValidators(cluster);
+    }
+
     @Post("transaction")
     buildTransaction(@RequestCluster() cluster: Cluster, @Body() dto: BuildStakingTransactionDto) {
         return this.stakingService.buildTransaction(cluster, dto);

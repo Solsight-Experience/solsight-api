@@ -23,11 +23,6 @@ const configuration = () => ({
         network: process.env.SOLANA_NETWORK || "mainnet-beta"
     },
 
-    staking: {
-        ifProgramId: process.env.IF_PROGRAM_ID || "4tsHWpfGh94M3gmDBYj96jquEpGbtyLYz4q87roAXbZU",
-        ifAuthority: process.env.IF_AUTHORITY || "HJnpCRqahd2Zunhx1VyY9d9Hj7UyLSNWQEavybJC3MSa"
-    },
-
     billing: {
         merchantWallet: process.env.MERCHANT_WALLET
     },
