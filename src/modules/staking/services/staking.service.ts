@@ -16,7 +16,6 @@ import { ASSOCIATED_TOKEN_PROGRAM_ID, getAssociatedTokenAddressSync, TOKEN_PROGR
 import bs58 from "bs58";
 import { Repository } from "typeorm";
 import type { Cluster } from "../../../common/cluster/cluster.types";
-import type { AppConfig } from "../../../config/configuration";
 import { HeliusResolver } from "../../../infra/solana/helius.resolver";
 import { HeliusService } from "../../../infra/solana/helius.service";
 import { getStakePoolCoordinates, StakePoolCoordinates } from "../config/pool-config";
