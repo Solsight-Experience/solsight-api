@@ -1,5 +1,6 @@
 import { createHash } from "crypto";
 import { LAMPORTS_PER_SOL, PublicKey } from "@solana/web3.js";
+import type { StakePoolCoordinates } from "../config/pool-config";
 import { CompiledMessageShape, StakeActionType, TransactionMetaBalanceShape } from "../types/staking.types";
 
 const U32_FACTOR = BigInt(0x100000000);
@@ -230,7 +231,7 @@ export function buildStakeIx(params: {
     owner: PublicKey;
     stakePoolConfig: PublicKey;
     userPoolTokenAccount: PublicKey;
-    pool: import("../config/pool-config").StakePoolCoordinates;
+    pool: StakePoolCoordinates;
     solAmountLamports: bigint;
     tokenProgramId: PublicKey;
     associatedTokenProgramId: PublicKey;
@@ -261,7 +262,7 @@ export function buildUnstakeIx(params: {
     owner: PublicKey;
     stakePoolConfig: PublicKey;
     userPoolTokenAccount: PublicKey;
-    pool: import("../config/pool-config").StakePoolCoordinates;
+    pool: StakePoolCoordinates;
     poolTokensAmount: bigint;
     clockSysvar: PublicKey;
     stakeHistorySysvar: PublicKey;

@@ -43,14 +43,6 @@ export const validationSchema = Joi.object({
 
     // Solana
     SOLANA_NETWORK: Joi.string().valid("mainnet-beta", "devnet", "testnet").optional(),
-    STAKING_PROGRAM_ID: Joi.string().optional(),
-    STAKING_AUTHORITY: Joi.string().optional(),
-    STAKING_DEVNET_STAKE_POOL: Joi.string().optional(),
-    STAKING_DEVNET_LST_MINT: Joi.string().optional(),
-    STAKING_DEVNET_WITHDRAW_AUTHORITY: Joi.string().optional(),
-    STAKING_DEVNET_RESERVE_STAKE: Joi.string().optional(),
-    STAKING_DEVNET_MANAGER_FEE_ACCOUNT: Joi.string().optional(),
-    STAKING_DEVNET_STAKE_POOL_PROGRAM: Joi.string().optional(),
 
     // Helius — required: app expects an authenticated RPC endpoint
     HELIUS_RPC_URL: Joi.string().uri().required(),
