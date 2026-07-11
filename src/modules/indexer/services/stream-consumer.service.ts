@@ -72,7 +72,11 @@ export class StreamConsumerService implements EventHandler<SwapEvent> {
     }
 
     private async persistPriceEvent(swap: SwapEvent, acceptedPriceUsd: number | null): Promise<void> {
-        if (acceptedPriceUsd == null) return;
+        this.logger.log(`Persisting price event for sig ${swap.signature} with price ${acceptedPriceUsd}`);
+        if (acceptedPriceUsd == null) {
+            this.logger.warn(`No accepted price for sig ${swap.signature}, skipping price event persistence`);
+            return;
+        }
 
         try {
             const entity = this.priceEventRepository.create({
