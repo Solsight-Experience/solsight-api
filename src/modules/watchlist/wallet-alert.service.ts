@@ -25,6 +25,10 @@ export class WalletAlertService {
         return this.alertRepo.find({ where: { isActive: true }, relations: ["watchedWallet"] });
     }
 
+    async getAllActiveAlertsForWallet(walletAddress: string): Promise<WalletAlert[]> {
+        return this.alertRepo.find({ where: { isActive: true, walletAddress }, relations: ["watchedWallet"] });
+    }
+
     async create(userId: string, walletAddress: string, dto: CreateWalletAlertDto): Promise<WalletAlert> {
         const network = dto.network ?? "mainnet";
         const watchedWallet = await this.watchedWalletRepo.findOne({ where: { userId, walletAddress, network } });

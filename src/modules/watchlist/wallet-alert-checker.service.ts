@@ -12,6 +12,9 @@ import { COMMON_TOKEN_MINT } from "../tokens/constants/token.constant";
 import { EnhancedTransaction } from "../../infra/solana/constants/types";
 import { NotificationMetadata, SwapMints, WalletAlertWithWallet } from "./types/wallet-alert-checker.types";
 import { escapeMarkdownV2, markdownV2Link } from "../../infra/telegram/telegram-markdown.util";
+import type { SwapEvent } from "../tokens/types/swap-event.types";
+import type { HolderUpdateEvent } from "../tokens/types/holder-aggregation.types";
+import type { PaymentTransferEvent } from "../billing/types/payment-transfer-event.types";
 
 @Injectable()
 export class WalletAlertCheckerService implements OnModuleInit {
@@ -28,7 +31,157 @@ export class WalletAlertCheckerService implements OnModuleInit {
         private readonly emailSubscriptionService: EmailSubscriptionService
     ) {}
 
-    @Cron("*/10 * * * * *")
+    /**
+     * Called by WalletTrackerHandler when a TRADE_EVENTS swap event arrives.
+     * Evaluates ANY_SWAP alerts for wallets that match `event.maker`.
+     */
+    async handleSwapEvent(event: SwapEvent): Promise<void> {
+        const walletAddress = event.maker;
+        const cluster = event.network ?? "mainnet";
+        const alerts = await this.walletAlertService.getAllActiveAlertsForWallet(walletAddress);
+        for (const alert of alerts) {
+            if (alert.alertType !== WalletAlertType.ANY_SWAP) continue;
+            if (alert.lastCheckedSignature === event.signature) continue;
+            const { token_in, token_out } = event;
+            const txUrl = cluster === "devnet" ? `https://solscan.io/tx/${event.signature}?cluster=devnet` : `https://solscan.io/tx/${event.signature}`;
+            const walletLabel = (alert as WalletAlertWithWallet).watchedWallet?.label ?? `${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}`;
+            const symbolIn = token_in?.symbol;
+            const symbolOut = token_out?.symbol;
+            const amountIn = typeof token_in?.amount_ui === "number" ? token_in.amount_ui : undefined;
+            const amountOut = typeof token_out?.amount_ui === "number" ? token_out.amount_ui : undefined;
+            const alertText = [
+                `WalletTracker:\nFrom: ${walletLabel} (${walletAddress})`,
+                symbolIn && symbolOut ? `- Swap: ${symbolIn} → ${symbolOut}` : null,
+                amountIn != null && symbolIn ? `- Amount in: ${this.fmt(amountIn)} ${symbolIn}` : null,
+                amountOut != null && symbolOut ? `- Amount out: ${this.fmt(amountOut)} ${symbolOut}` : null,
+                `- Tx: ${txUrl}`
+            ]
+                .filter(Boolean)
+                .join("\n");
+            await this.notificationsService.notifyUser(alert.userId, {
+                type: NotificationEventType.SWAP_EXECUTED,
+                title: symbolIn && symbolOut ? `${symbolIn} → ${symbolOut}` : "Swap",
+                message: [
+                    symbolIn && amountIn != null ? `${this.fmt(amountIn)} ${symbolIn}` : null,
+                    symbolIn && symbolOut ? "→" : null,
+                    symbolOut && amountOut != null ? `${this.fmt(amountOut)} ${symbolOut}` : null,
+                    `· ${walletLabel}`
+                ]
+                    .filter(Boolean)
+                    .join(" "),
+                metadata: {
+                    walletAddress,
+                    txSignature: event.signature,
+                    txUrl,
+                    alertId: alert.id,
+                    alertType: alert.alertType,
+                    mintIn: token_in?.mint,
+                    mintOut: token_out?.mint,
+                    amountIn,
+                    amountOut,
+                    walletLabel,
+                    walletTrackerUrl: "/wallet-tracker"
+                }
+            });
+            await this.botService.sendMessage(alert.userId, this.toTelegramMarkdown(alertText, "🔄"), "MarkdownV2");
+            await this.walletAlertService.updateLastChecked(alert.id, event.signature);
+        }
+    }
+
+    /**
+     * Called by WalletTrackerHandler when a HOLDER_UPDATES event arrives.
+     * Evaluates TOKEN_BALANCE_CHANGE alerts for the event's wallet.
+     */
+    async handleHolderUpdateEvent(event: HolderUpdateEvent): Promise<void> {
+        const walletAddress = event.wallet;
+        const cluster = event.network ?? "mainnet";
+        const alerts = await this.walletAlertService.getAllActiveAlertsForWallet(walletAddress);
+        for (const alert of alerts) {
+            if (alert.alertType !== WalletAlertType.TOKEN_BALANCE_CHANGE) continue;
+            if (!alert.condition?.tokenMint || alert.condition.tokenMint !== event.mint) continue;
+            if (alert.lastCheckedSignature === event.signature) continue;
+            const { threshold = 0, direction = "any", thresholdType } = alert.condition;
+            const change = event.balance_change;
+            if (thresholdType !== "percentage" && Math.abs(change) < threshold) continue;
+            if (direction === "increase" && change <= 0) continue;
+            if (direction === "decrease" && change >= 0) continue;
+            const txUrl = cluster === "devnet" ? `https://solscan.io/tx/${event.signature}?cluster=devnet` : `https://solscan.io/tx/${event.signature}`;
+            const walletLabel = (alert as WalletAlertWithWallet).watchedWallet?.label ?? `${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}`;
+            const meta = await this.tokenService.findOne(cluster, event.mint).catch(() => undefined);
+            const sym = meta?.symbol ?? event.mint.slice(0, 6);
+            const alertText = [`WalletTracker:\nFrom: ${walletLabel} (${walletAddress})`, `- Token: ${sym}`, `- Tx: ${txUrl}`].join("\n");
+            await this.notificationsService.notifyUser(alert.userId, {
+                type: NotificationEventType.PRICE_ALERT_TRIGGERED,
+                title: `${sym} balance changed`,
+                message: `${sym} balance changed · ${walletLabel}`,
+                metadata: {
+                    walletAddress,
+                    txSignature: event.signature,
+                    txUrl,
+                    alertId: alert.id,
+                    alertType: alert.alertType,
+                    tokenSymbol: sym,
+                    tokenMint: event.mint,
+                    walletLabel,
+                    walletTrackerUrl: "/wallet-tracker"
+                }
+            });
+            await this.botService.sendMessage(alert.userId, this.toTelegramMarkdown(alertText, "📊"), "MarkdownV2");
+            await this.walletAlertService.updateLastChecked(alert.id, event.signature);
+        }
+    }
+
+    /**
+     * Called by WalletTrackerHandler when a PAYMENT_TRANSFERS event arrives.
+     * Evaluates LARGE_TRANSFER alerts for wallets matching source or destination.
+     */
+    async handlePaymentTransferEvent(event: PaymentTransferEvent): Promise<void> {
+        const involvedWallets = [event.from_wallet, event.to_wallet];
+        const cluster = (event.network ?? "mainnet") as "mainnet" | "devnet";
+        for (const walletAddress of involvedWallets) {
+            const alerts = await this.walletAlertService.getAllActiveAlertsForWallet(walletAddress);
+            for (const alert of alerts) {
+                if (alert.alertType !== WalletAlertType.LARGE_TRANSFER) continue;
+                if (alert.lastCheckedSignature === event.signature) continue;
+                const totalSol = event.lamports / 1e9;
+                const minSol = alert.condition?.minAmountSol ?? 1;
+                if (totalSol < minSol) continue;
+                const txUrl = cluster === "devnet" ? `https://solscan.io/tx/${event.signature}?cluster=devnet` : `https://solscan.io/tx/${event.signature}`;
+                const walletLabel = (alert as WalletAlertWithWallet).watchedWallet?.label ?? `${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}`;
+                const direction = event.to_wallet === walletAddress ? "Received" : "Sent";
+                const counterpart = direction === "Received" ? event.from_wallet : event.to_wallet;
+                const counterShort = `${counterpart.slice(0, 6)}...${counterpart.slice(-4)}`;
+                const alertText = [
+                    `WalletTracker:\nFrom: ${walletLabel} (${walletAddress})`,
+                    `- ${direction}: ${this.fmt(totalSol)} SOL`,
+                    `- ${direction === "Received" ? "From" : "To"}: ${counterShort}`,
+                    `- Tx: ${txUrl}`
+                ].join("\n");
+                await this.notificationsService.notifyUser(alert.userId, {
+                    type: NotificationEventType.TRANSACTION_CONFIRMED,
+                    title: `${direction} ${this.fmt(totalSol)} SOL`,
+                    message: `${direction} ${this.fmt(totalSol)} SOL · ${walletLabel}`,
+                    metadata: {
+                        walletAddress,
+                        txSignature: event.signature,
+                        txUrl,
+                        alertId: alert.id,
+                        alertType: alert.alertType,
+                        amountSol: totalSol,
+                        direction,
+                        from: event.from_wallet,
+                        to: event.to_wallet,
+                        walletLabel,
+                        walletTrackerUrl: "/wallet-tracker"
+                    }
+                });
+                await this.botService.sendMessage(alert.userId, this.toTelegramMarkdown(alertText, direction === "Received" ? "📥" : "📤"), "MarkdownV2");
+                await this.walletAlertService.updateLastChecked(alert.id, event.signature);
+            }
+        }
+    }
+
+    @Cron("*/5 * * * *")
     async checkAllAlerts(): Promise<void> {
         const alerts = await this.walletAlertService.getAllActiveAlerts();
         if (!alerts.length) return;

@@ -32,7 +32,7 @@ export class PaymentReconcileService {
         private readonly paymentOrderRepository: Repository<PaymentOrder>
     ) {}
 
-    @Cron("*/2 * * * *")
+    @Cron("*/15 * * * *")
     async reconcile(): Promise<void> {
         const merchantWallet = this.getMerchantWallet();
         if (!merchantWallet) return;
