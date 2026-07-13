@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, HttpException, HttpStatus, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
 import {
@@ -18,9 +18,11 @@ import { Repository } from "typeorm";
 import type { Cluster } from "../../../common/cluster/cluster.types";
 import { HeliusResolver } from "../../../infra/solana/helius.resolver";
 import { HeliusService } from "../../../infra/solana/helius.service";
+import { SolanaService } from "../../../infra/solana/solana.service";
 import { getStakePoolCoordinates, StakePoolCoordinates } from "../config/pool-config";
 import { STAKING_AUTHORITY, STAKING_PROGRAM_ID } from "../config/staking-addresses";
 import { BuildStakingTransactionDto, StakingTransactionAction } from "../dtos/build-staking-transaction.dto";
+import { ExecuteStakingTransactionDto } from "../dtos/execute-staking-transaction.dto";
 import { GetStakingHistoryDto } from "../dtos/get-staking-history.dto";
 import { GetStakingPositionDto } from "../dtos/get-staking-position.dto";
 import { StakingHistoryEntity } from "../entities/staking-history.entity";
@@ -72,9 +74,12 @@ const GET_MULTIPLE_ACCOUNTS_CHUNK_SIZE = 100;
 
 @Injectable()
 export class StakingService {
+    private readonly logger = new Logger(StakingService.name);
+
     constructor(
         private readonly configService: ConfigService,
         private readonly heliusResolver: HeliusResolver,
+        private readonly solanaService: SolanaService,
         @InjectRepository(StakingHistoryEntity)
         private readonly stakingHistoryRepository: Repository<StakingHistoryEntity>,
         @InjectRepository(StakingHistorySyncStateEntity)
@@ -417,6 +422,19 @@ export class StakingService {
             lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
             nativeStakeAddress
         };
+    }
+
+    async executeTransaction(cluster: Cluster, dto: ExecuteStakingTransactionDto): Promise<{ signature: string }> {
+        const network = this.getConfiguredNetwork();
+        this.assertRequestCluster(cluster, network);
+
+        try {
+            return await this.solanaService.submitAndConfirm(network, dto.signedTransaction);
+        } catch (error) {
+            this.logger.error("Failed to execute staking transaction", error);
+            const message = error instanceof Error ? error.message : "Staking transaction execution failed.";
+            throw new HttpException(message, HttpStatus.BAD_GATEWAY);
+        }
     }
 
     private async buildInstructions(
