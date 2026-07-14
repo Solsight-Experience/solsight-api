@@ -72,7 +72,7 @@ const configuration = () => ({
     },
 
     cors: {
-        origin: process.env.CORS_ORIGIN?.split(",") || ["http://localhost:3000"],
+        origin: process.env.CORS_ORIGIN?.split(",").map((v) => v.trim()) ?? [],
         credentials: true
     },
 

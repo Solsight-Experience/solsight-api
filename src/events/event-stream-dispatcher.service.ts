@@ -71,7 +71,7 @@ export class EventStreamDispatcher implements OnApplicationBootstrap {
         return null;
     }
 
-    private overrideTradeTimestampWhenInvalid(event: Record<string, unknown>, channelName: string): void {
+    private overrideTradeTimestampWhenInvalid(event: Record<string, unknown>, _channelName: string): void {
         const timestamp = typeof event.timestamp === "number" ? event.timestamp : Number(event.timestamp);
         const reason =
             !Number.isFinite(timestamp) || Number.isNaN(timestamp)
@@ -87,14 +87,14 @@ export class EventStreamDispatcher implements OnApplicationBootstrap {
         // Temporary guard for the upstream indexer `block_time.unwrap_or(0)` bug.
         // Delete this branch after the producer always emits sane timestamps.
         event.timestamp = Math.floor(Date.now() / 1000);
-        this.logger.warn(
-            JSON.stringify({
-                metric: "swap_timestamp_overridden_total",
-                channel: channelName,
-                signature: typeof event.signature === "string" ? event.signature : null,
-                reason
-            })
-        );
+        // this.logger.warn(
+        //     JSON.stringify({
+        //         metric: "swap_timestamp_overridden_total",
+        //         channel: channelName,
+        //         signature: typeof event.signature === "string" ? event.signature : null,
+        //         reason
+        //     })
+        // );
     }
 
     private tradeTimestampSanityFloorSec(): number {
