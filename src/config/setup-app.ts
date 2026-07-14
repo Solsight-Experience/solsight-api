@@ -1,6 +1,5 @@
 import { INestApplication, ValidationPipe } from "@nestjs/common";
 import { AppLoggerService } from "src/common/logger/logger.service";
-import { IoAdapter } from "@nestjs/platform-socket.io";
 import { ConfigService } from "@nestjs/config";
 import * as cookieParser from "cookie-parser";
 import { SocketIoAdapter } from "src/websocket/socket-io.adapter";
