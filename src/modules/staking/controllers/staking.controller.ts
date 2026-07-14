@@ -1,5 +1,6 @@
 import { Body, Controller, Get, Post, Query } from "@nestjs/common";
 import { BuildStakingTransactionDto } from "../dtos/build-staking-transaction.dto";
+import { ExecuteStakingTransactionDto } from "../dtos/execute-staking-transaction.dto";
 import { GetStakingHistoryDto } from "../dtos/get-staking-history.dto";
 import { GetStakingPositionDto } from "../dtos/get-staking-position.dto";
 import { StakingService } from "../services/staking.service";
@@ -28,5 +29,10 @@ export class StakingController {
     @Post("transaction")
     buildTransaction(@RequestCluster() cluster: Cluster, @Body() dto: BuildStakingTransactionDto) {
         return this.stakingService.buildTransaction(cluster, dto);
+    }
+
+    @Post("execute")
+    executeTransaction(@RequestCluster() cluster: Cluster, @Body() dto: ExecuteStakingTransactionDto) {
+        return this.stakingService.executeTransaction(cluster, dto);
     }
 }
