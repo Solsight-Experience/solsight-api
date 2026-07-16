@@ -145,6 +145,10 @@ export class HolderAggregationService implements OnModuleInit, OnModuleDestroy {
 
             this.logger.log(`Updated price for token: ${event.mint}, price=${committedPrice.priceUsd}`);
 
+            // Token decimals to convert raw balances to UI units for USD math.
+            const { decimals } = await this.getPriceAndSupply(event.mint, network);
+            const scale = 10 ** decimals;
+
             // Recalculate unrealized PnL for top 50 holders
             const rankingKey = RedisService.KEYS.HOLDER_RANKING(network, event.mint);
             const topAddresses = await redis.zrevrange(rankingKey, 0, 49);
@@ -155,7 +159,7 @@ export class HolderAggregationService implements OnModuleInit, OnModuleDestroy {
                     const data = await redis.hgetall(holderKey);
                     if (!data || !data.balance || !data.cost_basis) return;
 
-                    const balance = parseFloat(data.balance);
+                    const balance = parseFloat(data.balance) / scale;
                     const costBasis = parseFloat(data.cost_basis);
                     const unrealizedPnl = balance * committedPrice.priceUsd - costBasis;
                     await redis.hset(holderKey, "unrealized_pnl", unrealizedPnl);
@@ -183,27 +187,35 @@ export class HolderAggregationService implements OnModuleInit, OnModuleDestroy {
             const resolvedPrice = await this.resolvePrice(swap, tokenMint);
             const volumeUsd = tokenAmount * resolvedPrice;
 
+            // Balance is stored in raw base units to match the indexer holder-update
+            // path (onHolderUpdate). Convert this swap's UI amount to raw before
+            // mutating the shared balance field.
+            const decimals = isBuy ? swap.token_out.decimals : swap.token_in.decimals;
+            const rawAmount = tokenAmount * 10 ** decimals;
+
             const holderKey = RedisService.KEYS.HOLDER_MINT_WALLET(network, tokenMint, holderAddress);
             const rankingKey = RedisService.KEYS.HOLDER_RANKING(network, tokenMint);
             const now = Date.now();
 
             if (isBuy) {
-                await redis.hincrbyfloat(holderKey, "balance", tokenAmount);
+                await redis.hincrbyfloat(holderKey, "balance", rawAmount);
                 await redis.hincrbyfloat(holderKey, "total_bought", volumeUsd);
                 await redis.hincrbyfloat(holderKey, "cost_basis", volumeUsd);
                 await redis.hincrby(holderKey, "buy_tx_count", 1);
             } else {
-                await redis.hincrbyfloat(holderKey, "balance", -tokenAmount);
+                await redis.hincrbyfloat(holderKey, "balance", -rawAmount);
                 await redis.hincrbyfloat(holderKey, "total_sold", volumeUsd);
                 await redis.hincrby(holderKey, "sell_tx_count", 1);
 
-                // Track realized PnL on sell: reduce cost_basis proportionally
+                // Track realized PnL on sell: reduce cost_basis proportionally.
+                // Balance is raw, so use the raw amount here too — the base-unit
+                // scale cancels in the cost-per-token ratio.
                 const balanceRaw = await redis.hget(holderKey, "balance");
                 const costBasisRaw = await redis.hget(holderKey, "cost_basis");
-                const prevBalance = parseFloat(balanceRaw || "0") + tokenAmount;
+                const prevBalance = parseFloat(balanceRaw || "0") + rawAmount;
                 if (prevBalance > 0) {
                     const costPerToken = parseFloat(costBasisRaw || "0") / prevBalance;
-                    const costOfSold = costPerToken * tokenAmount;
+                    const costOfSold = costPerToken * rawAmount;
                     const realizedPnl = volumeUsd - costOfSold;
                     await redis.hincrbyfloat(holderKey, "realized_pnl", realizedPnl);
                     await redis.hincrbyfloat(holderKey, "cost_basis", -costOfSold);
@@ -268,7 +280,8 @@ export class HolderAggregationService implements OnModuleInit, OnModuleDestroy {
 
     async enrichHolders(tokenMint: string, cluster: Cluster, rows: HolderEnrichmentInput[]): Promise<EnrichedHolder[]> {
         const redis = this.redisService.getClient();
-        const { currentPriceUsd, totalSupply } = await this.getPriceAndSupply(tokenMint, cluster);
+        const { currentPriceUsd, totalSupply, decimals } = await this.getPriceAndSupply(tokenMint, cluster);
+        const scale = 10 ** decimals;
         const holders: EnrichedHolder[] = [];
 
         for (const row of rows) {
@@ -280,7 +293,10 @@ export class HolderAggregationService implements OnModuleInit, OnModuleDestroy {
                     : ({} as Record<string, string>));
             const data = redisData && Object.keys(redisData).length > 0 ? redisData : {};
 
-            const balance = this.toNumber(data.balance ?? row.balance);
+            // Raw on-chain balance (base units) as tracked by the indexer.
+            const balanceRaw = this.toNumber(data.balance ?? row.balance);
+            // UI balance (whole tokens) used for all USD-denominated math and display.
+            const balance = balanceRaw / scale;
             const totalBought = this.toNumber(data.total_bought ?? row.totalBoughtUsd);
             const totalSold = this.toNumber(data.total_sold ?? row.totalSoldUsd);
             const costBasis = this.toNumber(data.cost_basis);
@@ -299,7 +315,9 @@ export class HolderAggregationService implements OnModuleInit, OnModuleDestroy {
             const avgSellPrice = sellTxCount > 0 && totalSold > 0 ? totalSold / sellTxCount : 0;
             const remainingUsd = balance * currentPriceUsd;
             const walletLabel = getWalletLabel(address);
-            const balancePercent = totalSupply > 0 ? (balance / totalSupply) * 100 : 0;
+            // balance_percent compares raw balance against raw supply so it stays
+            // correct regardless of whether totalSupply is stored raw or UI-scaled.
+            const balancePercent = totalSupply > 0 ? (balanceRaw / totalSupply) * 100 : 0;
 
             holders.push({
                 address,
@@ -340,14 +358,15 @@ export class HolderAggregationService implements OnModuleInit, OnModuleDestroy {
 
             if (!data || Object.keys(data).length === 0) return null;
 
-            const balance = parseFloat(data.balance || "0");
+            const { totalSupply, decimals } = await this.getPriceAndSupply(tokenMint, cluster);
+            const scale = 10 ** decimals;
+
+            const balanceRaw = parseFloat(data.balance || "0");
+            const balance = balanceRaw / scale;
             const costBasis = parseFloat(data.cost_basis || "0");
             const realizedPnl = parseFloat(data.realized_pnl || "0");
 
-            // Fetch total supply for balance_percent calculation
-            const totalSupplyStr = await redis.get(RedisService.KEYS.SUPPLY(cluster, tokenMint));
-            const totalSupply = totalSupplyStr ? parseFloat(totalSupplyStr) : 0;
-            const balancePercent = totalSupply > 0 ? (balance / totalSupply) * 100 : 0;
+            const balancePercent = totalSupply > 0 ? (balanceRaw / totalSupply) * 100 : 0;
 
             return {
                 address,
@@ -427,30 +446,34 @@ export class HolderAggregationService implements OnModuleInit, OnModuleDestroy {
         }
     }
 
-    private async getPriceAndSupply(tokenMint: string, cluster: Cluster): Promise<{ currentPriceUsd: number; totalSupply: number }> {
+    private async getPriceAndSupply(tokenMint: string, cluster: Cluster): Promise<{ currentPriceUsd: number; totalSupply: number; decimals: number }> {
         const redis = this.redisService.getClient();
         const [priceData, totalSupplyStr] = redis
             ? await Promise.all([this.tokenPriceService.getPrice(cluster, tokenMint), redis.get(RedisService.KEYS.SUPPLY(cluster, tokenMint))])
             : [null, null];
         let currentPriceUsd = priceData ? this.toNumber(priceData.priceUsd) : 0;
         let totalSupply = totalSupplyStr ? this.toNumber(totalSupplyStr) : 0;
+        let decimals = 9;
 
-        if (currentPriceUsd === 0 || totalSupply === 0) {
-            const token = await this.tokenRepository.findOne({
-                where: { address: tokenMint, network: cluster },
-                select: ["price", "totalSupply"]
-            });
-            if (token) {
-                if (currentPriceUsd === 0 && token.price) {
-                    currentPriceUsd = Number(token.price);
-                }
-                if (totalSupply === 0 && token.totalSupply) {
-                    totalSupply = Number(token.totalSupply);
-                }
+        // Always load the token for decimals (needed to scale raw balances); also
+        // backfill price/supply from the DB when Redis has no live value.
+        const token = await this.tokenRepository.findOne({
+            where: { address: tokenMint, network: cluster },
+            select: ["price", "totalSupply", "decimals"]
+        });
+        if (token) {
+            if (typeof token.decimals === "number") {
+                decimals = token.decimals;
+            }
+            if (currentPriceUsd === 0 && token.price) {
+                currentPriceUsd = Number(token.price);
+            }
+            if (totalSupply === 0 && token.totalSupply) {
+                totalSupply = Number(token.totalSupply);
             }
         }
 
-        return { currentPriceUsd, totalSupply };
+        return { currentPriceUsd, totalSupply, decimals };
     }
 
     private holderBufferKey(cluster: string, mint: string, wallet: string): string {
