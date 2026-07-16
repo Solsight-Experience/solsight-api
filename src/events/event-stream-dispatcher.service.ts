@@ -71,7 +71,7 @@ export class EventStreamDispatcher implements OnApplicationBootstrap {
         return null;
     }
 
-    private overrideTradeTimestampWhenInvalid(event: Record<string, unknown>, channelName: string): void {
+    private overrideTradeTimestampWhenInvalid(event: Record<string, unknown>, _channelName: string): void {
         const timestamp = typeof event.timestamp === "number" ? event.timestamp : Number(event.timestamp);
         const reason =
             !Number.isFinite(timestamp) || Number.isNaN(timestamp)
