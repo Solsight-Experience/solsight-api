@@ -17,6 +17,8 @@ import type { Cluster } from "../../../common/cluster/cluster.types";
 import { HolderAggregationService } from "./aggregation/holder-aggregation.service";
 import type { HoldersResponseDto } from "../dtos/holder.response.dto";
 import { Transaction, TransactionType } from "../../transactions/entities/transaction.entity";
+import { MarketPriceEvent } from "../../indexer/entities/market-price-event.entity";
+import { HolderPnlChartResponseDto } from "../dtos/holder-pnl-chart.response.dto";
 import { TimeFrame } from "../../discovery/dtos/get-trending.dto";
 import { StatsAggregationService } from "./aggregation/stats-aggregation.service";
 import { TokenSyncEnqueuer } from "./sync/token-sync.enqueuer";
@@ -36,6 +38,8 @@ export class TokensService {
         private readonly holderRepository: Repository<Holder>,
         @InjectRepository(Transaction)
         private readonly transactionRepository: Repository<Transaction>,
+        @InjectRepository(MarketPriceEvent)
+        private readonly marketPriceEventRepository: Repository<MarketPriceEvent>,
         private readonly coinGeckoService: CoinGeckoService,
         private readonly ohlcAggregationService: OhlcAggregationService,
         private readonly holderAggregationService: HolderAggregationService,
@@ -655,6 +659,194 @@ export class TokensService {
                 top_20_holding_percent: this.sumHoldingPercent(enrichedHolders, 20)
             }
         };
+    }
+
+    /**
+     * Per-holder realized + unrealized PnL over time for a single token.
+     *
+     * Reconstructs the holder's position from their persisted SWAP transactions
+     * (transactions table, populated by StreamConsumerService from the indexer
+     * TRADE_EVENTS stream) using average-cost accounting, and marks the remaining
+     * holdings to the token's USD price at each time bucket via market_price_events.
+     * Returns { chart_data: [] } when there is no swap or price history.
+     */
+    async getHolderPnlChart(cluster: Cluster, tokenMint: string, wallet: string, timeFrame = "30D", interval = "1d"): Promise<HolderPnlChartResponseDto> {
+        const now = Date.now();
+
+        // Time window from the requested frame (mirrors PortfolioService.getPnlChart).
+        let startTime: number;
+        switch (timeFrame.toUpperCase()) {
+            case "1D":
+                startTime = now - 1 * 24 * 60 * 60 * 1000;
+                break;
+            case "7D":
+                startTime = now - 7 * 24 * 60 * 60 * 1000;
+                break;
+            case "30D":
+                startTime = now - 30 * 24 * 60 * 60 * 1000;
+                break;
+            case "ALL":
+                startTime = now - 90 * 24 * 60 * 60 * 1000;
+                break;
+            default:
+                startTime = now - 30 * 24 * 60 * 60 * 1000;
+        }
+
+        // Bucket size. 1D defaults to hourly, everything else daily.
+        let intervalMs: number;
+        switch (interval) {
+            case "1h":
+                intervalMs = 60 * 60 * 1000;
+                break;
+            case "1w":
+                intervalMs = 7 * 24 * 60 * 60 * 1000;
+                break;
+            case "1d":
+            default:
+                intervalMs = timeFrame.toUpperCase() === "1D" ? 60 * 60 * 1000 : 24 * 60 * 60 * 1000;
+        }
+
+        const redis = this.redisService.getClient();
+        const cacheKey = `holder_pnl:${cluster}:${tokenMint}:${wallet}:${timeFrame}:${interval}`;
+        if (redis) {
+            try {
+                const cached = await redis.get(cacheKey);
+                if (cached) return JSON.parse(cached) as HolderPnlChartResponseDto;
+            } catch {
+                // cache miss, proceed
+            }
+        }
+
+        // All SWAP transactions for this wallet that involve the target token,
+        // oldest first, so cost basis accumulates correctly.
+        const swaps = await this.transactionRepository.find({
+            where: [
+                { signerAddress: wallet, tokenMint, network: cluster, type: TransactionType.SWAP },
+                { signerAddress: wallet, tokenMintOut: tokenMint, network: cluster, type: TransactionType.SWAP }
+            ],
+            order: { blockTime: "ASC" }
+        });
+
+        if (swaps.length === 0) {
+            return { chart_data: [] };
+        }
+
+        // Normalize each swap into { ts, isBuy, tokenAmount, usd } for the target token.
+        // persistTransaction stores tokenMint=token_in, tokenMintOut=token_out; the
+        // target token is "bought" when it is the OUT mint, "sold" when it is the IN mint.
+        const trades = swaps
+            .map((tx) => {
+                const ts = tx.blockTime ? Math.floor(tx.blockTime.getTime() / 1000) : 0;
+                const boughtTarget = tx.tokenMintOut === tokenMint;
+                const soldTarget = tx.tokenMint === tokenMint;
+                if (!boughtTarget && !soldTarget) return null;
+                const isBuy = boughtTarget;
+                // Target-token amount is on the OUT side when buying, IN side when selling.
+                const tokenAmount = isBuy ? Number(tx.amountOut ?? 0) : Number(tx.amount ?? 0);
+                const priceUsd = this.getStoredTradePriceUsd(tx.metadata);
+                const usd = priceUsd != null ? tokenAmount * priceUsd : 0;
+                return { ts, isBuy, tokenAmount, usd };
+            })
+            .filter((t): t is { ts: number; isBuy: boolean; tokenAmount: number; usd: number } => t != null && t.ts > 0);
+
+        if (trades.length === 0) {
+            return { chart_data: [] };
+        }
+
+        // Token USD price series for mark-to-market, covering the chart range.
+        const priceSeries = await this.getTokenPriceSeries(cluster, tokenMint, Math.floor(startTime / 1000), Math.floor(now / 1000));
+
+        // Single-pass average-cost accounting across time buckets.
+        let tokensHeld = 0;
+        let costBasisUsd = 0;
+        let realizedUsd = 0;
+        let tradeIndex = 0;
+        const chartData: HolderPnlChartResponseDto["chart_data"] = [];
+
+        for (let time = startTime; time <= now; time += intervalMs) {
+            const timeSec = Math.floor(time / 1000);
+
+            while (tradeIndex < trades.length && trades[tradeIndex].ts <= timeSec) {
+                const trade = trades[tradeIndex++];
+                if (trade.isBuy) {
+                    tokensHeld += trade.tokenAmount;
+                    costBasisUsd += trade.usd;
+                } else if (tokensHeld > 0) {
+                    const avgCost = costBasisUsd / tokensHeld;
+                    const soldAmount = Math.min(trade.tokenAmount, tokensHeld);
+                    const costOfSold = soldAmount * avgCost;
+                    realizedUsd += trade.usd - costOfSold;
+                    tokensHeld = Math.max(0, tokensHeld - soldAmount);
+                    costBasisUsd = Math.max(0, costBasisUsd - costOfSold);
+                }
+            }
+
+            const tokenPrice = this.getPriceNear(timeSec, priceSeries);
+            const marketValue = tokensHeld * tokenPrice;
+            const unrealizedUsd = tokenPrice > 0 ? marketValue - costBasisUsd : 0;
+
+            chartData.push({
+                timestamp: time,
+                realized_pnl: realizedUsd,
+                unrealized_pnl: unrealizedUsd,
+                total_pnl: realizedUsd + unrealizedUsd,
+                balance_usd: marketValue
+            });
+        }
+
+        const result: HolderPnlChartResponseDto = { chart_data: chartData };
+        if (redis) {
+            try {
+                await redis.setex(cacheKey, 120, JSON.stringify(result));
+            } catch {
+                // non-fatal
+            }
+        }
+        return result;
+    }
+
+    /**
+     * Ascending token USD price series from market_price_events for [fromSec, toSec].
+     * These rows are persisted per swap / price update by StreamConsumerService and
+     * MarketPriceUpdateHandler and exist for both mainnet and devnet.
+     */
+    private async getTokenPriceSeries(cluster: Cluster, mint: string, fromSec: number, toSec: number): Promise<Array<{ ts: number; price: number }>> {
+        const rows = await this.marketPriceEventRepository
+            .createQueryBuilder("e")
+            .select("e.timestamp", "timestamp")
+            .addSelect("e.price", "price")
+            .where("e.tokenMint = :mint", { mint })
+            .andWhere("e.network = :network", { network: cluster })
+            .andWhere("e.timestamp <= :to", { to: String(toSec) })
+            .orderBy("e.timestamp", "ASC")
+            .getRawMany<{ timestamp: string; price: string }>();
+
+        return rows.map((r) => ({ ts: Number(r.timestamp), price: Number(r.price) })).filter((r) => Number.isFinite(r.ts) && Number.isFinite(r.price));
+    }
+
+    /**
+     * Latest price with ts <= targetSec (nearest earlier). Falls back to the first
+     * available price when the target predates all rows. Mirrors getSolPriceNear in
+     * PortfolioService but works on a sorted array rather than a day-keyed map.
+     */
+    private getPriceNear(targetSec: number, series: Array<{ ts: number; price: number }>): number {
+        if (series.length === 0) return 0;
+        // Before the first sample: use the earliest known price so early buckets
+        // are marked rather than zeroed.
+        if (series[0].ts > targetSec) return series[0].price;
+        let price = 0;
+        for (const point of series) {
+            if (point.ts > targetSec) break;
+            price = point.price;
+        }
+        return price;
+    }
+
+    private getStoredTradePriceUsd(metadata: Transaction["metadata"]): number | null {
+        if (!metadata || typeof metadata !== "object") return null;
+        const raw = (metadata as Record<string, unknown>).price_usd;
+        const num = Number(raw);
+        return Number.isFinite(num) && num > 0 ? num : null;
     }
 
     async updateToken(cluster: Cluster, address: string, data: Partial<Token>) {
