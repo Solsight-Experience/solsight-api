@@ -26,7 +26,7 @@ export class PaymentTransferHandler implements EventHandler<PaymentTransferEvent
         const merchantWallet = this.configService.get<string>("billing.merchantWallet");
         if (!merchantWallet || event.to_wallet !== merchantWallet) return;
 
-        const cluster = (event.network ?? clusterFromChannel(channel as string)) as string;
+        const cluster = event.network ?? clusterFromChannel(channel as string);
         const memo = event.memo;
         if (!memo) {
             this.logger.debug(`PaymentTransfer sig=${event.signature} cluster=${cluster}: no memo, skipping`);
