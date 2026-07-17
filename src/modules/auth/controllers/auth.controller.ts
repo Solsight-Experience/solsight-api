@@ -1,45 +1,56 @@
 import { Controller, Post, Body, UseGuards, Get, Query, Res, HttpException, HttpStatus } from "@nestjs/common";
+import { JwtService } from "@nestjs/jwt";
 import { ForgotPasswordDto, ResetPasswordDto, VerifyResetOtpDto } from "../dtos/password-reset.dto";
 import { VerifySolanaDto } from "../dtos/verify-solana.dto";
 import { AuthService } from "../services/auth.service";
 import { LoginDto, OauthLoginDto, RegisterDto } from "../types/auth.types";
 import { JwtAuthGuard } from "../guards/jwt-auth.guard";
-import { Response } from "express";
+import { CookieOptions, Response } from "express";
 import { CurrentUser, CurrentUserPayload } from "../../../common/decorators/current-user.decorator";
+import { ConfigService } from "@nestjs/config";
 
 @Controller("auth")
 export class AuthController {
-    constructor(private readonly authService: AuthService) {}
+    constructor(
+        private readonly authService: AuthService,
+        private readonly jwtService: JwtService,
+        private readonly configService: ConfigService
+    ) {}
+
+    private getAuthCookieOptions(): CookieOptions {
+        const isProduction = this.configService.get<string>("environment") === "production";
+        return {
+            httpOnly: true,
+            secure: isProduction,
+            sameSite: isProduction ? "none" : "lax",
+            path: "/"
+        };
+    }
 
     @Post("login")
     async login(@Body() dto: LoginDto, @Res({ passthrough: true }) res: Response) {
         const { user, accessToken } = await this.authService.login(dto);
 
         res.cookie("auth_token", accessToken, {
-            httpOnly: true,
-            secure: false,
-            sameSite: "lax",
-            path: "/",
-            // KHÔNG có domain
+            ...this.getAuthCookieOptions(),
             maxAge: 7 * 24 * 60 * 60 * 1000
         });
 
         return { user };
     }
 
+    @UseGuards(JwtAuthGuard)
+    @Get("socket-token")
+    getSocketToken(@CurrentUser() user: CurrentUserPayload) {
+        const token = this.jwtService.sign({ sub: user.id }, { expiresIn: "60s" });
+        return { token };
+    }
+
     @Post("logout")
     logout(@Res({ passthrough: true }) res: Response) {
-        res.clearCookie("auth_token", {
-            httpOnly: true,
-            secure: false,
-            sameSite: "lax",
-            path: "/"
-        });
+        res.clearCookie("auth_token", this.getAuthCookieOptions());
         res.cookie("auth_token", "", {
-            httpOnly: true,
-            secure: false,
-            sameSite: "lax",
-            path: "/",
+            ...this.getAuthCookieOptions(),
             maxAge: 0
         });
 
@@ -51,11 +62,8 @@ export class AuthController {
             const { user, accessToken } = await this.authService.handleOauthLogin(dto);
 
             res.cookie("auth_token", accessToken, {
-                httpOnly: true,
-                sameSite: "lax",
-                maxAge: 7 * 24 * 60 * 60 * 1000,
-                secure: process.env.NODE_ENV === "production",
-                path: "/"
+                ...this.getAuthCookieOptions(),
+                maxAge: 7 * 24 * 60 * 60 * 1000
             });
 
             return { user, message: "Login successful" };
@@ -122,11 +130,8 @@ export class AuthController {
             );
 
             res.cookie("auth_token", accessToken, {
-                httpOnly: true,
-                sameSite: "lax",
-                maxAge: 7 * 24 * 60 * 60 * 1000,
-                secure: process.env.NODE_ENV === "production",
-                path: "/"
+                ...this.getAuthCookieOptions(),
+                maxAge: 7 * 24 * 60 * 60 * 1000
             });
 
             return { user, message: "Login successful" };

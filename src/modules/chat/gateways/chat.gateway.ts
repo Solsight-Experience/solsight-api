@@ -35,16 +35,18 @@ export class ChatGateway {
             .find((c) => c.startsWith("auth_token="))
             ?.split("=")[1];
 
-        const token = authToken ?? cookieToken;
-        if (!token) return undefined;
-
-        try {
-            const decoded = this.jwtService.verify<{ sub: string }>(token);
-            return decoded.sub;
-        } catch {
-            this.logger.warn(`Invalid JWT in socket handshake for client=${client.id}`, ChatGateway.name);
-            return undefined;
+        for (const candidate of [authToken, cookieToken]) {
+            if (!candidate) continue;
+            try {
+                const decoded = this.jwtService.verify<{ sub: string }>(candidate);
+                return decoded.sub;
+            } catch {
+                continue;
+            }
         }
+
+        this.logger.warn(`No valid JWT in socket handshake for client=${client.id}`, ChatGateway.name);
+        return undefined;
     }
 
     private async handleMessage(client: Socket, payload: SendMessagePayload) {
