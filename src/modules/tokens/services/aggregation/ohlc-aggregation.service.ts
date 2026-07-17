@@ -1,5 +1,5 @@
 import { Injectable, Logger } from "@nestjs/common";
-import { Cron } from "@nestjs/schedule";
+import { Cron, CronExpression } from "@nestjs/schedule";
 import type { Cluster } from "../../../../common/cluster/cluster.types";
 import { RedisService } from "../../../../redis/services/redis.service";
 import { SwapEvent, OhlcData, SwapPriceResult } from "../../types/swap-event.types";
@@ -244,7 +244,7 @@ export class OhlcAggregationService {
         }
     }
 
-    @Cron("0 * * * * *")
+    @Cron(CronExpression.EVERY_MINUTE)
     async flushStaleBucketsFromRedis(): Promise<void> {
         if (this.isFlushingStaleBuckets) return;
         const redis = this.redisService.getClient();

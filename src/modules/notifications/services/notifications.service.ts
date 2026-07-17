@@ -53,7 +53,8 @@ export class NotificationsService {
 
         this.deliveryService.deliver({
             notification: deliverableNotification,
-            channels
+            channels,
+            email: options?.email
         });
 
         return notification;

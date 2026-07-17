@@ -11,11 +11,12 @@ import { QuotaService } from "./services/quota.service";
 import { PaymentController } from "./controllers/payment.controller";
 import { PaymentService } from "./services/payment.service";
 import { PaymentReconcileService } from "./services/payment-reconcile.service";
+import { PaymentTransferHandler } from "./handlers/payment-transfer.handler";
 
 @Module({
     imports: [TypeOrmModule.forFeature([UserCredit, FeatureUsage, PaymentOrder]), ConfigModule, SolanaModule, RedisModule],
     controllers: [QuotaController, PaymentController],
-    providers: [QuotaService, PaymentService, PaymentReconcileService],
+    providers: [QuotaService, PaymentService, PaymentReconcileService, PaymentTransferHandler],
     exports: [QuotaService, PaymentService]
 })
 export class BillingModule {}

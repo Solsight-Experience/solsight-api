@@ -1,5 +1,6 @@
 import { TokenPriceService } from "./token-price.service";
 import type { Token } from "../entities/token.entity";
+import type { MarketPriceEvent } from "../../indexer/entities/market-price-event.entity";
 import type { Repository } from "typeorm";
 import type { CoinGeckoService } from "src/infra/coingecko/coingecko.service";
 import type { RedisService } from "src/redis";
@@ -7,6 +8,7 @@ import type { RedisService } from "src/redis";
 describe("TokenPriceService", () => {
     let service: TokenPriceService;
     let tokenRepository: Pick<Repository<Token>, "findOne" | "find">;
+    let marketPriceEventRepository: Pick<Repository<MarketPriceEvent>, "createQueryBuilder">;
     let coinGeckoService: Pick<CoinGeckoService, "getSimplePrice">;
     let redisClient: { eval: jest.Mock };
     let redisService: Pick<RedisService, "getClient" | "hgetall" | "ttl">;
@@ -15,6 +17,10 @@ describe("TokenPriceService", () => {
         tokenRepository = {
             findOne: jest.fn(),
             find: jest.fn()
+        };
+
+        marketPriceEventRepository = {
+            createQueryBuilder: jest.fn()
         };
 
         coinGeckoService = {
@@ -31,7 +37,12 @@ describe("TokenPriceService", () => {
             ttl: jest.fn()
         };
 
-        service = new TokenPriceService(tokenRepository as Repository<Token>, redisService as RedisService, coinGeckoService as CoinGeckoService);
+        service = new TokenPriceService(
+            tokenRepository as Repository<Token>,
+            marketPriceEventRepository as Repository<MarketPriceEvent>,
+            redisService as RedisService,
+            coinGeckoService as CoinGeckoService
+        );
     });
 
     it("writes valid prices to Redis and renews the TTL", async () => {

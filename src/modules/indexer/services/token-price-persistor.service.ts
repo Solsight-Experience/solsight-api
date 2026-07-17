@@ -1,5 +1,5 @@
 import { Injectable, Logger } from "@nestjs/common";
-import { Cron } from "@nestjs/schedule";
+import { Cron, CronExpression } from "@nestjs/schedule";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
 import { logError } from "../../../common/errors/error-helper";
@@ -16,7 +16,7 @@ export class TokenPricePersistorService {
     ) {}
 
     /** Project the newest durable market-price event into each token's fallback price. */
-    @Cron("*/2 * * * *")
+    @Cron(CronExpression.EVERY_MINUTE)
     async persistLatestPrices(): Promise<void> {
         try {
             const rows = await this.tokenRepository.query<Array<{ updatedCount: number | string }>>(

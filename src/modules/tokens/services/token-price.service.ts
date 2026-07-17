@@ -7,6 +7,7 @@ import type { Cluster } from "src/common/cluster/cluster.types";
 import { RedisService } from "src/redis";
 import type { TokenPriceResult, TokenPriceSetInput } from "../types/token-price.types";
 import { getErrorMessage, logError } from "src/common/errors/error-helper";
+import { MarketPriceEvent } from "../../indexer/entities/market-price-event.entity";
 
 /**
  * Owns the live latest-price cache in Redis.
@@ -77,6 +78,8 @@ export class TokenPriceService {
     constructor(
         @InjectRepository(Token)
         private readonly tokenRepository: Repository<Token>,
+        @InjectRepository(MarketPriceEvent)
+        private readonly marketPriceEventRepository: Repository<MarketPriceEvent>,
         private readonly redisService: RedisService,
         private readonly coinGeckoService: CoinGeckoService
     ) {}
@@ -231,8 +234,10 @@ export class TokenPriceService {
         const toDay = Math.ceil(toSec / 86400) * 86400;
 
         if (cluster !== "mainnet") {
-            this.logger.warn(`Price history requested for non-mainnet mint ${mint} on ${cluster}, returning empty history`);
-            return new Map();
+            // CoinGecko history is mainnet-only. On devnet, derive a day-keyed price
+            // series from the persisted market_price_events (populated per swap/price
+            // update by the indexer stream consumer) so PnL charts can mark to market.
+            return this.getPriceHistoryFromEvents(cluster, mint, fromSec, toSec);
         }
 
         const token = await this.tokenRepository.findOne({
@@ -276,6 +281,42 @@ export class TokenPriceService {
             return priceChart;
         } catch (error) {
             logError(this.logger, `Failed to fetch price history from CoinGecko for mint ${mint}`, error);
+            return new Map();
+        }
+    }
+
+    /**
+     * Day-keyed USD price series from persisted market_price_events for [fromSec, toSec].
+     * One price per day (the last event of that day) to match the CoinGecko-backed
+     * shape returned by getPriceHistory. Used as the devnet fallback where CoinGecko
+     * history is unavailable.
+     */
+    private async getPriceHistoryFromEvents(cluster: Cluster, mint: string, fromSec: number, toSec: number): Promise<Map<number, number>> {
+        try {
+            const rows = await this.marketPriceEventRepository
+                .createQueryBuilder("e")
+                .select("e.timestamp", "timestamp")
+                .addSelect("e.price", "price")
+                .where("e.tokenMint = :mint", { mint })
+                .andWhere("e.network = :network", { network: cluster })
+                .andWhere("e.timestamp >= :from", { from: String(fromSec) })
+                .andWhere("e.timestamp <= :to", { to: String(toSec) })
+                .orderBy("e.timestamp", "ASC")
+                .getRawMany<{ timestamp: string; price: string }>();
+
+            // Ascending order means later events for a day overwrite earlier ones,
+            // leaving the day's last observed price — analogous to a daily close.
+            const priceChart = new Map<number, number>();
+            for (const row of rows) {
+                const ts = Number(row.timestamp);
+                const price = Number(row.price);
+                if (!Number.isFinite(ts) || !Number.isFinite(price) || price <= 0) continue;
+                const dayTs = Math.floor(ts / 86400) * 86400;
+                priceChart.set(dayTs, price);
+            }
+            return priceChart;
+        } catch (error) {
+            logError(this.logger, `Failed to build price history from market_price_events for mint ${mint}`, error);
             return new Map();
         }
     }

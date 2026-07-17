@@ -64,6 +64,17 @@ export class TokensController {
         return this.tokensService.getHolders(cluster, address, Math.min(Number(limit) || 50, 500));
     }
 
+    @Get(":address/holders/:wallet/pnl-chart")
+    getHolderPnlChart(
+        @RequestCluster() cluster: Cluster,
+        @Param("address") address: string,
+        @Param("wallet") wallet: string,
+        @Query("time_frame") timeFrame = "30D",
+        @Query("interval") interval = "1d"
+    ) {
+        return this.tokensService.getHolderPnlChart(cluster, address, wallet, timeFrame, interval);
+    }
+
     @Get(":address")
     async findOne(@RequestCluster() cluster: Cluster, @Param("address") address: string) {
         const data = await this.tokensService.findOne(cluster, address);

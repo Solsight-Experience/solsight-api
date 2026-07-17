@@ -41,8 +41,7 @@ export class RedisService implements OnModuleDestroy {
         ACTIVE_TOKENS: (network: string) => `tokens:active:${network}`,
         PENDING_REGISTRATION_TOKEN: (token: string) => `auth:pending_registration:${token}`,
         PENDING_REGISTRATION_EMAIL: (email: string) => `auth:pending_registration:email:${email.toLowerCase()}`,
-        BILLING_ORDER_RATE_LIMIT: (userId: string) => `billing:order_rate:${userId}`,
-        BILLING_RECONCILE_CURSOR: (network: string) => `billing:reconcile_cursor:${network}`
+        BILLING_ORDER_RATE_LIMIT: (userId: string) => `billing:order_rate:${userId}`
     });
 
     public static readonly TTL = redisTtls({

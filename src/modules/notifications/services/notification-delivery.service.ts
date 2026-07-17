@@ -3,6 +3,7 @@ import { WebsocketGateway } from "../../../websocket/websocket.gateway";
 import { EmailSubscriptionService } from "../../email/services/email-subscription.service";
 import { Notification, NotificationChannel } from "../entities/notification.entity";
 import { NotificationDeliveryPayload } from "../types/notification-delivery.types";
+import { NotificationEmailDto } from "../dtos/notification-payload.dto";
 
 @Injectable()
 export class NotificationDeliveryService {
@@ -14,7 +15,7 @@ export class NotificationDeliveryService {
     ) {}
 
     deliver(payload: NotificationDeliveryPayload): void {
-        const { notification, channels } = payload;
+        const { notification, channels, email } = payload;
 
         for (const channel of channels) {
             switch (channel) {
@@ -22,7 +23,7 @@ export class NotificationDeliveryService {
                     this.deliverViaWebSocket(notification);
                     break;
                 case NotificationChannel.EMAIL:
-                    void this.deliverViaEmail(notification);
+                    void this.deliverViaEmail(notification, email);
                     break;
                 default:
                     this.logger.warn(`Unknown notification channel: ${channel as string}`);
@@ -62,8 +63,12 @@ export class NotificationDeliveryService {
         }
     }
 
-    private async deliverViaEmail(notification: Notification): Promise<void> {
+    private async deliverViaEmail(notification: Notification, email?: NotificationEmailDto): Promise<void> {
         try {
+            if (email?.template === "wallet_alert") {
+                await this.emailSubscription.sendWalletAlertEmail(notification.userId, notification.title, notification.title, email.bodyHtml, email.bodyText);
+                return;
+            }
             await this.emailSubscription.sendAlertEmail(notification.userId, notification.title, notification.title, notification.message);
         } catch (error) {
             this.logger.error(`Failed to deliver notification ${notification.id} via email`, error);
