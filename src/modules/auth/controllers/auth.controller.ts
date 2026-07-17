@@ -7,16 +7,18 @@ import { LoginDto, OauthLoginDto, RegisterDto } from "../types/auth.types";
 import { JwtAuthGuard } from "../guards/jwt-auth.guard";
 import { CookieOptions, Response } from "express";
 import { CurrentUser, CurrentUserPayload } from "../../../common/decorators/current-user.decorator";
+import { ConfigService } from "@nestjs/config";
 
 @Controller("auth")
 export class AuthController {
     constructor(
         private readonly authService: AuthService,
-        private readonly jwtService: JwtService
+        private readonly jwtService: JwtService,
+        private readonly configService: ConfigService
     ) {}
 
     private getAuthCookieOptions(): CookieOptions {
-        const isProduction = process.env.NODE_ENV === "production";
+        const isProduction = this.configService.get<string>("environment") === "production";
         return {
             httpOnly: true,
             secure: isProduction,
