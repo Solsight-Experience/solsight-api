@@ -1,5 +1,5 @@
 import { Injectable, Logger } from "@nestjs/common";
-import { Cron } from "@nestjs/schedule";
+import { Cron, CronExpression } from "@nestjs/schedule";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
 import { Token } from "../../entities/token.entity";
@@ -24,7 +24,7 @@ export class StatsPersistorService {
      * Persist real-time Redis aggregates (volume, txns) back into the tokens table.
      * Runs every 2 minutes for all clusters, enabling devnet trending to sort by live data.
      */
-    @Cron("*/2 * * * *")
+    @Cron(CronExpression.EVERY_MINUTE)
     async persistStats(): Promise<void> {
         for (const cluster of CLUSTERS) {
             await this.persistForCluster(cluster);

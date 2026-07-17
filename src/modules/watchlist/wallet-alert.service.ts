@@ -21,10 +21,6 @@ export class WalletAlertService {
         });
     }
 
-    async getAllActiveAlerts(): Promise<WalletAlert[]> {
-        return this.alertRepo.find({ where: { isActive: true }, relations: ["watchedWallet"] });
-    }
-
     async getAllActiveAlertsForWallet(walletAddress: string): Promise<WalletAlert[]> {
         return this.alertRepo.find({ where: { isActive: true, walletAddress }, relations: ["watchedWallet"] });
     }
