@@ -2,7 +2,7 @@ import { WebSocketGateway, WebSocketServer, OnGatewayInit } from "@nestjs/websoc
 import { Server, Socket } from "socket.io";
 import { JsonValue } from "../common/types";
 
-@WebSocketGateway({ cors: { origin: "*" } })
+@WebSocketGateway()
 export class WebsocketGateway implements OnGatewayInit {
     @WebSocketServer()
     server: Server;
