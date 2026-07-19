@@ -3,6 +3,7 @@ import { JwtService } from "@nestjs/jwt";
 import { WebSocketGateway, WebSocketServer, OnGatewayInit } from "@nestjs/websockets";
 import { Server, Socket } from "socket.io";
 import { JsonValue } from "../common/types";
+import { AppSocket } from "./websocket.types";
 
 @Injectable()
 @WebSocketGateway()
@@ -19,7 +20,7 @@ export class WebsocketGateway implements OnGatewayInit {
         server.on("connection", (client: Socket) => {
             // handshake is a frozen snapshot for the connection's lifetime, so
             // re-verifying per event just fails once the short-lived token expires.
-            client.data.userId = this.authenticate(client);
+            (client as AppSocket).data.userId = this.authenticate(client);
 
             client.onAny((event: string, ...payloads: JsonValue[]) => {
                 const handler = this.handlers.get(event);

@@ -1,6 +1,7 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { Socket } from "socket.io";
 import { WebsocketGateway } from "../../../websocket/websocket.gateway";
+import { AppSocket } from "../../../websocket/websocket.types";
 import { ChatService } from "../services/chat.service";
 import { SendMessagePayload, ChatErrorPayload, ChatToolProgressPayload } from "../types/chat.types";
 import { requireCluster } from "../../../common/cluster/cluster.types";
@@ -49,7 +50,7 @@ export class ChatGateway {
             this.rateLimitMap.set(clientKey, { count: 1, windowStart: now });
         }
 
-        const userId = client.data.userId as string | undefined;
+        const userId = (client as AppSocket).data.userId;
         if (!userId) {
             this.logger.warn(`Unauthorized chat message attempt from client=${clientKey}`, ChatGateway.name);
             client.emit("chat:error", {
