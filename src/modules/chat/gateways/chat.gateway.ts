@@ -1,4 +1,5 @@
 import { Injectable, Logger } from "@nestjs/common";
+import { JwtService } from "@nestjs/jwt";
 import { Socket } from "socket.io";
 import { WebsocketGateway } from "../../../websocket/websocket.gateway";
 import { AppSocket } from "../../../websocket/websocket.types";
@@ -16,12 +17,43 @@ export class ChatGateway {
 
     constructor(
         private gateway: WebsocketGateway,
-        private chatService: ChatService
+        private chatService: ChatService,
+        private readonly jwtService: JwtService
     ) {
         this.gateway.register<SendMessagePayload>("chat:message", (client, payload) => {
             void this.handleMessage(client, payload);
         });
         this.logger.log("ChatGateway registered handler for chat:message", ChatGateway.name);
+    }
+
+    // Cached on client.data after the first successful auth so a long-lived chat
+    // connection doesn't break once its short-lived socket token expires mid-session.
+    // Scoped entirely to chat — doesn't touch the shared WebsocketGateway, so other
+    // socket features (notifications, token feed) are unaffected.
+    private resolveUserId(client: Socket): string | undefined {
+        const socket = client as AppSocket;
+        if (socket.data.userId) return socket.data.userId;
+
+        const authToken = (client.handshake.auth as Record<string, unknown>)?.token as string | undefined;
+        const cookieHeader = client.handshake.headers.cookie;
+        const cookieToken = cookieHeader
+            ?.split(";")
+            .map((c) => c.trim())
+            .find((c) => c.startsWith("auth_token="))
+            ?.split("=")[1];
+
+        for (const candidate of [authToken, cookieToken]) {
+            if (!candidate) continue;
+            try {
+                const decoded = this.jwtService.verify<{ sub: string }>(candidate);
+                socket.data.userId = decoded.sub;
+                return decoded.sub;
+            } catch {
+                continue;
+            }
+        }
+
+        return undefined;
     }
 
     private async handleMessage(client: Socket, payload: SendMessagePayload) {
@@ -50,7 +82,7 @@ export class ChatGateway {
             this.rateLimitMap.set(clientKey, { count: 1, windowStart: now });
         }
 
-        const userId = (client as AppSocket).data.userId;
+        const userId = this.resolveUserId(client);
         if (!userId) {
             this.logger.warn(`Unauthorized chat message attempt from client=${clientKey}`, ChatGateway.name);
             client.emit("chat:error", {
