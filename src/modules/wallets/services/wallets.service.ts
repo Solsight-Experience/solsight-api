@@ -127,7 +127,8 @@ export class WalletsService {
 
     private async getWalletDetail(cluster: Cluster, wallet: Wallet, solPrice: number): Promise<WalletDto> {
         const positions = await this.getWalletPositions(cluster, wallet.address);
-        const summary = this.calculateWalletSummary(positions);
+        const solValueUsd = Number(wallet.balance || 0) * solPrice;
+        const summary = this.calculateWalletSummary(positions, solValueUsd);
 
         return {
             address: wallet.address,
@@ -137,7 +138,7 @@ export class WalletsService {
             is_connected: !!wallet.isConnected,
             added_at: wallet.createdAt,
             balance_sol: Number(wallet.balance || 0),
-            balance_usd: Number(wallet.balance || 0) * solPrice,
+            balance_usd: solValueUsd,
             positions,
             summary
         };
@@ -187,9 +188,9 @@ export class WalletsService {
         }
     }
 
-    private calculateWalletSummary(positions: Position[]): WalletSummary {
+    private calculateWalletSummary(positions: Position[], solValueUsd: number): WalletSummary {
         const total_tokens = positions.length;
-        const total_value_usd = positions.reduce((acc, p) => acc + p.value_usd, 0);
+        const total_value_usd = solValueUsd + positions.reduce((acc, p) => acc + p.value_usd, 0);
         const total_pnl_24h = positions.reduce((acc, p) => acc + (p.value_usd * p.price_change_24h) / 100, 0);
         const total_pnl_24h_percent = total_value_usd > 0 ? (total_pnl_24h / total_value_usd) * 100 : 0;
 
