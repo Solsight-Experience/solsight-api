@@ -792,7 +792,7 @@ export class PortfolioService {
             if (isImplicitSwap) {
                 type = "SWAP";
                 app = {
-                    name: tx.source && tx.source !== "SYSTEM_PROGRAM" && tx.source !== "UNKNOWN" ? this.formatSourceName(tx.source) : "Jupiter",
+                    name: tx.source && tx.source !== "SYSTEM_PROGRAM" && tx.source !== "UNKNOWN" ? this.formatSourceName(tx.source) : "Solsight",
                     type: "DEX",
                     icon: ""
                 };
