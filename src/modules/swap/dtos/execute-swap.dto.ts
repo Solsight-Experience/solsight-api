@@ -1,5 +1,6 @@
-import { IsBase64, IsNumber, IsOptional, IsString } from "class-validator";
+import { IsBase64, IsIn, IsNumber, IsOptional, IsString } from "class-validator";
 import { IsSolanaAddress } from "../../../common/validators/is-solana-address.validator";
+import { ANTI_MEV_RPC_VALUES, type AntiMevRpc } from "../types/anti-mev.types";
 
 export class ExecuteSwapDto {
     @IsBase64()
@@ -9,6 +10,10 @@ export class ExecuteSwapDto {
     @IsOptional()
     @IsSolanaAddress()
     gaslessFeeToken?: string;
+
+    @IsOptional()
+    @IsIn(ANTI_MEV_RPC_VALUES)
+    antiMevRpc?: AntiMevRpc;
 
     @IsOptional()
     @IsString()

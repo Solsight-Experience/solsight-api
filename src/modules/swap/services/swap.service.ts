@@ -2,7 +2,7 @@ import { BadRequestException, HttpException, HttpStatus, Injectable, InternalSer
 import { CircuitBreaker } from "../../../infra/executor/circuit-breaker/circuit-breaker";
 import { GaslessNotSupportedException } from "../../../infra/executor/exceptions/gasless-not-supported.exception";
 import { ExecutorCapability, type ExecutorCapabilities } from "../../../infra/executor/interfaces/executor-capabilities.interface";
-import type { QuoteResponse, SwapResponse } from "../../../infra/executor/interfaces/executor-service.interface";
+import type { QuoteResponse, SwapRequest, SwapResponse } from "../../../infra/executor/interfaces/executor-service.interface";
 import { JitoService } from "../../../infra/jito/jito.service";
 import { KoraService } from "../../../infra/kora/kora.service";
 import { SolanaService } from "../../../infra/solana/solana.service";
@@ -62,11 +62,16 @@ export class SwapService {
                 this.logger.log(`Gasless swap requested: feeToken=${this.shortAddr(dto.gaslessFeeToken)}`);
             }
 
+            // Anti-MEV: have the executor embed a Jito tip so the built transaction is
+            // bundle-ready. The tip must be inside the tx or the Jito bundle won't land.
+            const antiMevParams = await this.buildAntiMevBuildParams(cluster, dto);
+
             return await executor.getSwapTransaction(cluster, {
                 quoteResponse: dto.quoteResponse,
                 userPublicKey: dto.userPublicKey,
                 wrapAndUnwrapSol: dto.wrapAndUnwrapSol ?? true,
-                ...(dto.gaslessFeeToken ? { feeToken: dto.gaslessFeeToken } : {})
+                ...(dto.gaslessFeeToken ? { feeToken: dto.gaslessFeeToken } : {}),
+                ...antiMevParams
             });
         } catch (error) {
             throw this.toHttpException(error);
@@ -90,6 +95,18 @@ export class SwapService {
                 }
                 const message = error instanceof Error ? error.message : String(error);
                 throw new InternalServerErrorException(`Kora paymaster signing failed: ${message}`);
+            }
+        } else if (dto.antiMevRpc === "sec") {
+            try {
+                const jitoSent = await this.jitoService.sendBundle(cluster, dto.signedTransaction);
+                await this.solanaService.confirmSignature(cluster, jitoSent.signature);
+                result = { signature: jitoSent.signature };
+            } catch (error) {
+                if (error instanceof HttpException) {
+                    throw error;
+                }
+                const message = error instanceof Error ? error.message : String(error);
+                throw new InternalServerErrorException(`Jito bundle submission failed: ${message}`);
             }
         } else {
             result = await this.submitSignedTransaction(cluster, dto.signedTransaction);
@@ -130,6 +147,25 @@ export class SwapService {
             const message = error instanceof Error ? error.message : "Swap execution failed.";
             throw new HttpException(message, HttpStatus.BAD_GATEWAY);
         }
+    }
+
+    /**
+     * When anti-MEV protection is requested, produces the executor build params that
+     * embed a Jito tip into the transaction so the bundle can land. Returns empty params
+     * when protection is off or unset.
+     *
+     * Note: DEX-level Jito compatibility (`forJitoBundle`) is decided at quote time on the
+     * client; here we only add the tip, which is what makes the built tx bundle-ready.
+     */
+    private async buildAntiMevBuildParams(cluster: Cluster, dto: GetSwapTransactionDto): Promise<Partial<SwapRequest>> {
+        if (dto.antiMevRpc !== "sec") {
+            return {};
+        }
+
+        const jitoTipLamports = await this.fetchAutoTip(cluster);
+        this.logger.log(`Anti-MEV swap requested: embedding Jito tip=${jitoTipLamports} lamports`);
+
+        return { prioritizationFeeLamports: { jitoTipLamports } };
     }
 
     private shortAddr(address: string): string {

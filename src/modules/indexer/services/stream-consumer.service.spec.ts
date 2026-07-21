@@ -47,7 +47,8 @@ describe("StreamConsumerService", () => {
         },
         price_native: 0.25,
         price_usd: null,
-        fee_amount_ui: 0.001
+        fee_amount_ui: 0.001,
+        is_mev_protected: false
     };
 
     beforeEach(() => {

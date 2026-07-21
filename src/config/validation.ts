@@ -73,6 +73,9 @@ export const validationSchema = Joi.object({
     // Jito tip-floor feed — public, unauthenticated; default in configuration.ts
     JITO_TIP_FLOOR_URL: Joi.string().uri().optional(),
 
+    // Jito block engine — sendBundle target for anti-MEV swaps; default in configuration.ts
+    JITO_BLOCK_ENGINE_URL: Joi.string().uri().optional(),
+
     // Executor
     SOLSIGHT_EXECUTOR_API_URL: Joi.string().uri().optional(),
     SOLSIGHT_EXECUTOR_API_KEY: Joi.string().optional(),

@@ -1,5 +1,4 @@
 import { BadRequestException } from "@nestjs/common";
-import type { Repository } from "typeorm";
 import { CircuitBreaker } from "../../../infra/executor/circuit-breaker/circuit-breaker";
 import { GaslessNotSupportedException } from "../../../infra/executor/exceptions/gasless-not-supported.exception";
 import { ExecutorCapability, type ExecutorCapabilities } from "../../../infra/executor/interfaces/executor-capabilities.interface";
@@ -8,9 +7,7 @@ import type { JitoService } from "../../../infra/jito/jito.service";
 import type { KoraService } from "../../../infra/kora/kora.service";
 import type { SolanaService } from "../../../infra/solana/solana.service";
 import type { RedisService } from "../../../redis/services/redis.service";
-import type { SwapExecution } from "../../admin-analytics/entities/swap-execution.entity";
 import type { TokenPriceService } from "../../tokens/services/token-price.service";
-import type { TokensService } from "../../tokens/services/tokens.service";
 import { SwapService } from "./swap.service";
 
 const mainnetCapabilities: ExecutorCapabilities = {
@@ -48,24 +45,16 @@ function createService(executor: jest.Mocked<ExecutorService>) {
         signAndSendTransaction: jest.fn().mockResolvedValue({ signature: "kora-signature" })
     } as unknown as jest.Mocked<KoraService>;
     const jitoService = {
-        getLandedTip75thPercentileLamports: jest.fn().mockResolvedValue(60_000)
+        getLandedTip75thPercentileLamports: jest.fn().mockResolvedValue(60_000),
+        sendBundle: jest.fn().mockResolvedValue({ signature: "jito-signature" })
     } as unknown as jest.Mocked<JitoService>;
     const redisService = {
         get: jest.fn().mockResolvedValue(null),
         set: jest.fn().mockResolvedValue(undefined)
     } as unknown as jest.Mocked<RedisService>;
-    const service = new SwapService(
-        circuitBreaker,
-        solanaService,
-        koraService,
-        jitoService,
-        redisService,
-        {} as TokenPriceService,
-        {} as TokensService,
-        { save: jest.fn().mockResolvedValue(undefined) } as unknown as Repository<SwapExecution>
-    );
+    const service = new SwapService(circuitBreaker, solanaService, koraService, jitoService, redisService, {} as TokenPriceService);
 
-    return { service, circuitBreaker, solanaService, koraService, redisService };
+    return { service, circuitBreaker, solanaService, koraService, jitoService, redisService };
 }
 
 describe("SwapService", () => {
@@ -195,5 +184,72 @@ describe("SwapService", () => {
         expect(koraService.signAndSendTransaction.mock.calls).toContainEqual([{ transaction: "base64tx" }]);
         expect(solanaService.confirmSignature.mock.calls).toContainEqual(["devnet", "kora-signature"]);
         expect(executor.getSwapTransaction.mock.calls).toHaveLength(0);
+    });
+
+    it("embeds a Jito tip when building an anti-MEV transaction", async () => {
+        const executor = createExecutor(mainnetCapabilities);
+        const { service } = createService(executor);
+
+        await service.getSwapTransaction("mainnet", {
+            quoteResponse: {} as never,
+            userPublicKey: "UserPublicKey",
+            antiMevRpc: "sec"
+        });
+
+        expect(executor.getSwapTransaction.mock.calls).toContainEqual([
+            "mainnet",
+            {
+                quoteResponse: {},
+                userPublicKey: "UserPublicKey",
+                wrapAndUnwrapSol: true,
+                prioritizationFeeLamports: { jitoTipLamports: 60_000 }
+            }
+        ]);
+    });
+
+    it("does not embed a Jito tip when anti-MEV is off", async () => {
+        const executor = createExecutor(mainnetCapabilities);
+        const { service } = createService(executor);
+
+        await service.getSwapTransaction("mainnet", {
+            quoteResponse: {} as never,
+            userPublicKey: "UserPublicKey",
+            antiMevRpc: "off"
+        });
+
+        expect(executor.getSwapTransaction.mock.calls).toContainEqual([
+            "mainnet",
+            {
+                quoteResponse: {},
+                userPublicKey: "UserPublicKey",
+                wrapAndUnwrapSol: true
+            }
+        ]);
+    });
+
+    it("routes anti-MEV execution through the Jito block engine", async () => {
+        const executor = createExecutor(mainnetCapabilities);
+        const { service, jitoService, solanaService } = createService(executor);
+
+        await expect(service.executeSwap("mainnet", { signedTransaction: "base64tx", antiMevRpc: "sec" })).resolves.toEqual({
+            signature: "jito-signature"
+        });
+
+        expect(jitoService.sendBundle.mock.calls).toContainEqual(["mainnet", "base64tx"]);
+        expect(solanaService.confirmSignature.mock.calls).toContainEqual(["mainnet", "jito-signature"]);
+        expect(solanaService.submitAndConfirm.mock.calls).toHaveLength(0);
+    });
+
+    it("submits through the default RPC path when no protection is requested", async () => {
+        const executor = createExecutor(mainnetCapabilities);
+        const { service, jitoService, koraService, solanaService } = createService(executor);
+
+        await expect(service.executeSwap("mainnet", { signedTransaction: "base64tx" })).resolves.toEqual({
+            signature: "signature"
+        });
+
+        expect(solanaService.submitAndConfirm.mock.calls).toContainEqual(["mainnet", "base64tx"]);
+        expect(jitoService.sendBundle.mock.calls).toHaveLength(0);
+        expect(koraService.signAndSendTransaction.mock.calls).toHaveLength(0);
     });
 });
