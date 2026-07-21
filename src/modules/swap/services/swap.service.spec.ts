@@ -46,7 +46,8 @@ function createService(executor: jest.Mocked<ExecutorService>) {
     } as unknown as jest.Mocked<KoraService>;
     const jitoService = {
         getLandedTip75thPercentileLamports: jest.fn().mockResolvedValue(60_000),
-        sendBundle: jest.fn().mockResolvedValue({ signature: "jito-signature" })
+        getAntiMevTipLamports: jest.fn().mockResolvedValue(80_000),
+        sendBundle: jest.fn().mockResolvedValue({ signature: "jito-signature", bundleId: "bundle-1", landed: true, status: "Landed" })
     } as unknown as jest.Mocked<JitoService>;
     const redisService = {
         get: jest.fn().mockResolvedValue(null),
@@ -202,7 +203,7 @@ describe("SwapService", () => {
                 quoteResponse: {},
                 userPublicKey: "UserPublicKey",
                 wrapAndUnwrapSol: true,
-                prioritizationFeeLamports: { jitoTipLamports: 60_000 }
+                prioritizationFeeLamports: { jitoTipLamports: 80_000 }
             }
         ]);
     });
@@ -227,7 +228,7 @@ describe("SwapService", () => {
         ]);
     });
 
-    it("routes anti-MEV execution through the Jito block engine", async () => {
+    it("routes anti-MEV execution through the Jito block engine when the bundle lands", async () => {
         const executor = createExecutor(mainnetCapabilities);
         const { service, jitoService, solanaService } = createService(executor);
 
@@ -236,8 +237,17 @@ describe("SwapService", () => {
         });
 
         expect(jitoService.sendBundle.mock.calls).toContainEqual(["mainnet", "base64tx"]);
-        expect(solanaService.confirmSignature.mock.calls).toContainEqual(["mainnet", "jito-signature"]);
         expect(solanaService.submitAndConfirm.mock.calls).toHaveLength(0);
+    });
+
+    it("returns an actionable error when the anti-MEV bundle does not land", async () => {
+        const executor = createExecutor(mainnetCapabilities);
+        const { service, jitoService } = createService(executor);
+        jitoService.sendBundle.mockResolvedValueOnce({ signature: "jito-signature", bundleId: "bundle-1", landed: false, status: "Pending" });
+
+        await expect(service.executeSwap("mainnet", { signedTransaction: "base64tx", antiMevRpc: "sec" })).rejects.toMatchObject({
+            status: 502
+        });
     });
 
     it("submits through the default RPC path when no protection is requested", async () => {

@@ -30,3 +30,29 @@ export interface JitoJsonRpcResponse<T> {
 }
 
 export type JitoSendBundleResult = string;
+
+/**
+ * Result of submitting and tracking a single-transaction bundle.
+ * `landed` is authoritative (Jito verifies on-chain inclusion); `status` is the
+ * last observed in-flight status for diagnostics/error messaging.
+ */
+export interface JitoBundleResult {
+    signature: string;
+    bundleId: string;
+    landed: boolean;
+    status: JitoInflightStatus;
+}
+
+export type JitoInflightStatus = "Invalid" | "Pending" | "Failed" | "Landed";
+
+/**
+ * `getInflightBundleStatuses` response payload (JSON-RPC `result`).
+ * `value` holds one entry per queried bundle id.
+ */
+export interface JitoInflightBundleStatuses {
+    value: Array<{
+        bundle_id: string;
+        status: JitoInflightStatus;
+        landed_slot: number | null;
+    }>;
+}
