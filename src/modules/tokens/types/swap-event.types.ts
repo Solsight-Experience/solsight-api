@@ -53,6 +53,7 @@ export interface SwapEvent {
     price_native: number;
     price_usd: number | null;
     fee_amount_ui: number | null;
+    is_mev_protected: boolean;
 }
 
 export interface TradeData {
@@ -66,6 +67,7 @@ export interface TradeData {
     market_cap: number;
     trader_address: string;
     tx_url: string;
+    is_mev_protected: boolean;
 }
 
 export interface TokenStats {
@@ -147,7 +149,8 @@ export function transformSwapToTrade(swap: SwapEvent, marketCap = 0): TradeData 
         price_usd: swap.price_usd,
         market_cap: marketCap,
         trader_address: swap.maker,
-        tx_url: `https://solscan.io/tx/${swap.signature}`
+        tx_url: `https://solscan.io/tx/${swap.signature}`,
+        is_mev_protected: swap.is_mev_protected ?? false
     };
 }
 
@@ -175,7 +178,8 @@ export function transformSwapToTradeForToken(swap: SwapEvent, forTokenMint: stri
         price_usd: priceUsd,
         market_cap: marketCap,
         trader_address: swap.maker,
-        tx_url: `https://solscan.io/tx/${swap.signature}`
+        tx_url: `https://solscan.io/tx/${swap.signature}`,
+        is_mev_protected: swap.is_mev_protected ?? false
     };
 }
 

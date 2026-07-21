@@ -620,7 +620,8 @@ export class TokensService {
                 price_usd: priceUsd,
                 market_cap: priceUsd * totalSupply,
                 trader_address: tx.signerAddress ?? "",
-                tx_url: `https://solscan.io/tx/${tx.signature}`
+                tx_url: `https://solscan.io/tx/${tx.signature}`,
+                is_mev_protected: Boolean((tx.metadata as Record<string, unknown> | undefined)?.is_mev_protected ?? false)
             };
         });
 
