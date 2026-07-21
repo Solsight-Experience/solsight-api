@@ -3,8 +3,15 @@ import { ConfigService } from "@nestjs/config";
 import axios, { AxiosInstance } from "axios";
 import bs58 from "bs58";
 import { VersionedTransaction } from "@solana/web3.js";
-import { JitoJsonRpcResponse, JitoSendBundleResult, JitoTipFloorSample } from "./jito.types";
+import { JitoBundleResult, JitoInflightBundleStatuses, JitoInflightStatus, JitoJsonRpcResponse, JitoSendBundleResult, JitoTipFloorSample } from "./jito.types";
 import type { Cluster } from "../../common/cluster/cluster.types";
+
+/** Hard minimum tip for anti-MEV bundles; the 95th percentile can dip near zero when idle. */
+const ANTI_MEV_MIN_TIP_LAMPORTS = 10_000;
+
+/** How long to poll for a bundle to land before treating it as dropped. */
+const BUNDLE_STATUS_POLL_TIMEOUT_MS = 30_000;
+const BUNDLE_STATUS_POLL_INTERVAL_MS = 2_000;
 
 /**
  * Thin client over the public Jito APIs.
@@ -48,11 +55,27 @@ export class JitoService {
     /**
      * Returns the latest 75th-percentile landed-tip estimate in lamports.
      *
-     * The Jito feed reports values in SOL (e.g. `0.000007`); this method
-     * converts to integer lamports. Throws on network or shape errors;
-     * callers are expected to wrap the call with their own fallback.
+     * Used to seed the auto-tip *display* suggestion in `GET /swap/info`. The Jito
+     * feed reports values in SOL (e.g. `0.000007`); this converts to integer lamports.
+     * Throws on network or shape errors; callers wrap with their own fallback.
      */
     async getLandedTip75thPercentileLamports(cluster: Cluster): Promise<number> {
+        return this.fetchLandedTipLamports(cluster, "landed_tips_75th_percentile");
+    }
+
+    /**
+     * Tip to embed in an anti-MEV bundle so it wins Jito's inclusion auction.
+     *
+     * Unlike the 75th-percentile *display* estimate, a bundle must actually out-bid
+     * competitors to land, so we use the 95th percentile and clamp to a hard minimum
+     * floor (the 95th can still dip to near-zero in quiet periods).
+     */
+    async getAntiMevTipLamports(cluster: Cluster): Promise<number> {
+        const tip = await this.fetchLandedTipLamports(cluster, "landed_tips_95th_percentile");
+        return Math.max(tip, ANTI_MEV_MIN_TIP_LAMPORTS);
+    }
+
+    private async fetchLandedTipLamports(cluster: Cluster, percentileKey: keyof JitoTipFloorSample): Promise<number> {
         if (cluster !== "mainnet") {
             throw new ServiceUnavailableException("Jito tip data is unavailable on devnet.");
         }
@@ -64,26 +87,26 @@ export class JitoService {
         }
 
         const latest = data[data.length - 1];
-        const tipSol = latest?.landed_tips_75th_percentile;
+        const tipSol = latest?.[percentileKey];
 
         if (typeof tipSol !== "number" || !Number.isFinite(tipSol) || tipSol < 0) {
-            throw new Error("Jito tip-floor response missing landed_tips_75th_percentile");
+            throw new Error(`Jito tip-floor response missing ${percentileKey}`);
         }
 
         return Math.round(tipSol * 1_000_000_000);
     }
 
     /**
-     * Submits a single signed transaction as a Jito bundle via the block engine's
-     * `sendBundle` JSON-RPC method, protecting it from front-running.
+     * Submits a single signed transaction as a Jito bundle, then polls the block
+     * engine until the bundle lands, fails, or the poll window elapses.
      *
      * The transaction must already contain a tip to a Jito tip account (embedded by
-     * the executor at build time), otherwise the bundle will not land.
-     *
-     * Returns the transaction signature (derived locally from the signed tx) so the
-     * caller can confirm it on-chain. Mainnet-only; throws on devnet.
+     * the executor at build time) large enough to win the auction, or the bundle will
+     * sit `Pending` and never land. Returns the on-chain signature plus the observed
+     * land status so callers can surface an actionable error instead of a raw timeout.
+     * Mainnet-only; throws on devnet.
      */
-    async sendBundle(cluster: Cluster, signedTransactionBase64: string): Promise<{ signature: string }> {
+    async sendBundle(cluster: Cluster, signedTransactionBase64: string): Promise<JitoBundleResult> {
         if (cluster !== "mainnet") {
             throw new ServiceUnavailableException("Jito bundle submission is unavailable on devnet.");
         }
@@ -101,12 +124,58 @@ export class JitoService {
             throw new Error(`Jito sendBundle failed: ${data.error.message ?? JSON.stringify(data.error)}`);
         }
 
-        if (!data.result) {
+        const bundleId = data.result;
+        if (!bundleId) {
             throw new Error("Jito sendBundle response missing bundle id");
         }
 
-        this.logger.log(`Jito bundle submitted: bundleId=${data.result} signature=${signature}`);
-        return { signature };
+        this.logger.log(`Jito bundle submitted: bundleId=${bundleId} signature=${signature}`);
+
+        const status = await this.pollBundleStatus(bundleId);
+        const landed = status === "Landed";
+
+        this.logger.log(`Jito bundle ${landed ? "landed" : "did not land"}: bundleId=${bundleId} status=${status}`);
+        return { signature, bundleId, landed, status };
+    }
+
+    /**
+     * Polls `getInflightBundleStatuses` until the bundle reaches a terminal state
+     * (`Landed`/`Failed`/`Invalid`) or the poll window elapses (returns the last
+     * observed status, typically `Pending`).
+     */
+    private async pollBundleStatus(bundleId: string): Promise<JitoInflightStatus> {
+        const deadline = Date.now() + BUNDLE_STATUS_POLL_TIMEOUT_MS;
+        let lastStatus: JitoInflightStatus = "Pending";
+
+        while (Date.now() < deadline) {
+            try {
+                const { data } = await this.blockEngineClient.post<JitoJsonRpcResponse<JitoInflightBundleStatuses>>("/api/v1/getInflightBundleStatuses", {
+                    jsonrpc: "2.0",
+                    id: 1,
+                    method: "getInflightBundleStatuses",
+                    params: [[bundleId]]
+                });
+
+                const entry = data.result?.value?.find((v) => v.bundle_id === bundleId);
+                if (entry) {
+                    lastStatus = entry.status;
+                    if (entry.status === "Landed" || entry.status === "Failed" || entry.status === "Invalid") {
+                        return entry.status;
+                    }
+                }
+            } catch (error) {
+                // Transient status-endpoint errors shouldn't abort the whole submit; keep polling.
+                this.logger.warn(`Jito bundle status poll error for ${bundleId}: ${error instanceof Error ? error.message : String(error)}`);
+            }
+
+            await this.delay(BUNDLE_STATUS_POLL_INTERVAL_MS);
+        }
+
+        return lastStatus;
+    }
+
+    private delay(ms: number): Promise<void> {
+        return new Promise((resolve) => setTimeout(resolve, ms));
     }
 
     /**

@@ -98,9 +98,16 @@ export class SwapService {
             }
         } else if (dto.antiMevRpc === "sec") {
             try {
-                const jitoSent = await this.jitoService.sendBundle(cluster, dto.signedTransaction);
-                await this.solanaService.confirmSignature(cluster, jitoSent.signature);
-                result = { signature: jitoSent.signature };
+                const jitoResult = await this.jitoService.sendBundle(cluster, dto.signedTransaction);
+                if (!jitoResult.landed) {
+                    // Bundle was accepted into the auction but never included on-chain
+                    // (usually a losing tip). Surface an actionable error, not a raw timeout.
+                    throw new HttpException(
+                        `Anti-MEV bundle did not land (status: ${jitoResult.status}). Please try again, optionally without anti-MEV protection.`,
+                        HttpStatus.BAD_GATEWAY
+                    );
+                }
+                result = { signature: jitoResult.signature };
             } catch (error) {
                 if (error instanceof HttpException) {
                     throw error;
@@ -162,7 +169,9 @@ export class SwapService {
             return {};
         }
 
-        const jitoTipLamports = await this.fetchAutoTip(cluster);
+        // Anti-MEV bundles must win Jito's auction, so use the 95th-percentile tip (with a
+        // hard floor) — not the 75th-percentile display estimate used for the fee preview.
+        const jitoTipLamports = await this.jitoService.getAntiMevTipLamports(cluster);
         this.logger.log(`Anti-MEV swap requested: embedding Jito tip=${jitoTipLamports} lamports`);
 
         return { prioritizationFeeLamports: { jitoTipLamports } };
