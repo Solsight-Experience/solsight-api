@@ -38,7 +38,8 @@ const configuration = () => ({
     },
 
     jito: {
-        tipFloorUrl: process.env.JITO_TIP_FLOOR_URL ?? "https://bundles.jito.wtf/api/v1/bundles/tip_floor"
+        tipFloorUrl: process.env.JITO_TIP_FLOOR_URL ?? "https://bundles.jito.wtf/api/v1/bundles/tip_floor",
+        blockEngineUrl: process.env.JITO_BLOCK_ENGINE_URL ?? "https://mainnet.block-engine.jito.wtf"
     },
 
     solsightExecutor: {

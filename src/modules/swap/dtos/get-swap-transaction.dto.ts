@@ -1,8 +1,9 @@
-import { IsBoolean, IsEnum, IsNotEmpty, IsNumber, IsOptional, IsString, ValidateNested } from "class-validator";
+import { IsBoolean, IsEnum, IsIn, IsNotEmpty, IsNumber, IsOptional, IsString, ValidateNested } from "class-validator";
 import { Type } from "class-transformer";
 import type { QuoteResponse } from "../../../infra/executor/interfaces/executor-service.interface";
 import type { JupiterRoutePlanStep, JupiterSwapMode } from "../../../infra/jupiter/types";
 import { IsSolanaAddress } from "../../../common/validators/is-solana-address.validator";
+import { ANTI_MEV_RPC_VALUES, type AntiMevRpc } from "../types/anti-mev.types";
 
 class QuoteResponseDto implements QuoteResponse {
     @IsString()
@@ -62,4 +63,8 @@ export class GetSwapTransactionDto {
     @IsOptional()
     @IsSolanaAddress()
     gaslessFeeToken?: string;
+
+    @IsOptional()
+    @IsIn(ANTI_MEV_RPC_VALUES)
+    antiMevRpc?: AntiMevRpc;
 }
