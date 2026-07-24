@@ -1,4 +1,4 @@
-import { HttpException, Injectable, Logger } from "@nestjs/common";
+import { BadRequestException, HttpException, Injectable, Logger } from "@nestjs/common";
 import type { ChatCompletionMessageParam, ChatCompletionTool } from "openai/resources/chat/completions";
 import { OpenAIService } from "../../../infra/openai/openai.service";
 import { SortByTrending, TimeFrame } from "../../discovery/dtos/get-trending.dto";
@@ -80,6 +80,10 @@ function toolLabel(toolName: string, args: Record<string, unknown>): string {
             const route = typeof args.route === "string" ? args.route : "…";
             return `Navigating to ${route}`;
         }
+        case "configure_daily_report":
+            return "Updating your daily report schedule…";
+        case "check_connection_status":
+            return "Checking your Telegram/Email connection status…";
         default:
             return `Executing ${toolName}…`;
     }
@@ -239,6 +243,62 @@ export const TOOL_DEFINITIONS: ChatCompletionTool[] = [
     {
         type: "function",
         function: {
+            name: "check_connection_status",
+            description:
+                "Check whether the user has connected Telegram and/or Email for notifications. Use this when the user asks if they're connected, or before enabling the daily report to know which channels are available without guessing.",
+            parameters: {
+                type: "object",
+                properties: {
+                    userId: {
+                        type: "string",
+                        description: "Application user id"
+                    }
+                },
+                required: ["userId"],
+                additionalProperties: false
+            }
+        }
+    },
+    {
+        type: "function",
+        function: {
+            name: "configure_daily_report",
+            description:
+                "Enable, disable, or update the user's recurring daily portfolio report, delivered automatically every morning via Telegram and/or email. Use this when the user asks to receive, change the time/channels of, or stop a daily report.",
+            parameters: {
+                type: "object",
+                properties: {
+                    userId: {
+                        type: "string",
+                        description: "Application user id"
+                    },
+                    enabled: {
+                        type: "boolean",
+                        description: "Whether the daily report should be turned on or off"
+                    },
+                    channels: {
+                        type: "array",
+                        items: { type: "string", enum: ["telegram", "email"] },
+                        description:
+                            "Delivery channels — one or both of telegram/email. Defaults to telegram. Each channel must already be connected/verified by the user."
+                    },
+                    hour: {
+                        type: "number",
+                        description: "Hour in UTC (0-23) the user wants to receive the report. Required when enabled is true."
+                    },
+                    minute: {
+                        type: "number",
+                        description: "Minute in UTC (0-59) the user wants to receive the report. Defaults to 0."
+                    }
+                },
+                required: ["userId", "enabled"],
+                additionalProperties: false
+            }
+        }
+    },
+    {
+        type: "function",
+        function: {
             name: "prepare_swap",
             description: "Prepare swap intent object from user input without execution",
             parameters: {
@@ -370,6 +430,8 @@ import { Wallet } from "../../wallets/entities/wallet.entity";
 import { COMMON_SYMBOLS } from "src/modules/tokens/constants/token.constant";
 import { QuotaService } from "../../billing/services/quota.service";
 import { QuotaExceededException } from "../../billing/exceptions/quota-exceeded.exception";
+import { DailyReportSettingsService } from "../../portfolio-report/services/daily-report-settings.service";
+import { DailyReportChannel } from "../../portfolio-report/entities/daily-report-setting.entity";
 
 @Injectable()
 export class ChatService {
@@ -384,6 +446,7 @@ export class ChatService {
         private readonly ragService: RagService,
         private readonly circuitBreaker: CircuitBreaker,
         private readonly quotaService: QuotaService,
+        private readonly dailyReportSettingsService: DailyReportSettingsService,
         @InjectRepository(ChatSessionEntity)
         private readonly sessionRepo: Repository<ChatSessionEntity>,
         @InjectRepository(ChatMessageEntity)
@@ -1271,6 +1334,56 @@ export class ChatService {
                         type: "navigation",
                         route
                     });
+                }
+
+                case "check_connection_status": {
+                    const resolvedUserId = userId || this.getStringArg(args, "userId");
+                    if (!resolvedUserId) {
+                        this.logger.warn("check_connection_status called without userId", ChatService.name);
+                        return JSON.stringify({ error: "User ID required — please log in" });
+                    }
+
+                    const [telegramConnected, emailConnected] = await Promise.all([
+                        this.dailyReportSettingsService.isChannelConnected(resolvedUserId, DailyReportChannel.TELEGRAM),
+                        this.dailyReportSettingsService.isChannelConnected(resolvedUserId, DailyReportChannel.EMAIL)
+                    ]);
+
+                    return JSON.stringify({ telegramConnected, emailConnected });
+                }
+
+                case "configure_daily_report": {
+                    const resolvedUserId = userId || this.getStringArg(args, "userId");
+                    if (!resolvedUserId) {
+                        this.logger.warn("configure_daily_report called without userId", ChatService.name);
+                        return JSON.stringify({ error: "User ID required — please log in" });
+                    }
+
+                    const enabled = args.enabled === true;
+                    const rawChannels = Array.isArray(args.channels) ? args.channels : [];
+                    const channels = rawChannels
+                        .map((c) => (c === "telegram" ? DailyReportChannel.TELEGRAM : c === "email" ? DailyReportChannel.EMAIL : null))
+                        .filter((c): c is DailyReportChannel => c !== null);
+                    const rawHour = Number(args.hour);
+                    const rawMinute = Number(args.minute);
+
+                    try {
+                        const setting = await this.dailyReportSettingsService.applyLocalSchedule(resolvedUserId, {
+                            enabled,
+                            channels: channels.length > 0 ? channels : undefined,
+                            hour: Number.isFinite(rawHour) ? rawHour : undefined,
+                            minute: Number.isFinite(rawMinute) ? rawMinute : undefined
+                        });
+
+                        return JSON.stringify({
+                            enabled: setting.enabled,
+                            channels: setting.channels,
+                            hourUtc: setting.hourUtc,
+                            minuteUtc: setting.minuteUtc
+                        });
+                    } catch (error) {
+                        const message = error instanceof BadRequestException ? error.message : "Failed to update daily report settings";
+                        return JSON.stringify({ error: message });
+                    }
                 }
 
                 default:

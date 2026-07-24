@@ -5,6 +5,7 @@ import { EmailSubscriptionService } from "../services/email-subscription.service
 import { EmailSubscriptionStatusDto, SubmitEmailDto } from "../dtos/email-subscription.dto";
 import { ConfigService } from "@nestjs/config";
 import { CurrentUser, CurrentUserPayload } from "../../../common/decorators/current-user.decorator";
+import { toSafeRedirectPath } from "../../../common/utils/safe-redirect.util";
 
 @Controller("email")
 export class EmailController {
@@ -37,16 +38,16 @@ export class EmailController {
     @Post("subscription")
     @UseGuards(JwtAuthGuard)
     async submitEmail(@CurrentUser() user: CurrentUserPayload, @Body() body: SubmitEmailDto): Promise<{ success: boolean }> {
-        await this.subscriptionService.initiateVerification(user.id, body.email);
+        await this.subscriptionService.initiateVerification(user.id, body.email, body.redirectPath);
         return { success: true };
     }
 
     @Get("verify")
-    async verifyEmail(@Query("token") token: string, @Res() res: Response): Promise<void> {
+    async verifyEmail(@Query("token") token: string, @Query("redirect") redirect: string, @Res() res: Response): Promise<void> {
         if (!token) throw new BadRequestException("Missing token");
         const userId = await this.subscriptionService.verifyToken(token);
         if (!userId) throw new BadRequestException("Invalid or expired token");
-        res.redirect(`${this.verifyBaseUrl}/wallet-tracker?emailVerified=true`);
+        res.redirect(`${this.verifyBaseUrl}${toSafeRedirectPath(redirect)}`);
     }
 
     @Delete("subscription")
