@@ -5,6 +5,7 @@ import { ConfigService } from "@nestjs/config";
 import { randomBytes } from "crypto";
 import { EmailSubscription } from "../entities/email-subscription.entity";
 import { EmailApiService } from "./email-api.service";
+import { toSafeRedirectPath } from "../../../common/utils/safe-redirect.util";
 
 @Injectable()
 export class EmailSubscriptionService {
@@ -23,7 +24,7 @@ export class EmailSubscriptionService {
         return this.repo.findOneBy({ userId });
     }
 
-    async initiateVerification(userId: string, email: string): Promise<EmailSubscription> {
+    async initiateVerification(userId: string, email: string, redirectPath?: string): Promise<EmailSubscription> {
         const token = this.makeToken();
         const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
 
@@ -40,7 +41,8 @@ export class EmailSubscriptionService {
             sub = await this.repo.save(this.repo.create({ userId, email, verificationToken: token, tokenExpiresAt: expiresAt }));
         }
 
-        const verificationUrl = `${this.verifyBaseUrl}/api/email/verify?token=${token}`;
+        const safeRedirectPath = toSafeRedirectPath(redirectPath);
+        const verificationUrl = `${this.verifyBaseUrl}/api/email/verify?token=${token}&redirect=${encodeURIComponent(safeRedirectPath)}`;
         await this.emailApi.sendVerification({ toEmail: email, verificationUrl });
         return sub;
     }

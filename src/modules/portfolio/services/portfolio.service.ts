@@ -168,7 +168,7 @@ export class PortfolioService {
         return prices.reduce((a, b) => a + b, 0) / prices.length;
     }
 
-    async getOverview(cluster: Cluster, userId: string, walletAddresses?: string[], _timeFrame?: string) {
+    async getOverview(cluster: Cluster, userId: string, walletAddresses?: string[], _timeFrame?: string, topTokensLimit = 5) {
         let wallets = await this.walletsService.findByUserId(userId);
 
         if (walletAddresses && walletAddresses.length > 0) {
@@ -184,6 +184,7 @@ export class PortfolioService {
 
         const total_balance_sol = wallets.reduce((acc, w) => acc + Number(w.balance || 0), 0);
         let total_balance_usd = total_balance_sol * solPrice.priceUsd;
+        const solValueUsd = total_balance_usd;
 
         const aggregatedTokens = new Map<string, AggregatedTokenHolding>();
 
@@ -227,15 +228,37 @@ export class PortfolioService {
 
         positions.sort((a, b) => b.valueUsd - a.valueUsd);
 
-        const top_tokens = positions.slice(0, 5).map((p) => ({
-            name: p.name || "Unknown",
-            symbol: p.symbol || "???",
-            logo: p.logoUri || "",
-            decimals: p.decimals,
-            value_usd: p.valueUsd,
-            price: p.price,
-            change_24h: 0 // Placeholder
-        }));
+        const solTopToken =
+            solValueUsd > 0
+                ? [
+                      {
+                          name: "Solana",
+                          symbol: "SOL",
+                          logo: "",
+                          decimals: 9,
+                          amount: total_balance_sol,
+                          value_usd: solValueUsd,
+                          price: solPrice,
+                          change_24h: 0 // Placeholder
+                      }
+                  ]
+                : [];
+
+        const top_tokens = [
+            ...solTopToken,
+            ...positions.map((p) => ({
+                name: p.name || "Unknown",
+                symbol: p.symbol || "???",
+                logo: p.logoUri || "",
+                decimals: p.decimals,
+                amount: p.amount,
+                value_usd: p.valueUsd,
+                price: p.price,
+                change_24h: 0 // Placeholder
+            }))
+        ]
+            .sort((a, b) => b.value_usd - a.value_usd)
+            .slice(0, topTokensLimit);
 
         const allocation = positions.map((p) => ({
             name: p.name || "Unknown",
@@ -245,7 +268,6 @@ export class PortfolioService {
         }));
 
         // Add SOL to allocation
-        const solValueUsd = total_balance_sol * solPrice.priceUsd;
         if (solValueUsd > 0) {
             allocation.push({
                 name: "Solana",

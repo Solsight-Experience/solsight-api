@@ -30,6 +30,7 @@ import { AdminAnalyticsModule } from "./modules/admin-analytics/admin-analytics.
 import { StakingModule } from "./modules/staking/staking.module";
 import { EventsModule } from "./events/events.module";
 import { BillingModule } from "./modules/billing/billing.module";
+import { PortfolioReportModule } from "./modules/portfolio-report/portfolio-report.module";
 
 @Module({
     imports: [
@@ -72,7 +73,8 @@ import { BillingModule } from "./modules/billing/billing.module";
         AdminAnalyticsModule,
         StakingModule,
         EventsModule,
-        BillingModule
+        BillingModule,
+        PortfolioReportModule
     ],
     controllers: [],
     providers: []
