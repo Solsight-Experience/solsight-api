@@ -4,20 +4,7 @@ import { Repository } from "typeorm";
 import { DailyReportSetting, DailyReportChannel } from "../entities/daily-report-setting.entity";
 import { BotService } from "../../bot/services/bot.service";
 import { EmailSubscriptionService } from "../../email/services/email-subscription.service";
-
-export interface UpdateDailyReportSettingsParams {
-    enabled: boolean;
-    channels?: DailyReportChannel[];
-    hourUtc?: number;
-    minuteUtc?: number;
-}
-
-export interface ApplyLocalScheduleParams {
-    enabled: boolean;
-    channels?: DailyReportChannel[];
-    hour?: number;
-    minute?: number;
-}
+import { UpdateDailyReportSettingsParams, ApplyLocalScheduleParams } from "../types/daily-report.types";
 
 @Injectable()
 export class DailyReportSettingsService {

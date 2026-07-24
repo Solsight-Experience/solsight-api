@@ -7,16 +7,10 @@ import { BotService } from "../../bot/services/bot.service";
 import { EmailSubscriptionService } from "../../email/services/email-subscription.service";
 import { GeminiService } from "../../../infra/gemini/gemini.service";
 import { getErrorMessage, logError } from "../../../common/errors/error-helper";
+import { PortfolioOverview } from "../types/daily-report.types";
 
 const REPORT_CLUSTER = "mainnet";
 const TOP_TOKENS_LIMIT = 10;
-
-interface PortfolioOverview {
-    total_balance_usd: number;
-    pnl: { total: number; roi_percent: number };
-    top_tokens: { name: string; symbol: string; amount: number; value_usd: number; price?: { priceUsd: number } }[];
-    allocation: { name: string; symbol: string; percentage: number }[];
-}
 
 @Injectable()
 export class PortfolioReportService {
